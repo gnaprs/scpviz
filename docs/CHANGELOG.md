@@ -3,6 +3,31 @@
 ## scpviz
 
 
+### Unreleased <small>Unreleased</small> { id="Unreleased" }
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (9b4fecb…)
+
+
+
+
+#### Style
+
+
+##### (Docs)
+
+
+- Change root_heading to true, remove others section (bb68f1d…)
+
+
+
+
+
+
 ### 0.5.2-alpha <small>November 16, 2025</small> { id="0.5.2-alpha" }
 
 

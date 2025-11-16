@@ -1,6 +1,31 @@
 All notable changes to this project are documented here.
 
 <details open>
+<summary><b>Unreleased</b></summary>
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (9b4fecb…)
+
+
+
+#### Style
+
+
+##### (Docs)
+
+
+- Change root_heading to true, remove others section (bb68f1d…)
+
+
+
+
+</details>
+
+<details open>
 <summary><b>0.5.2-alpha</b> – 2025-11-16</summary>
 
 
