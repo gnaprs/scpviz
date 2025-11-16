@@ -135,10 +135,10 @@ nav:
     - Contributing: dev/contributing.md
     - Code of Conduct: dev/CODE_OF_CONDUCT.md
     # - Coverage report: dev/coverage.md
-  - Others:
-      - Admonitions: admonitions.md
-      - Content-Tabs: content-tabs.md
-      - Diagram: diagram.md
+  # - Others:
+  #     - Admonitions: admonitions.md
+  #     - Content-Tabs: content-tabs.md
+  #     - Diagram: diagram.md
 
   - Author's website: https://gnaprs.github.io/
 # nav:
