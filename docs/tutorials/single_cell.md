@@ -7,15 +7,19 @@ Handling single cell data is slightly different from bulk data. More sparse, mis
 we suggest doing a 40% filter followed by minimum value imputation
 
 ### normalization
-typically bulk proteomics is median normalization
+typically bulk proteomics is median normalization, but this only works if missing values are not too much and the distribution of protein abundance looks similar
 
-there's also directlfq algorithm that we can use, is implemented by doing
+there's also directlfq algorithm that we can use (cite paper), and [insert brief explanation here on how it works]. directlfq normalization can implemented by doing
 ```
 pdata.normalize(method='directlfq')
 ```
 
 !!! note
     this algorithm will create files in the workspace, and also might take awhile
+
+### imputation
+
+For imputation, we recommend the PIMMS algorith (cite paper)
 
 ## visualize data
 typically done with umap
