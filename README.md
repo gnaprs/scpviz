@@ -28,9 +28,9 @@ It extends the [AnnData](https://anndata.readthedocs.io/) ecosystem with proteom
 
 This will install all required dependencies, including `scanpy`, `anndata`, `pandas`, and common plotting libraries.
 
-Alternatively, scpviz is available on Conda:
+`scpviz` also includes support for external proteomics packages such as `pimms-learn` and `directlfq`. To install our package with these external dependencies, you can use the `[external]` flag.
 
-    conda install gnaprs::scpviz
+    python3 -m pip install scpviz[external]
 
 For the most up-to-date version of scpviz, clone the repository and
 install the package using pip:

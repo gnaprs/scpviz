@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scpviz"
-version = "0.5.0-alpha"
+version = "0.5.3-alpha"
 authors = [
   {name="Marion Pang", email="sr_pang@hotmail.com"},
 ]
@@ -21,7 +21,7 @@ dependencies = [
   "numpy",
   "pandas", 
   "matplotlib", 
-  "seaborn",
+  "seaborn<=0.13",
   "upsetplot", 
   "scikit-learn", 
   "scipy",
@@ -36,7 +36,7 @@ dependencies = [
   "igraph",
   "harmonypy",
   "leidenalg",
-  "scikit-misc"
+  "scikit-misc",
 ]
 
 [project.urls]
@@ -54,3 +54,4 @@ filterwarnings = [
 
 [project.optional-dependencies]
 dev = ["pytest","coverage","flake8","openpyxl","pytest-cov"]
+external = ["pimms-learn","directlfq"]
