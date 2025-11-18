@@ -395,7 +395,7 @@ class AnalysisMixin:
 
         self._history.append(f"{on}: Ranked {layer} data. Ranking, average and stdev stored in var.") # type: ignore[attr-defined], HistoryMixin
 
-    def impute(self, classes=None, layer="X", method='mean', on='protein', min_scale=1, set_X=True, **kwargs):
+    def impute(self, classes=None, layer="X", method='mean', on='protein', min_scale=1, set_X=True, use_zeros_as_nan=False, **kwargs):
         """
         Impute missing values across samples globally or within groups.
 
@@ -411,10 +411,14 @@ class AnalysisMixin:
                 - "median": Fill missing values with the median of each feature.
                 - "min": Fill with the minimum observed value (0 if all missing).
                 - "knn": Use K-nearest neighbors (only supported for global imputation).
-
+                - "pimms_dae": PIMMS Denoising Autoencoder (global only).
+                - "pimms_vae": PIMMS Variational Autoencoder (global only).
+                - "pimms_cf":  PIMMS Collaborative Filtering (global only).
+                
             on (str): Whether to impute "protein" or "peptide" data.
             min_scale (float): Scaled multiplication of minimum value for imputation, i.e. 0.2 would be 20% of minimum value (default is 1).
             set_X (bool): If True, updates `.X` to use the imputed result.
+            use_zeros_as_nan: If True, treat 0 values as NaN before imputing. Mostly used after `directlfq` normalization, which returns NaNs as 0s. Defaults to False.
             **kwargs: Additional arguments passed to the imputer (e.g., `n_neighbors` for KNN).
 
         Returns:
@@ -433,9 +437,11 @@ class AnalysisMixin:
 
         Note:
             - KNN imputation is only supported for global (non-grouped) mode.
+            - If `directlfq` was used for normalization, set `use_zeros_as_nan` flag to `True`. Else, no imputation will be performed as `directlfq` only returns 0s.
             - Features that are entirely missing within a group or across all samples are skipped and preserved as NaN.
             - Imputed results are stored in a new layer named `"X_impute_<method>"`.
             - Imputation summaries are printed to the console by group or overall.
+            - PIMMS, which stands for **Proteomics Imputation Modeling Mass Spectrometry**, for more information see: the [package](https://github.com/RasmussenLab/pimms) or the [manuscript](https://www.nature.com/articles/s41467-024-48711-5#Fig1).
         """
         from sklearn.impute import SimpleImputer, KNNImputer
         from scipy import sparse
@@ -454,11 +460,20 @@ class AnalysisMixin:
         impute_data = impute_data.toarray() if was_sparse else impute_data.copy()
         original_data = impute_data.copy()
 
+        if use_zeros_as_nan:
+            impute_data = impute_data.astype(float)
+            zero_mask = (impute_data == 0)
+            impute_data[zero_mask] = np.nan
+            original_data[zero_mask] = np.nan
+            nan_message = f"{format_log_prefix('info_only',2)} Using zeros as nans for imputation. Recommended after `directlfq` normalization."
+        else:
+            nan_message = None
+
         layer_name = f"X_impute_{method}"
 
-        if method not in {"mean", "median", "min","knn"}:
+        if method not in {"mean", "median", "min","knn","pimms_dae","pimms_vae","pimms_cf"}:
             raise ValueError(f"Unsupported method: {method}")
-
+        
         if classes is None:
             # Global imputation
             if method == 'min':
@@ -471,7 +486,77 @@ class AnalysisMixin:
                 n_neighbors = kwargs.get('n_neighbors', 3)
                 imputer = KNNImputer(n_neighbors=n_neighbors)
                 impute_data = imputer.fit_transform(impute_data)
-            else:
+            elif method in {"pimms_dae", "pimms_vae", "pimms_cf"}:
+                try:
+                    from pimmslearn.sklearn.ae_transformer import AETransformer
+                    from pimmslearn.sklearn.cf_transformer import CollaborativeFilteringTransformer
+                except ImportError:
+                    raise ImportError(
+                        "The 'pimmslearn' package is required for PIMMS imputation.\n"
+                        "Install with: pip install pimms-learn"
+                    )
+
+                df = pd.DataFrame(
+                    impute_data,
+                    index=adata.obs_names,
+                    columns=adata.var_names
+                )
+
+                df = np.log2(df + 1)
+
+                # --- AE (DAE / VAE) -----------------------------------------
+                if method in {"pimms_dae", "pimms_vae"}:
+                    model_type = "DAE" if method == "pimms_dae" else "VAE"
+                    model = AETransformer(
+                        model=model_type,
+                        hidden_layers=kwargs.get("hidden_layers", [512]),
+                        latent_dim=kwargs.get("latent_dim", 50),
+                        batch_size=kwargs.get("batch_size", 10),
+                    )
+
+                    model.fit(df,
+                            cuda=kwargs.get("cuda", False),
+                            epochs_max=kwargs.get("epochs_max", 100))
+                    df_imputed = model.transform(df)
+
+                else:  # pimms_cf (collaborative filtering)
+                    index_name = "Sample ID"
+                    column_name = "protein group"
+                    value_name = "intensity"
+
+                    df.index.name = index_name       # "Sample ID"
+                    df.columns.name = column_name    # "protein group"
+
+                    series = df.stack(dropna=False)
+                    series.name = value_name
+
+                    model = CollaborativeFilteringTransformer(
+                        target_column=value_name,
+                        sample_column=index_name,
+                        item_column=column_name,
+                        n_factors=kwargs.get("n_factors", 30),
+                        batch_size=kwargs.get("batch_size", 4096),
+                    )
+
+                    model.fit(series,
+                            cuda=kwargs.get("cuda", False),
+                            epochs_max=kwargs.get("epochs_max", 20))
+                    df_imputed = model.transform(series).unstack()
+
+                # Convert result back
+                df_imputed = (2 ** df_imputed) - 1
+                impute_data = df_imputed.to_numpy()
+
+                # Store metadata
+                self.stats.setdefault("imputation", {})  # type: ignore[attr-defined]
+                self.stats["imputation"]["pimms"] = {
+                    "method": method,
+                    "params": kwargs,
+                    "samples": df.shape[0],
+                    "features": df.shape[1],
+                }
+
+            else: # mean or median
                 imputer = SimpleImputer(strategy=method, keep_empty_features=True)
                 nan_columns = np.isnan(impute_data).all(axis=0)  # features fully missing in this group
                 impute_data = imputer.fit_transform(impute_data)
@@ -479,12 +564,16 @@ class AnalysisMixin:
 
             min_message = "" if method != 'min' else f"Minimum scaled by {min_scale}."
             print(f"{format_log_prefix('user')} Global imputation using '{method}'. Layer saved as '{layer_name}'. {min_message}")
+            if nan_message is not None:
+                print(nan_message)
             skipped_features = np.sum(np.isnan(impute_data).all(axis=0))
 
         else:
             # Group-wise imputation
             if method == 'knn':
                 raise ValueError("KNN imputation is not supported for group-wise imputation.")
+            if method.startswith("pimms"):
+                raise ValueError("PIMMS imputation is only supported for global (classes=None) mode.")
 
             sample_names = utils.get_samplenames(adata, classes)
             sample_names = np.array(sample_names)
