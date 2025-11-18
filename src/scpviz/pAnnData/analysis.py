@@ -687,7 +687,7 @@ class AnalysisMixin:
             f"{on}: Imputed layer '{layer}' using '{method}' (grouped by {classes if classes else 'ALL'}). Stored in '{layer_name}'."
         )
 
-    def neighbor(self, on = 'protein', layer = "X", use_rep='X_pca', user_indent=0,**kwargs):
+    def neighbor(self, on = 'protein', layer = "X", use_rep='X_pca', user_indent=0, **kwargs):
         """
         Compute a neighbor graph based on protein or peptide data.
 
@@ -699,7 +699,7 @@ class AnalysisMixin:
             on (str): Whether to use "protein" or "peptide" data.
             layer (str): Data layer to use (default is "X").
             use_rep (str): Key in `.obsm` to use for computing neighbors. Default is `"X_pca"`.
-                If `"X_pca"` is requested but not found, PCA will be run automatically.
+                If `"X_pca"` is requested, PCA will be run automatically. If an alternative rep is provided, PCA will not be re-run.
             **kwargs: Additional keyword arguments passed to `scanpy.pp.neighbors()`.
 
         Returns:
@@ -720,7 +720,7 @@ class AnalysisMixin:
             - The neighbor graph is stored in `.obs["distances"]` and `.obs["connectivities"]`.
             - Neighbor metadata is stored in `.uns["neighbors"]`.
             - Automatically calls `self.set_X()` if a non-default layer is specified.
-            - PCA is computed automatically if `use_rep='X_pca'` and not already present.
+            - PCA is computed automatically if `use_rep='X_pca'`, else neighbor will use the rep provided by the user.
 
         Todo:
             Allow users to supply a custom `KNeighborsTransformer` or precomputed neighbor graph.
@@ -747,9 +747,8 @@ class AnalysisMixin:
         print(f"{log_prefix} Computing neighbors [{on}] using layer: {layer}")
 
         if use_rep == 'X_pca':
-            if 'pca' not in adata.uns:
-                print(f"{format_log_prefix('info_only',indent=2)} PCA not found in AnnData object. Running PCA with default settings.")
-                self.pca(on = on, layer = layer)
+            print(f"{format_log_prefix('info_only',indent=2)} Recomputing PCA for neighbor graph.")
+            self.pca(on=on, layer=layer)
         else:
             if use_rep not in adata.obsm:
                 raise ValueError(f"PCA key '{use_rep}' not found in obsm. Please run PCA first and specify a valid key.")
@@ -823,7 +822,7 @@ class AnalysisMixin:
         print(f"{format_log_prefix('result_only', indent=2)} Leiden clustering complete. Results stored in:")
         print(f"       • obs['leiden'] (cluster labels)")
 
-    def umap(self, on = 'protein', layer = "X", **kwargs):
+    def umap(self, on = 'protein', layer = "X", force_neighbors=False, **kwargs):
         """
         Compute UMAP dimensionality reduction on protein or peptide data.
 
@@ -833,7 +832,8 @@ class AnalysisMixin:
         Args:
             on (str): Whether to use "protein" or "peptide" data.
             layer (str): Data layer to use for UMAP (default is "X").
-            **kwargs: Additional keyword arguments passed to `scanpy.tl.umap()`, `scanpy.tl.neighbor()` or the scpviz `pca` function.
+            force_neighbors (bool): If True, recompute neighbors even if they exist.
+            **kwargs: Additional keyword arguments passed to `scanpy.tl.umap()`, `scanpy.tl.neighbor()` or the scpviz `pca` function. If provided, neighbor() will always be recomputed.
                 Example:
                     "n_neighbors": neighbor argument
                     "min_dist": umap argument
@@ -896,7 +896,10 @@ class AnalysisMixin:
                     self._append_history(f"{on}: Neighbors re-computed with {arg_str} before UMAP")  # type: ignore[attr-defined], HistoryMixin
         else:
             # check if neighbor has been run before, look for distances and connectivities in obsp
-            if 'neighbors' not in adata.uns:
+            if force_neighbors:
+                self.neighbor(on=on, layer=layer)
+                self._append_history(f"{on}: Neighbors computed with default settings before UMAP")
+            elif 'neighbors' not in adata.uns:
                 print(f"{format_log_prefix('info_only', indent=2)} Neighbors not found in AnnData object. Running neighbors with default settings.")
                 self.neighbor(on = on, layer = layer)
                 self._append_history(f"{on}: Neighbors computed with default settings before UMAP")  # type: ignore[attr-defined], HistoryMixin
