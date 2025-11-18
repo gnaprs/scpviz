@@ -1129,7 +1129,7 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
             pdata.umap(on=on, layer=layer, **umap_param)
     else:
         print(f'UMAP calculation forced, re-calculating UMAP')
-        pdata.umap(on=on, layer=layer, **umap_param)
+        pdata.umap(on=on, layer=layer, force_neighbors=True, **umap_param)
 
     Xt = adata.obsm['X_umap']
     umap = adata.uns['umap']

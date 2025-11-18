@@ -270,13 +270,15 @@ class FilterMixin:
                     debug=debug)
 
                 # Apply filtered RS and update .prot and .pep using the helper
-                pdata._apply_rs_filter(
+                rs_message = pdata._apply_rs_filter(
                     keep_proteins=proteins_to_keep,
                     keep_peptides=peptides_to_keep,
                     orig_prot_names=orig_prot_names,
                     orig_pep_names=orig_pep_names,
-                    debug=debug
+                    debug=False
                 )
+            else:
+                rs_message = None
 
             # detect which filters were applied
             active_filters = []
@@ -303,6 +305,8 @@ class FilterMixin:
             message += f"\n    → Proteins kept: {pdata.prot.shape[1]}"
             if pdata.pep is not None:
                 message += f"\n    → Peptides kept (linked): {pdata.pep.shape[1]}\n"
+            if rs_message is not None:
+                message += rs_message
 
         print(message)
         pdata._append_history(message) # type: ignore[attr-defined]
@@ -517,18 +521,23 @@ class FilterMixin:
                     debug=verbose
                 )
 
-                filtered._apply_rs_filter(
+                rs_message = filtered._apply_rs_filter(
                     keep_proteins=proteins_to_keep,
                     keep_peptides=peptides_to_keep,
                     orig_prot_names=orig_prot_names,
                     orig_pep_names=orig_pep_names,
                     debug=verbose
                 )
+            else:
+                rs_message = None
 
         else:
             filtered.pep = adata_filtered
             # Optionally, we could also remove proteins no longer linked to any peptides,
             # but that's less common and we can leave it out unless requested.
+
+        if rs_message is not None:
+            print(rs_message)
 
         criteria_str = (
             f"min_ratio={min_ratio}" if mode == "group" and min_ratio is not None else
@@ -628,12 +637,12 @@ class FilterMixin:
                 proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names = filtered._filter_sync_peptides_to_proteins(
                     original=self, updated_prot=filtered.prot, debug=verbose
                 )
-                filtered._apply_rs_filter(
+                rs_message = filtered._apply_rs_filter(
                     keep_proteins=proteins_to_keep,
                     keep_peptides=peptides_to_keep,
                     orig_prot_names=orig_prot_names,
                     orig_pep_names=orig_pep_names,
-                    debug=verbose,
+                    debug=False,
                 )
 
             filtered.update_summary(recompute=True)
@@ -747,22 +756,24 @@ class FilterMixin:
                 this_mask = var[col].values
                 mask = mask | this_mask if match_any else mask & this_mask
 
-        # --- 4️⃣ Apply filtering and sync ---
+        # filter then rs sync
         filtered = self.copy() if return_copy else self
         filtered.prot = adata[:, mask]
 
         # Sync peptides and RS
         if filtered.pep is not None and filtered.rs is not None:
             proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names = filtered._filter_sync_peptides_to_proteins(
-                original=self, updated_prot=filtered.prot, debug=verbose
+                original=self, updated_prot=filtered.prot, debug=False
             )
-            filtered._apply_rs_filter(
+            rs_message = filtered._apply_rs_filter(
                 keep_proteins=proteins_to_keep,
                 keep_peptides=peptides_to_keep,
                 orig_prot_names=orig_prot_names,
                 orig_pep_names=orig_pep_names,
-                debug=verbose
+                debug=False
             )
+        else:
+            rs_message = None
 
         filtered.update_summary(recompute=True)
         filtered._append_history(
@@ -807,7 +818,10 @@ class FilterMixin:
             n_kept = int(mask.sum())
             n_total = len(mask)
             n_dropped = n_total - n_kept
-            print(f"    → Proteins kept: {n_kept}, Proteins dropped: {n_dropped}\n")
+            print(f"    → Proteins kept: {n_kept}, Proteins dropped: {n_dropped}")
+
+            if rs_message is not None:
+                print(rs_message)
 
         return filtered if return_copy else None
 
@@ -1577,6 +1591,7 @@ class FilterMixin:
 
         Returns:
             None
+            str
         """
 
         if self.rs is None: # type: ignore[attr-defined]
@@ -1638,6 +1653,8 @@ class FilterMixin:
 
         if debug:
             print(f"{format_log_prefix('result')} RS matrix filtered: {prot_mask.sum()} proteins, {pep_mask.sum()} peptides retained.")
+        else:
+            return(f"{format_log_prefix('result')} RS matrix filtered: {prot_mask.sum()} proteins, {pep_mask.sum()} peptides retained.\n")
 
     def _format_filter_query(self, condition, dataframe):
         """

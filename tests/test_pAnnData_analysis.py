@@ -680,6 +680,45 @@ def test_umap_with_custom_umap_params_and_neighbors(pdata):
     assert coords.shape[0] == pdata.prot.n_obs
     assert coords.shape[1] == 2
 
+def test_umap_force_neighbors_detects_changed_X(pdata):
+    """
+    If the underlying .X is modified, then calling
+    umap(force_neighbors=True) should recompute the neighbor graph
+    and produce a different UMAP embedding.
+    """
+
+    pdata.umap(on="protein", layer="X")
+    adata = pdata.prot
+
+    orig_pca = adata.obsm["X_pca"].copy()
+    orig_dist = adata.obsp["distances"].copy()
+    orig_conn = adata.obsp["connectivities"].copy()
+    orig_umap = adata.obsm["X_umap"].copy()
+
+    # Modify roughly 1/3 of the matrix
+    X = adata.X.toarray()
+    n_rows, n_cols = X.shape
+    subset_cols = slice(0, n_cols // 3)
+    X[:, subset_cols] += np.arange(n_rows).reshape(-1, 1) * 1000
+
+    from scipy import sparse
+    adata.X = sparse.csr_matrix(X)
+
+    pdata.umap(on="protein", layer="X", force_neighbors=True)
+    new_pca = adata.obsm["X_pca"]
+    new_dist = adata.obsp["distances"]
+    new_conn = adata.obsp["connectivities"]
+    new_umap = adata.obsm["X_umap"]
+
+    assert not np.allclose(orig_pca, new_pca), \
+        "PCA did not change after modifying X and recomputing neighbors"
+    assert (orig_dist != new_dist).nnz > 0, \
+        "Neighbor distances did not change despite PCA and X changing"
+    assert (orig_conn != new_conn).nnz > 0, \
+        "Neighbor connectivities did not change despite PCA and X changing"
+    assert not np.allclose(orig_umap, new_umap), \
+        "UMAP embedding did not change after forcing neighbor + PCA recomputation"
+
 from unittest.mock import patch
 
 def test_umap_with_custom_layer_calls_set_X(pdata):
