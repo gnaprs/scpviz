@@ -21,6 +21,7 @@ class EditingMixin:
         set_X: Sets the `.X` matrix of protein or peptide data to a specified layer.
         get_abundance: Returns long-form abundance + metadata for selected features.
         export: Exports summary, matrix values, and layers to CSV.
+        export_layer: Exports a specific layer of the pAnnData object, with support for custom column and row headers.
         _set_RS: Sets the RS (protein × peptide) mapping matrix, with optional validation.
     """
 

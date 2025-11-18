@@ -44,6 +44,9 @@ class MetricsMixin:
             or importing new data. It should not be run manually under normal usage.
         """
         if self.prot is not None:
+            if self.prot.is_view:
+                self.prot = self.prot.copy()
+
             X = self.prot.X.toarray()
             self.prot.obs['protein_quant'] = np.sum(~np.isnan(X), axis=1) / X.shape[1]
             self.prot.obs['protein_count'] = np.sum(~np.isnan(X), axis=1)
@@ -54,6 +57,8 @@ class MetricsMixin:
                 self.prot.obs['high_count'] = (self.prot.layers['X_mbr'] == 'High').sum(axis=1)
 
         if self.pep is not None:
+            if self.pep.is_view:
+                self.pep = self.pep.copy()
             X = self.pep.X.toarray()
             self.pep.obs['peptide_quant'] = np.sum(~np.isnan(X), axis=1) / X.shape[1]
             self.pep.obs['peptide_count'] = np.sum(~np.isnan(X), axis=1)
