@@ -1467,7 +1467,7 @@ class AnalysisMixin:
         aligned = norm_prot.reindex(
             index=self.prot.var_names,
             columns=self.prot.obs_names
-        ).fillna(0)
+        )
 
         return aligned.T.to_numpy()
 

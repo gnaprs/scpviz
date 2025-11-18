@@ -140,6 +140,79 @@ def test_impute_knn_groupwise_raises(pdata_preprocessing):
     with pytest.raises(ValueError, match="KNN imputation is not supported for group-wise"):
         pdata.impute(classes='cellline',method="knn", n_neighbors=2)
 
+
+@pytest.mark.parametrize("method", ["pimms_dae", "pimms_vae"])
+def test_impute_pimms_vae_global(pdata, monkeypatch, method):
+    """Test PIMMS DAE/VAE imputation using mocked AETransformer."""
+    class MockAE:
+        def __init__(self, *args, **kwargs):
+            self.fit_called = False
+
+        def fit(self, df, cuda=False, epochs_max=100):
+            self.fit_called = True
+
+        def transform(self, df):
+            # trivial "imputed" output
+            out = df.copy().astype(float)
+            out[out.isna()] = 9.999
+            return out
+
+    monkeypatch.setattr(
+        "pimmslearn.sklearn.ae_transformer.AETransformer",
+        MockAE
+    )
+
+    X = pdata.prot.X.copy()
+    X[1, :3] = np.nan
+    pdata.prot.X = X
+    pdata.impute(method=method, on="protein", use_zeros_as_nan=True)   # method is pimms_dae or pimms_vae
+
+    layer = f"X_impute_{method}"
+    out = pdata.prot.layers[layer]
+    dense = out.toarray() if hasattr(out, "toarray") else out
+
+    expected = (2 ** 9.999) - 1
+    assert np.allclose(dense[1, :3], expected)
+
+def test_impute_pimms_cf_global(pdata, monkeypatch):
+    class MockCF:
+        def __init__(self, *args, **kwargs):
+            self.fit_called = False
+
+        def fit(self, series, cuda=False, epochs_max=20):
+            self.fit_called = True
+            self.index = series.index  # store MultiIndex
+
+        def transform(self, series):
+            # Make a float series
+            filled = series.astype(float).copy()
+
+            # Fill only NaNs (this is the imputation behavior we want to test)
+            filled[filled.isna()] = 9.999
+
+            # IMPORTANT: return a Series with the full MultiIndex
+            return filled.reindex(self.index)
+
+
+    monkeypatch.setattr(
+        "pimmslearn.sklearn.cf_transformer.CollaborativeFilteringTransformer",
+        MockCF
+    )
+
+    arr = pdata.prot.X.copy()
+    arr[1, :3] = np.nan
+    pdata.prot.X = arr
+
+    pdata.impute(method="pimms_cf", on="protein")
+
+    layer = "X_impute_pimms_cf"
+    out = pdata.prot.layers[layer]
+
+    dense_out = out.toarray() if hasattr(out, "toarray") else out
+    fill_value = 9.999
+    expected = (2 ** fill_value) - 1
+    assert np.allclose(dense_out[1, :3], expected, equal_nan=False)
+
 @pytest.mark.parametrize("on", ["protein", "peptide"])
 def test_impute_raises_if_layer_not_found(pdata, on):
     with pytest.raises(ValueError, match="Layer 'X_invalid' not found"):
@@ -590,6 +663,45 @@ def test_umap_with_custom_umap_params_and_neighbors(pdata):
     coords = pdata.prot.obsm["X_umap"]
     assert coords.shape[0] == pdata.prot.n_obs
     assert coords.shape[1] == 2
+
+def test_umap_force_neighbors_detects_changed_X(pdata):
+    """
+    If the underlying .X is modified, then calling
+    umap(force_neighbors=True) should recompute the neighbor graph
+    and produce a different UMAP embedding.
+    """
+
+    pdata.umap(on="protein", layer="X")
+    adata = pdata.prot
+
+    orig_pca = adata.obsm["X_pca"].copy()
+    orig_dist = adata.obsp["distances"].copy()
+    orig_conn = adata.obsp["connectivities"].copy()
+    orig_umap = adata.obsm["X_umap"].copy()
+
+    # Modify roughly 1/3 of the matrix
+    X = adata.X.toarray()
+    n_rows, n_cols = X.shape
+    subset_cols = slice(0, n_cols // 3)
+    X[:, subset_cols] += np.arange(n_rows).reshape(-1, 1) * 1000
+
+    from scipy import sparse
+    adata.X = sparse.csr_matrix(X)
+
+    pdata.umap(on="protein", layer="X", force_neighbors=True)
+    new_pca = adata.obsm["X_pca"]
+    new_dist = adata.obsp["distances"]
+    new_conn = adata.obsp["connectivities"]
+    new_umap = adata.obsm["X_umap"]
+
+    assert not np.allclose(orig_pca, new_pca), \
+        "PCA did not change after modifying X and recomputing neighbors"
+    assert (orig_dist != new_dist).nnz > 0, \
+        "Neighbor distances did not change despite PCA and X changing"
+    assert (orig_conn != new_conn).nnz > 0, \
+        "Neighbor connectivities did not change despite PCA and X changing"
+    assert not np.allclose(orig_umap, new_umap), \
+        "UMAP embedding did not change after forcing neighbor + PCA recomputation"
 
 from unittest.mock import patch
 

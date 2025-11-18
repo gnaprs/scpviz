@@ -160,6 +160,8 @@ class SummaryMixin:
             return skipped, updated
 
         if self.prot is not None:
+            if self.prot.is_view:
+                self.prot = self.prot.copy()
             if not self.prot.obs.index.equals(self._summary.index):
                 raise ValueError("Mismatch: .summary and .prot.obs have different sample indices.")
             skipped_prot, updated_prot = update_obs_with_summary(self.prot.obs, self._summary, skip_if_contains)
@@ -167,6 +169,8 @@ class SummaryMixin:
             skipped_prot, updated_prot = None, []
 
         if self.pep is not None:
+            if self.pep.is_view:
+                self.pep = self.pep.copy()
             if not self.pep.obs.index.equals(self._summary.index):
                 raise ValueError("Mismatch: .summary and .pep.obs have different sample indices.")
             skipped_pep, updated_pep = update_obs_with_summary(self.pep.obs, self._summary, skip_if_contains='prot')
