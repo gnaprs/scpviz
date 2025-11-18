@@ -1230,6 +1230,7 @@ class AnalysisMixin:
                 f"protein: Normalized layer using directlfq (input_type={kwargs.get('input_type_to_use', 'default')}). Stored in `{layer_name}`."
             )
             print(f"{format_log_prefix('result_only', indent=2)} directlfq normalization complete. Results are stored in layer '{layer_name}'.")
+            print(f"{format_log_prefix('warn_only',3)} Downstream imputation should be performed with the flag `use_zeros_as_nan` set to True due to directlfq output format returning NaNs as 0s.")
             return
     
         # --- standard normalization ---
