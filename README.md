@@ -1,5 +1,5 @@
 # scpviz
-<img src="https://raw.githubusercontent.com/gnaprs/scpviz/refs/heads/main/docs/assets/300ppi/logo_black_label@300x.png"
+<img src="https://raw.githubusercontent.com/gnaprs/scpviz/refs/heads/main/docs/assets/300ppi/logo_white_label@300x.png"
  align="right" width="256"/>
  [![DOI](https://zenodo.org/badge/762480088.svg)](https://doi.org/10.5281/zenodo.17362532)
 
@@ -9,14 +9,13 @@
 
 **Documentation:**  
 [![Docs CI](https://github.com/gnaprs/scpviz/actions/workflows/ci.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-v0.3.0-brightgreen.svg)](https://gnaprs.github.io/scpviz)
+[![Docs](https://img.shields.io/badge/docs-v0.5.2a-brightgreen.svg)](https://gnaprs.github.io/scpviz)
 
 
 **scpviz** is a Python package for single-cell and spatial proteomics data analysis, built around a custom `pAnnData` object.  
 It extends the [AnnData](https://anndata.readthedocs.io/) ecosystem with proteomics-specific functionality, enabling seamless integration of proteins, peptides, and relational data.
 
 * **Documentation**: https://gnaprs.github.io/scpviz/
-* **Conda**: https://anaconda.org/gnaprs/scpviz (FIX)
 * **Python Package Index (PyPI)**: https://pypi.org/project/scpviz/
 
 ## Getting started
@@ -28,10 +27,6 @@ It extends the [AnnData](https://anndata.readthedocs.io/) ecosystem with proteom
 
 This will install all required dependencies, including `scanpy`, `anndata`, `pandas`, and common plotting libraries.
 
-`scpviz` also includes support for external proteomics packages such as `pimms-learn` and `directlfq`. To install our package with these external dependencies, you can use the `[external]` flag.
-
-    python3 -m pip install scpviz[external]
-
 For the most up-to-date version of scpviz, clone the repository and
 install the package using pip:
 
@@ -41,18 +36,18 @@ install the package using pip:
 
 ### Quickstart
 
-Check out the [quickstart](https://github.com/gnaprs/scpviz/tutorials/quickstart/) guide for a run through import, basic preprocessing and quick visualization
+Check out the [quickstart](https://gnaprs.github.io/scpviz/tutorials/quickstart/) guide for a run through import, basic preprocessing and quick visualization
 
 ### In-depth Tutorials
-For more in-depth guides on importing, filtering, plotting, and running enrichment, see the [tutorials](https://github.com/gnaprs/scpviz/tutorials/).
+For more in-depth guides on importing, filtering, plotting, and running enrichment, see the [tutorials](https://gnaprs.github.io/scpviz/tutorials/).
 
 ### API Reference
 
-Full function documentation for the `pAnnData` class and utility modules can be found on our [documentation page](https://github.com/gnaprs/scpviz/reference/).
+Full function documentation for the `pAnnData` class and utility modules can be found on our [documentation page](https://gnaprs.github.io/scpviz/reference/).
 
 ## Contributing
 
-If you'll like to contribute to `scpviz`, please see the [contributing guidelines](https://github.com/gnaprs/scpviz/dev/contributing/). We welcome contributions from the community to help improve, expand, and document the functionality of scpviz.
+If you'll like to contribute to `scpviz`, please see the [contributing guidelines](https://gnaprs.github.io/scpviz/dev/contributing/). We welcome contributions from the community to help improve, expand, and document the functionality of scpviz.
 
 ## License
 `scpviz` was created by Marion Pang. It is licensed under the terms of the MIT license.

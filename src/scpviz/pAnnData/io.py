@@ -98,7 +98,8 @@ def import_data(source_type: str, **kwargs):
     obs_columns = kwargs.get('obs_columns', None)
     if obs_columns is None:
         source = kwargs.get('report_file') if 'report_file' in kwargs else kwargs.get('prot_file')
-        format_info, fallback_columns, fallback_obs = resolve_obs_columns(source, source_type)
+        delimiter = kwargs.get('delimiter') if 'delimiter' in kwargs else None
+        format_info, fallback_columns, fallback_obs = resolve_obs_columns(source, source_type, delimiter=delimiter)
 
         if format_info["uniform"]:
             # Prompt user to rerun with obs_columns
@@ -207,7 +208,10 @@ def _import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Option
         prot_obs_names = prot_all.filter(regex='Abundance: F', axis=1).columns.str.extract(r'Abundance: (F\d+):')[0].values
         # prot_obs: sample typing from the column name, drop column if all 'n/a'
         prot_obs = prot_all.filter(regex='Abundance: F', axis=1).columns.str.extract(r'Abundance: F\d+: (.+)$')[0].values
-        prot_obs = pd.DataFrame(prot_obs, columns=['metadata'])['metadata'].str.split(',', expand=True).applymap(str.strip).astype('category')
+        prot_obs = pd.DataFrame(prot_obs, columns=['metadata'])['metadata'] \
+            .str.split(',', expand=True)
+        prot_obs = _safe_strip(prot_obs).astype('category')
+        
         if (prot_obs == "n/a").all().any():
             print(f"{format_log_prefix('warn')} Found columns with all 'n/a'. Dropping these columns.")
             prot_obs = prot_obs.loc[:, ~(prot_obs == "n/a").all()]
@@ -273,7 +277,10 @@ def _import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Option
 
         # prot_obs: sample typing from the column name, drop column if all 'n/a'
         pep_obs = pep_all.filter(regex='Abundance: F', axis=1).columns.str.extract(r'Abundance: F\d+: (.+)$')[0].values
-        pep_obs = pd.DataFrame(pep_obs, columns=['metadata'])['metadata'].str.split(',', expand=True).applymap(str.strip).astype('category')
+        pep_obs = pd.DataFrame(pep_obs, columns=['metadata'])['metadata'] \
+            .str.split(',', expand=True)
+        pep_obs = _safe_strip(pep_obs).astype('category')
+        
         if (pep_obs == "n/a").all().any():
             print(f"{format_log_prefix('warn')} Found columns with all 'n/a'. Dropping these columns.")
             pep_obs = pep_obs.loc[:, ~(pep_obs == "n/a").all()]
@@ -294,13 +301,8 @@ def _import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Option
         # RS DATA
         # rs is in the form of a binary matrix, protein x peptide
         pep_prot_list = pep_all['Master Protein Accessions'].str.split('; ')
-        mlb = MultiLabelBinarizer()
-        rs = mlb.fit_transform(pep_prot_list)
-        if prot_var_names is not None:
-            index_dict = {protein: index for index, protein in enumerate(mlb.classes_)}           
-            reorder_indices = [index_dict[protein] for protein in prot_var_names]
-            rs = rs[:, reorder_indices]
-        # print("RS matrix successfully computed")
+        rs, mlb = _build_rs_matrix(pep_prot_list, prot_var_names = prot_var_names)
+
     else:
         rs = None
 
@@ -334,7 +336,7 @@ def _import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Option
 
     return pdata
 
-def import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[str]] = None, prot_value: str = 'PG.MaxLFQ', pep_value: str = 'Precursor.Normalised', prot_var_columns: List[str] = ['Genes', 'Master.Protein'], pep_var_columns: List[str] = ['Genes', 'Protein.Group', 'Precursor.Charge', 'Modified.Sequence', 'Stripped.Sequence', 'Precursor.Id', 'All Mapped Proteins', 'All Mapped Genes'], **kwargs):
+def import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[str]] = None, delimiter: Optional[str] = '_', prot_value: str = 'PG.MaxLFQ', pep_value: str = 'Precursor.Normalised', prot_var_columns: List[str] = ['Genes', 'Master.Protein'], pep_var_columns: List[str] = ['Genes', 'Protein.Group', 'Precursor.Charge', 'Modified.Sequence', 'Stripped.Sequence', 'Precursor.Id', 'All Mapped Proteins', 'All Mapped Genes'], **kwargs):
     """
     Import DIA-NN output into a `pAnnData` object.
 
@@ -344,6 +346,7 @@ def import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[s
     Args:
         report_file (str): Path to the DIA-NN report file (required).
         obs_columns (list of str): List of metadata columns to extract from the filename for `.obs`.
+        delimiter (str): Character to split file names by to set up metadata in obs.
         prot_value (str): Column name in DIA-NN output to use for protein quantification.
             Default: `'PG.MaxLFQ'`.
         pep_value (str): Column name in DIA-NN output to use for peptide quantification.
@@ -373,9 +376,9 @@ def import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[s
         - DIA-NN report should contain both protein group and precursor-level information.
         - Metadata columns in filenames must be consistently formatted to extract `.obs`.
     """
-    return import_data(source_type='diann', report_file=report_file, obs_columns=obs_columns, prot_value=prot_value, pep_value=pep_value, prot_var_columns=prot_var_columns, pep_var_columns=pep_var_columns, **kwargs)
+    return import_data(source_type='diann', report_file=report_file, obs_columns=obs_columns, delimiter = delimiter, prot_value=prot_value, pep_value=pep_value, prot_var_columns=prot_var_columns, pep_var_columns=pep_var_columns, **kwargs)
 
-def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[str]] = None, obs: Optional[pd.DataFrame] = None, prot_value = 'PG.MaxLFQ', pep_value = 'Precursor.Normalised', prot_var_columns = ['Genes', 'Master.Protein'], pep_var_columns = ['Genes', 'Protein.Group', 'Precursor.Charge','Modified.Sequence', 'Stripped.Sequence', 'Precursor.Id', 'All Mapped Proteins', 'All Mapped Genes'], **kwargs):
+def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[str]] = None, delimiter: Optional[str] = '_', obs: Optional[pd.DataFrame] = None, prot_value = 'PG.MaxLFQ', pep_value = 'Precursor.Normalised', prot_var_columns = ['Genes', 'Master.Protein'], pep_var_columns = ['Genes', 'Protein.Group', 'Precursor.Charge','Modified.Sequence', 'Stripped.Sequence', 'Precursor.Id', 'All Mapped Proteins', 'All Mapped Genes'], **kwargs):
     if not report_file:
         raise ValueError(f"{format_log_prefix('error')} Importing from DIA-NN: report.tsv or report.parquet must be provided to function. Try report_file='report.tsv' or report_file='report.parquet'")
     print("--------------------------\nStarting import [DIA-NN]\n")
@@ -426,7 +429,7 @@ def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[
         prot_obs = obs
         # obs_columns = obs_columns
     else:
-        prot_obs = pd.DataFrame(prot_X_pivot.columns.values, columns=['Run'])['Run'].str.split('_', expand=True).rename(columns=dict(enumerate(obs_columns)))
+        prot_obs = pd.DataFrame(prot_X_pivot.columns.values, columns=['Run'])['Run'].str.split(delimiter, expand=True).rename(columns=dict(enumerate(obs_columns)))
     
     # PG.Q.Value layer (sample x protein)
     if 'PG.Q.Value' in report_all.columns:
@@ -485,11 +488,7 @@ def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[
     # RS DATA
     # rs: protein x peptide relational data
     pep_prot_list = report_all.drop_duplicates(subset=['Precursor.Id'])['Protein.Group'].str.split(';')
-    mlb = MultiLabelBinarizer()
-    rs = mlb.fit_transform(pep_prot_list)
-    index_dict = {protein: index for index, protein in enumerate(mlb.classes_)}
-    reorder_indices = [index_dict[protein] for protein in prot_var_names]
-    rs = rs[:, reorder_indices]
+    rs, mlb = _build_rs_matrix(pep_prot_list, prot_var_names = prot_var_names)
 
     # -----------------------------
     # ASSERTIONS
@@ -522,6 +521,46 @@ def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[
     )
 
     return pdata
+
+def _safe_strip(df_like):
+    """Safely strip whitespace from strings in a DataFrame or Series."""
+    import sys
+    if hasattr(df_like, "applymap") and (sys.version_info < (3, 9)):
+        return df_like.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    else:
+        return df_like.map(lambda x: x.strip() if isinstance(x, str) else x)
+
+
+def _build_rs_matrix(pep_prot_list, prot_var_names=None):
+    """
+    Build a sparse boolean RS (protein × peptide) relational matrix.
+
+    Args:
+        pep_prot_list (list or pd.Series): List/Series where each entry
+            contains one or more protein accessions (as lists or split strings).
+        prot_var_names (list, optional): Ordered list of protein accessions to
+            align RS columns. If None, uses the order returned by MultiLabelBinarizer.
+
+    Returns:
+        scipy.sparse.csr_matrix: Sparse boolean RS matrix (peptides × proteins).
+    """
+    # sparse bool RS matrix to save RAM
+    mlb = MultiLabelBinarizer(sparse_output=True)
+    rs = mlb.fit_transform(pep_prot_list).astype(bool)
+
+    # reorder columns to match protein order
+    if prot_var_names is not None:
+        index_dict = {protein: idx for idx, protein in enumerate(mlb.classes_)}
+        reorder_indices = [
+            index_dict[p] for p in prot_var_names if p in index_dict
+        ]
+        rs = rs[:, reorder_indices]
+
+    # make csr matrix so downstream operations are faster
+    rs = sparse.csr_matrix(rs, dtype=bool)
+    rs.eliminate_zeros()
+
+    return rs, mlb
 
 def _create_pAnnData_from_parts(
     prot_X, pep_X, rs,

@@ -343,11 +343,16 @@ class FilterMixin:
             - For file-based filtering, use the file identifiers from `.prot.obs_names`.            
 
         Examples:
-            Filter proteins found in both "groupA" and "groupB" groups, in at least 2 samples each:
+            Filter proteins found in all "cellline" groups (e.g. Cellline A, and cellline B), with at least 2 samples each:
                 ```python
-                pdata.filter_prot_found(group=["groupA", "groupB"], min_count=2)
+                pdata_filtered = pdata.filter_prot_found(group="cellline", min_count=2, match_any=False)
                 ```
 
+            Filter proteins found in any "cellline" groups (e.g. Cellline A, and cellline B), as long as they meet a minimum ratio of 0.4:
+                ```python
+                pdata_filtered = pdata.filter_prot_found(group="cellline", min_ratio=0.4, match_any=True)
+                ```                
+                
             Filter proteins found in all three input files:
                 ```python
                 pdata.filter_prot_found(group=["F1", "F2", "F3"])
@@ -569,9 +574,14 @@ class FilterMixin:
             pAnnData or None: Filtered object (if `return_copy=True`) or modifies in-place.
 
         Examples:
-            Filter proteins significant in both "groupA" and "groupB" groups, FDR of 0.01 (default):
+            Filter proteins significant by their global significance (e.g. PD-based imports):
                 ```python
-                pdata.filter_prot_significant(group=["groupA", "groupB"], min_count=2)
+                pdata.filter_prot_significant()
+                ```
+
+            Filter proteins significant in the "cellline" group containing e.g. "groupA" and "groupB" groups, FDR of 0.01 (default):
+                ```python
+                pdata.filter_prot_significant(group=["cellline"], min_count=2)
                 ```
 
             Filter proteins significant in all three input files:
@@ -1948,7 +1958,7 @@ class FilterMixin:
                 print(f"{format_log_prefix('info', 2)} Using global q-values for '{level}' significance annotation.")
                 continue  # Skip if significance data not available
 
-            print(f"{format_log_prefix('info', 2)} Using sampl-specific q-values for '{level}' significance annotation.")
+            print(f"{format_log_prefix('info', 2)} Using sample-specific q-values for '{level}' significance annotation.")
 
             data = pd.DataFrame(
                 adata.layers[sig_layer].toarray() if hasattr(adata.layers[sig_layer], 'toarray') else adata.layers[sig_layer],

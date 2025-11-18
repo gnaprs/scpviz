@@ -7,5 +7,5 @@ Mixin for convenient plots/visualization of `pAnnData` object. Typically a wrapp
 ::: src.scpviz.pAnnData.plot
     options:
       show_root_full_path: false
-      show_root_heading: false
-      heading_level: 3
+      show_root_heading: true
+      heading_level: 2

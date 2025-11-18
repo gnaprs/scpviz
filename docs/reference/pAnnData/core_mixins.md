@@ -8,30 +8,30 @@ Includes foundational methods for validation, copying, and history tracking.
     options:
       show_root_full_path: false
       show_root_heading: false
-      render_module_header: false
+      render_module_header: true
       heading_level: 2
 
 ::: src.scpviz.pAnnData.summary
     options:
       show_root_full_path: false
-      show_root_heading: false
+      show_root_heading: true
       heading_level: 2
 
 ::: src.scpviz.pAnnData.validation
     options:
       show_root_full_path: false
       show_root_heading: false
-      render_module_header: false
+      render_module_header: true
       heading_level: 2
 
 ::: src.scpviz.pAnnData.history
     options:
       show_root_full_path: false
-      show_root_heading: false
+      show_root_heading: true
       heading_level: 2
 
 ::: src.scpviz.pAnnData.identifier
     options:
       show_root_full_path: false
-      show_root_heading: false
+      show_root_heading: true
       heading_level: 2

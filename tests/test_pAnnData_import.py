@@ -3,6 +3,36 @@ import pandas as pd
 from scpviz import pAnnData
 from pathlib import Path
 
+from scpviz.pAnnData.io import _safe_strip
+
+def test_safe_strip_dataframe_and_series():
+    # --- DataFrame case ---
+    df = pd.DataFrame({"A": [" a", "b ", None], "B": [" c ", " d", "e "]})
+    out_df = _safe_strip(df)
+
+    # Verify type and values
+    assert isinstance(out_df, pd.DataFrame)
+    assert out_df.iloc[0, 0] == "a"
+    assert out_df.iloc[1, 1] == "d"
+    assert out_df.isna().sum().sum() == 1  # preserves None/NaN
+
+    # --- Series case ---
+    s = pd.Series([" x ", "y", None])
+    out_s = _safe_strip(s)
+
+    assert isinstance(out_s, pd.Series)
+    assert list(out_s) == ["x", "y", None]
+
+    # --- Mixed types should remain unchanged ---
+    s_mixed = pd.Series([" a", 5, None])
+    out_mixed = _safe_strip(s_mixed)
+    assert out_mixed.iloc[1] == 5
+    assert out_mixed.iloc[0] == "a"
+
+    # --- Should not raise on empty input ---
+    empty_df = pd.DataFrame(columns=["A"])
+    _ = _safe_strip(empty_df)
+
 def test_import_pd():
     test_dir = Path(__file__).parent
     prot_file = str(test_dir / 'test_pd_prot.txt')
@@ -40,7 +70,6 @@ def test_import_pd32():
     assert pdata.pep is None
     assert pdata.rs is None
 
-@pytest.mark.slow
 def test_import_pd32_with_pep():
     test_dir = Path(__file__).parent
     prot_file = str(test_dir / 'test_pd32_Proteins.txt')
@@ -77,6 +106,26 @@ def test_import_diann_new():
     assert pdata.prot is not None
     assert pdata.pep is not None
     assert pdata.rs is not None
+
+def test_import_diann_old_delimiter():
+    # pre diann v1.8.1
+    test_dir = Path(__file__).parent
+    diann_file = str(test_dir / 'test_diann-delimiter.tsv')
+
+    obs_columns = ['name','amt','enzyme','date','MS','acquisition','method','gradient','replicate']
+    pdata = pAnnData.import_data(source_type='diann', report_file=diann_file, obs_columns=obs_columns, delimiter='-')
+    assert pdata is not None
+    assert pdata.prot is not None
+    assert pdata.pep is not None
+    assert pdata.rs is not None
+
+def test_suggest_obs_columns_hyphen_delimiter():
+    # pre diann v1.8.1
+    test_dir = Path(__file__).parent
+    diann_file = str(test_dir / 'test_diann-delimiter.tsv')
+
+    obs_columns = pAnnData.suggest_obs_columns(source_type='diann', source=diann_file)
+    assert obs_columns is not None
 
 def test_import_no_obs_uniform():
     test_dir = Path(__file__).parent
@@ -212,7 +261,7 @@ def test_update_missing_genes_no_missing(monkeypatch, pdata, capsys):
     """Covers branch when no missing entries."""
     monkeypatch.setattr("scpviz.utils.get_uniprot_fields", lambda *a, **k: pd.DataFrame())
     # fill all Genes → no missing mask
-    pdata.prot.var["Genes"].fillna("TESTGENE", inplace=True)
+    pdata.prot.var["Genes"] = pdata.prot.var["Genes"].fillna("TESTGENE")
     pdata.update_missing_genes(verbose=True)
     out = capsys.readouterr().out
     assert "No missing gene names" in out
