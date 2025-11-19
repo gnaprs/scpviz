@@ -214,20 +214,23 @@ def test_plot_abundance_return_df(pdata):
     assert {"x_label_name", "abundance", "class"}.intersection(df.columns)
     assert not df.empty
 
-def test_plot_abundance_violin_mode(pdata):
+@pytest.mark.parametrize("log", [True, False])
+def test_plot_abundance_violin_mode(pdata, log):
     fig, ax = plt.subplots()
-    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", kind="violin")
+    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", kind="violin", log=log)
     assert _is_axes_container(result)
     assert _count_artists(result) > 0
 
-def test_plot_abundance_bar_mode(pdata):
+@pytest.mark.parametrize("log", [True, False])
+def test_plot_abundance_bar_mode(pdata, log):
     fig, ax = plt.subplots()
-    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", kind="bar")
+    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", kind="bar", log=log)
     assert _is_axes_container(result)
     assert _count_artists(result) > 0
 
-def test_plot_abundance_with_facet(pdata):
-    result = scplt.plot_abundance(None, pdata, namelist=["ACTB"], classes="treatment", facet="cellline")
+@pytest.mark.parametrize("log", [True, False])
+def test_plot_abundance_with_facet(pdata, log):
+    result = scplt.plot_abundance(None, pdata, namelist=["ACTB"], classes="treatment", facet="cellline",log=log)
     # FacetGrid should be returned when facet is used
     import seaborn as sns
     assert isinstance(result, sns.FacetGrid)

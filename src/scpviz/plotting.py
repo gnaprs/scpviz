@@ -521,7 +521,7 @@ def plot_abundance_housekeeping(ax, pdata, classes=None, loading_control='all', 
 
 def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
                    classes=None, return_df=False, order=None, palette=None,
-                   log=True, facet=None, height=4, aspect=0.5,
+                   log=False, facet=None, height=4, aspect=0.5,
                    plot_points=True, x_label='gene', kind='auto', **kwargs):
     """
     Plot abundance of proteins or peptides across samples.
@@ -529,6 +529,12 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
     This function visualizes expression values for selected proteins or peptides
     using violin + box + strip plots, or bar plots when the number of replicates
     per group is small. Supports grouping, faceting, and custom ordering.
+
+    **Important default behavior:**
+    - Abundances are **not log-transformed** by default (`log=False`)
+    - The plotted abundance values remain **raw**
+    - The **y-axis is transformed to log10 scale**, so the plot displays
+      log10(abundance) even when raw abundances are used.    
 
     Args:
         ax (matplotlib.axes.Axes): Axis to plot on. Ignored if `facet` is used.
@@ -544,7 +550,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
             keys are class names and values are the ordered categories.  
             Example: `order = {"condition": ["sc", "kd"]}`.
         palette (list or dict, optional): Color palette mapping groups to colors.
-        log (bool): If True, apply log2 transformation to abundance values. Default is True.
+        log (bool): If True, apply log2 transformation to abundance values. Default is False (raw values used; y-axis log10-scaled instead).
         facet (str, optional): `.obs` column to facet by, creating multiple subplots.
         height (float): Height of each facet plot. Default is 4.
         aspect (float): Aspect ratio of each facet plot. Default is 0.5.
@@ -578,7 +584,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
         classes=classes, log=log, x_label=x_label
     )
 
-    # --- Handle custom class ordering ---
+    # custom class ordering
     if classes is not None and order is not None:
         unused = set(order) - (set([classes]) if isinstance(classes, str) else set(classes))
         if unused:
@@ -594,7 +600,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
                     cat_type = pd.api.types.CategoricalDtype(order[cls], ordered=True)
                     df[cls] = df[cls].astype(cat_type)
 
-    # --- Sort the dataframe so group order is preserved in plotting ---
+    # sort the dataframe so group order is preserved in plotting
     if classes is not None:
         sort_cols = ['x_label_name']
         if isinstance(classes, str):
@@ -603,8 +609,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
             sort_cols.extend(classes)
         df = df.sort_values(by=sort_cols)
 
-
-    # Add facet column (plotting only)
+    # Facet handling
     df['facet'] = df[facet] if facet else 'all'
 
     if facet and classes and facet == classes:
@@ -637,18 +642,27 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
+
+            if not log:
+                for ax_ in g.axes.flatten():
+                    ax_.set_yscale("log")                
             return g
         else:
             if ax is None:
                 fig, _ax = plt.subplots(figsize=(6, 4))
             else:
                 _ax = ax
+
             sns.barplot(data=df, x=x_col, y=y_col, hue='class', ax=_ax, **bar_kwargs)
+
+            # deduplicate legend
             handles, labels = _ax.get_legend_handles_labels()
             by_label = dict(zip(labels, handles))
             _ax.legend(by_label.values(), by_label.keys(), title='Class', frameon=True)
+            _ax.set_yscale("log") if not log else None
             _ax.set_ylabel("log2(Abundance)" if log else "Abundance")
             _ax.set_xlabel("Gene" if x_label == 'gene' else "Accession")
+
             return _ax
 
     def _plot_violin(df):
@@ -663,6 +677,9 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
                                   color='black', size=3, alpha=0.5, legend=False, **kwargs_inner)
                 g.map_dataframe(_strip)
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
+            if not log:
+                for ax_ in g.axes.flatten():
+                    ax_.set_yscale("log")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
             return g
@@ -680,6 +697,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
             _ax.legend(by_label.values(), by_label.keys(), title='Class', frameon=True)
             _ax.set_ylabel("log2(Abundance)" if log else "Abundance")
             _ax.set_xlabel("Gene" if x_label == 'gene' else "Accession")
+            _ax.set_yscale("log") if not log else None
             return _ax
 
     return _plot_bar(df) if kind == 'bar' else _plot_violin(df)
