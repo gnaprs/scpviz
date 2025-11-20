@@ -538,15 +538,14 @@ class FilterMixin:
 
         if rs_message is not None:
             print(rs_message)
+        print('\n') # for nicer formatting
 
         criteria_str = (
             f"min_ratio={min_ratio}" if mode == "group" and min_ratio is not None else
             f"min_count={min_count}" if mode == "group" else
             ("ANY files" if match_any else "ALL files")
         )
-
         logic_str = "ANY" if match_any else "ALL"
-
         filtered._append_history(  # type: ignore[attr-defined], HistoryMixin
             f"{on}: Filtered by detection in {mode} group(s) {group} using {criteria_str} (match_{logic_str})."
         )
