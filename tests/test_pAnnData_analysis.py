@@ -135,6 +135,48 @@ def test_impute_median_global_skips_allnan_feature(pdata_preprocessing):
     # Check that other missing values were imputed
     assert not np.isnan(imputed[:, :5]).any(), "All imputable values should be filled."
 
+@pytest.fixture
+def pdata_preprocessing_make():
+    def _make():
+        X = np.array([
+            [1,    np.nan, 10,   100, 500, 2.0],
+            [2,    20,     np.nan, 200, 500, 2.5],
+            [np.nan, 30,   30,   np.nan, 500, 3.0],
+            [100,  np.nan, 1000, 500, 500, 2.8],
+            [200,  400,     np.nan, np.nan, 500, 2.2],
+            [np.nan, 600,  3000, 1500, 500, 2.1],
+        ])
+
+        obs = pd.DataFrame({
+            "cellline": ["BE", "BE", "BE", "AS", "AS", "AS"],
+            "treatment": ["kd", "kd", "kd", "sc", "sc", "sc"]
+        }, index=[f"sample{i+1}" for i in range(6)])
+
+        var = pd.DataFrame({
+            "Genes": ["GAPDH", "ACTB", "TUBB", "MYH9", "HSP90", "RPLP0"]
+        }, index=[f"P{i+1}" for i in range(6)])
+
+        ann = AnnData(X=X, obs=obs, var=var)
+        return pAnnData(prot=ann)
+
+    return _make
+
+def test_impute_uses_zeros_as_nans(pdata_preprocessing_make):
+    col = 5
+
+    pdata1 = pdata_preprocessing_make()
+    pdata1.prot.X[:, col] = 0
+    pdata1.impute(method="median", use_zeros_as_nan=True)
+    imputed1 = pdata1.prot.X[:, col]
+
+    pdata2 = pdata_preprocessing_make()
+    pdata2.prot.X[:, col] = np.nan
+    pdata2.impute(method="median")
+    imputed2 = pdata2.prot.X[:, col]
+
+    assert np.allclose(imputed1, imputed2, equal_nan=True)
+    assert np.isnan(imputed1).all()
+
 def test_impute_knn_groupwise_raises(pdata_preprocessing):
     pdata = pdata_preprocessing
     with pytest.raises(ValueError, match="KNN imputation is not supported for group-wise"):
