@@ -402,9 +402,6 @@ class FilterMixin:
                 "Automatically annotating detection by group values."
             )
 
-        if verbose and auto_value_msg:
-            print(auto_value_msg)
-
         # Determine filtering mode: group vs file or handle ambiguity/missing
         group_metrics = adata.uns.get(f"found_metrics_{on}")
 
@@ -472,6 +469,9 @@ class FilterMixin:
                 if verbose:
                     print(f"{format_log_prefix('user')} Filtering proteins [Found|File-mode|ALL]: keeping {mask.sum()} / {len(mask)} features found in ALL files: {group}")
 
+            if verbose and auto_value_msg:
+                print(auto_value_msg)
+
         elif mode == "group":
             if min_ratio is None and min_count is None:
                 raise ValueError("You must specify either `min_ratio` or `min_count` when filtering by group.")
@@ -490,7 +490,8 @@ class FilterMixin:
                     mask |= this_mask
                 if verbose:
                     print(f"{format_log_prefix('user')} Filtering proteins [Found|Group-mode|ANY]: keeping {mask.sum()} / {len(mask)} features passing threshold in ANY of groups: {group}")
-
+                    if auto_value_msg:
+                        print(auto_value_msg)
             else:
                 for g in group:
                     count_series = group_metrics[(g, "count")]
@@ -505,6 +506,8 @@ class FilterMixin:
 
                 if verbose:
                     print(f"{format_log_prefix('user')} Filtering proteins [Found|Group-mode|ALL]: keeping {mask.sum()} / {len(mask)} features passing threshold {min_ratio if min_ratio is not None else min_count} across groups: {group}")
+                    if auto_value_msg:
+                        print(auto_value_msg)
 
         # Apply filtering
         filtered = self.copy() if return_copy else self # type: ignore[attr-defined], EditingMixin
