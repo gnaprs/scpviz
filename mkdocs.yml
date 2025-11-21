@@ -17,6 +17,8 @@ theme:
     - content.code.select
     - content.code.annotate
     - search.highlight
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.path
     - navigation.indexes
     - navigation.top
