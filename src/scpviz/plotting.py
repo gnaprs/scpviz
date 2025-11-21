@@ -32,9 +32,9 @@ Functions:
 ## Differential Expression and Volcano Plots
 
 Functions:
-        plot_volcano: Volcano plot of differential expression results.
-        mark_volcano: Highlight specific features on a volcano plot.
-        add_volcano_legend: Add standard legend handles for volcano plots.
+    plot_volcano: Volcano plot of differential expression results.
+    mark_volcano: Highlight specific features on a volcano plot.
+    add_volcano_legend: Add standard legend handles for volcano plots.
 
 ## Enrichment Plots
 
@@ -763,7 +763,7 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
             "color"="k",
             "linewidth"=2.0,
             "zorder"=5,
-            "half_width"=half_width,
+            "half_width"=0.15,
         }
         ```
 
@@ -1230,13 +1230,9 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         ax.set_ylabel(f'PC{pc_y+1} ({pca["variance_ratio"][pc_y]*100:.2f}%)')
 
         # Add colorbar if using continuous color (i.e., abundance coloring)
-        if isinstance(color_mapped, np.ndarray) and cmap_resolved is not None:
-            norm = mcolors.Normalize(vmin=np.min(color_mapped), vmax=np.max(color_mapped))
-            sm = cm.ScalarMappable(cmap=cmap_resolved, norm=norm)
-            sm.set_array([])
-            cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
-            cb.set_label(classes if isinstance(classes, str) else "Abundance", fontsize=9)
-
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance", text_size=9)
+        
         if add_ellipses and isinstance(classes, (str, list)) and all(c in adata.obs.columns for c in (classes if isinstance(classes, list) else [classes])):
             ellipse_kwargs = ellipse_kwargs.copy() if ellipse_kwargs else {}
             y = utils.get_samplenames(adata, classes)
@@ -1260,12 +1256,8 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         ax.set_zlabel(f'PC{pc_z+1} ({pca["variance_ratio"][pc_z]*100:.2f}%)')
 
         # Add colorbar if using continuous color (i.e., abundance coloring)
-        if isinstance(color_mapped, np.ndarray) and cmap_resolved is not None:
-            norm = mcolors.Normalize(vmin=np.min(color_mapped), vmax=np.max(color_mapped))
-            sm = cm.ScalarMappable(cmap=cmap_resolved, norm=norm)
-            sm.set_array([])
-            cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
-            cb.set_label(classes if isinstance(classes, str) else "Abundance", fontsize=9)
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance", text_size=9)
 
     # Labels
     if show_labels:
@@ -1313,16 +1305,13 @@ def resolve_plot_colors(adata, classes, cmap, layer="X"):
         classes (str): Class used for coloring. Can be:
             
             - An `.obs` column name (categorical or continuous).
-            
             - A gene or protein identifier, in which case coloring is based
               on abundance values from the specified `layer`.
 
         cmap (str, list, or matplotlib colormap): Colormap to use.
             
             - `"default"`: uses `get_color()` scheme.
-            
             - list of colors: categorical mapping.
-            
             - colormap name or object: continuous mapping.
 
         layer (str): Data layer to extract abundance values from when `classes`
@@ -1415,6 +1404,19 @@ def resolve_plot_colors(adata, classes, cmap, layer="X"):
 
     else:
         raise ValueError("Invalid classes input.")
+
+def _add_continuous_colorbar(ax, color_mapped, cmap_resolved, label, text_size=10):
+    """Attach a colorbar if using continuous coloring."""
+    import matplotlib.cm as cm
+    import matplotlib.colors as mcolors
+    import numpy as np
+
+    if isinstance(color_mapped, np.ndarray) and cmap_resolved is not None:
+        norm = mcolors.Normalize(vmin=np.min(color_mapped), vmax=np.max(color_mapped))
+        sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
+        sm.set_array([])
+        cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
+        cb.set_label(label, fontsize=text_size)
 
 # NOTE: STRING enrichment plots live in enrichment.py, not here.
 # This function is re-documented here for discoverability.
@@ -1521,15 +1523,29 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
     if umap_param['n_components'] == 1:
         ax.scatter(Xt[:,0], range(len(Xt)), c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
+
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance",
+                                text_size=text_size)
+        
     elif umap_param['n_components'] == 2:
         ax.scatter(Xt[:,0], Xt[:,1], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
         ax.set_ylabel('UMAP 2', fontsize=text_size)
+
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance",
+                                text_size=text_size)
+        
     elif umap_param['n_components'] == 3:
         ax.scatter(Xt[:,0], Xt[:,1], Xt[:,2], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
         ax.set_ylabel('UMAP 2', fontsize=text_size)
         ax.set_zlabel('UMAP 3', fontsize=text_size)
+
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance",
+                                text_size=text_size)
 
     if legend_elements:
         if classes is None:
