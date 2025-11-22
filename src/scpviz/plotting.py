@@ -1447,7 +1447,7 @@ def resolve_plot_colors(adata, classes, cmap, layer="X"):
         raise ValueError("Invalid classes input. Must be None, a protein in var_names, or an obs column/list.")
 
     else:
-        raise ValueError("Invalid classes input.")
+        raise ValueError("Invalid input. List input supports only classes ([class1, class2]), and string supports classes or protein accession or gene name. ")
 
 def _add_continuous_colorbar(ax, color_mapped, cmap_resolved, label, text_size=10):
     """Attach a colorbar if using continuous coloring."""
