@@ -78,7 +78,6 @@ class AnalysisMixin:
 
         self._history.append(f"{on}: Coefficient of Variation (CV) calculated for {layer} data by {classes}. CV stored in var['CV: {class_value}'].") # type: ignore[attr-defined]
 
-    # TODO: implement methods for calculdating fold change, 1. mean, 2. prot pairwise median, or 3. pep pairwise median (will need to refer to RS)
     def de(self, values=None, class_type=None, method='ttest', layer='X', pval=0.05, log2fc=1.0, fold_change_mode='mean'):
         """
         Perform differential expression (DE) analysis on proteins across sample groups.
@@ -94,11 +93,8 @@ class AnalysisMixin:
                 - Legacy-style (if `class_type` is provided): [['HCT116', 'DMSO'], ['HCT116', 'DrugX']]
 
             class_type (str or list of str, optional): Legacy-style class label(s) to interpret `values`.
-
             method (str): Statistical test to use. Options: "ttest", "mannwhitneyu", "wilcoxon".
-
             layer (str): Name of the data layer to use (default is "X").
-
             pval (float): P-value cutoff used for labeling significance.
 
             log2fc (float): Minimum log2 fold change threshold for significance labeling.
