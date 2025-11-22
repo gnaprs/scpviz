@@ -701,7 +701,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
 
     return _plot_bar(df) if kind == 'bar' else _plot_violin(df)
 
-def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="Grouping",return_df=False,
+def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes=None,return_df=False,
     box=True,fig_width=1.0,fig_height=2.0,palette=None,y_min=None,y_max=None,label_x=True,show_n=False,
     global_legend=True,boxplot_kwargs=None,hline_kwargs=None,text_kwargs=None,):
     """
@@ -721,7 +721,7 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
         layer (str): Data layer to use for abundance values. Default is `'X'`.
         on (str): Data level to plot, either `'protein'` or `'peptide'`.
         return_df (bool): If True, returns the DataFrame of replicate and summary values.
-        classes (str): Column in ``df`` to use for grouping samples (default: "Grouping").
+        classes (str): Column in ``df`` to use for grouping samples (default: None).
         box (bool): If True, draw boxplots. If False, draw colored mean-lines.
         fig_width (float): Width per subplot, in inches.
         fig_height (float): Height of the entire figure, in inches.
@@ -815,14 +815,22 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
         )
         ```
     """
-
-    try:
+    if classes is None:
         df = pdata.get_abundance(
             namelist=namelist,
-            classes=classes, on=on, layer=layer
+            on=on,
+            layer=layer,
         )
-    except KeyError:
-        raise ValueError(f"Column '{classes}' not found in DataFrame.") # safety check
+    else:
+        try:
+            df = pdata.get_abundance(
+                namelist=namelist,
+                classes=classes,
+                on=on,
+                layer=layer,
+            )
+        except KeyError:
+            raise ValueError(f"Column '{classes}' not found in DataFrame.")  # safety check
 
     df = df.copy()
 
@@ -836,13 +844,24 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
     genes = df["gene"].unique()
     n = len(genes)
 
+    # Determine unique_classes
+    if classes is not None:
+        unique_classes = list(df[classes].unique())  # DO NOT sort
+    else:
+        unique_classes = [None]  # placeholder for no grouping
+
     # Determine palette
-    n_classes = df[classes].nunique()
-    if palette is None:
-        palette = get_color("colors", n_classes)
+    if classes is not None:
+        n_classes = df[classes].nunique()
+        if palette is None:
+            palette = get_color("colors", n_classes)
+    else:
+        # no classes → everything is one group, no hue
+        n_classes = 1
+        if palette is None:
+            palette = get_color("colors", 1)  # or any default single color
 
     # setup kwargs defaults
-
     boxplot_defaults = dict(
         showcaps=False,
         whiskerprops={"visible": False},
@@ -881,18 +900,19 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
 
     for ax, gene in zip(axes, genes):
         sub = df[df["gene"] == gene]
-        unique_classes = sorted(sub[classes].unique())
+
+        if classes is not None:
+            unique_classes = list(sub[classes].unique())  # keep order, see next section
+        else:
+            unique_classes = [None]  # placeholder        
 
         # Stripplot (raw points) on log_abundance
         before_n = len(ax.collections)
 
-        # Build kwargs only once
         strip_kwargs = dict(
             data=sub,
             x="gene",
             y="log_abundance",
-            hue=classes,
-            dodge=True,
             jitter=True,
             alpha=0.4,
             size=3,
@@ -900,57 +920,66 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
             ax=ax,
         )
 
-        if box:
-            strip_kwargs["color"] = "black"     # single color
+        if classes is None:
+            # no hue, everything in one group
+            strip_kwargs["color"] = "black"
+            strip_kwargs["dodge"] = False
         else:
-            strip_kwargs["palette"] = palette   # per-class colors
+            strip_kwargs["hue"] = classes
+            strip_kwargs["dodge"] = True
+            strip_kwargs["hue_order"] = unique_classes
+            if box:
+                strip_kwargs["color"] = "black"
+            else:
+                strip_kwargs["palette"] = palette
 
         sns.stripplot(**strip_kwargs)
 
         after_n = len(ax.collections)
         strip_collections = ax.collections[before_n:after_n]
 
-        # calculate actual dodge x-centers for each hue group
-        x_centers = []
-        for coll in strip_collections:
-            offs = coll.get_offsets()
-            if offs.size > 0:
-                x_centers.append(np.nanmean(offs[:, 0]))
-            else:
-                x_centers.append(np.nan)
+        if box:
+            # For boxplot: use patch positions (left + width/2)
+            sns_bp = ax.artists  # boxes
+            x_centers = [
+                artist.get_x() + artist.get_width() / 2
+                for artist in sns_bp
+            ]
+        else:
+            # For stripplot: use actual point offsets
+            x_centers = []
+            for coll in strip_collections:
+                offs = coll.get_offsets()
+                x_centers.append(np.nanmean(offs[:, 0]) if offs.size > 0 else np.nan)
 
         if box:
             # boxplot on log abundance
-            sns.boxplot(
-                data=sub,
-                x="gene",
-                y="log_abundance",
-                hue=classes,
-                palette=palette,
-                ax=ax,
-                **boxplot_defaults,
-            )
+            if classes is None:
+                sns.boxplot(
+                    data=sub,
+                    x="gene",
+                    y="log_abundance",
+                    color=palette[0],
+                    ax=ax,
+                    **boxplot_defaults,
+                )
+            else:
+                sns.boxplot(
+                    data=sub,
+                    x="gene",
+                    y="log_abundance",
+                    hue=classes,
+                    hue_order=unique_classes,
+                    palette=palette,
+                    ax=ax,
+                    **boxplot_defaults,
+                )
         else:
-             # compute means excluding zeros
-            sub_pos = sub[sub["abundance"] > 0]
-            group_means = (
-                sub_pos.groupby(classes)["log_abundance"]
-                .mean()
-                .reindex(unique_classes)
-            )
-
-            for cls, coll in zip(unique_classes, strip_collections):
-                mean_val = group_means.loc[cls]
-                if np.isnan(mean_val):
-                    continue
-
-                offsets = coll.get_offsets()
-                if offsets.size == 0:
-                    continue
-
-                x_center = np.nanmean(offsets[:, 0])
-
-                # draw the mean line centered on the dodge offset
+            if classes is None:
+                # one mean over all non-zero abundances
+                sub_pos = sub[sub["abundance"] > 0]
+                mean_val = sub_pos["log_abundance"].mean()
+                x_center = x_centers[0]
                 half_width = hline_defaults["half_width"]
                 ax.hlines(
                     y=mean_val,
@@ -960,9 +989,31 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
                     linewidth=hline_defaults["linewidth"],
                     zorder=hline_defaults["zorder"],
                 )
+            else:
+                # compute means excluding zeros
+                sub_pos = sub[sub["abundance"] > 0]
+                group_means = (
+                    sub_pos.groupby(classes)["log_abundance"]
+                    .mean()
+                    .reindex(unique_classes)
+                )
+
+                for cls, x_center in zip(unique_classes, x_centers):
+                    mean_val = group_means.loc[cls]
+                    if np.isnan(mean_val):
+                        continue
+                    half_width = hline_defaults["half_width"]
+                    ax.hlines(
+                        y=mean_val,
+                        xmin=x_center - half_width,
+                        xmax=x_center + half_width,
+                        color=hline_defaults["color"],
+                        linewidth=hline_defaults["linewidth"],
+                        zorder=hline_defaults["zorder"],
+                    )
 
         # n = x annotation
-        if show_n:
+        if show_n and classes is not None:
             # Count only non-zero abundances
             n_nonzero = (
                 (sub["abundance"] > 0)
@@ -972,13 +1023,11 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
             )
 
             for cls, x_center in zip(unique_classes, x_centers):
-
                 # choose y position
                 if box:
                     # Q3 for this class
                     dat = sub.loc[sub[classes] == cls, "log_abundance"]
                     anchor = np.nanpercentile(dat, 75)
-                    
                 else:
                     # use mean line position
                     anchor = group_means.loc[cls]
@@ -1002,57 +1051,52 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes="G
             ymax = y_max if y_max is not None else cur_ymax
             ax.set_ylim(ymin, ymax)
 
-        # Nice integer ticks in log10 space, including 0 if present
         ymin, ymax = ax.get_ylim()
-        tick_min = int(np.floor(ymin))
-        tick_max = int(np.ceil(ymax))
-        tick_min = min(tick_min, 0)  # ensure we can show 0 if needed
-        ticks = np.arange(tick_min, tick_max + 1)
+        ticks = np.arange(min(int(np.floor(ymin)), 0), int(np.ceil(ymax)) + 1)
         ax.set_yticks(ticks)
 
         if label_x: # put class names as x-axis labels
-            ax.set_xticks(x_centers)
-            ax.set_xticklabels(unique_classes, rotation=45, ha='right')
+            if classes is not None:
+                ax.set_xticks(x_centers)
+                ax.set_xticklabels(unique_classes, rotation=45, ha="right")
+            else:
+                # single group
+                ax.set_xticks([])
+                ax.set_xticklabels([])
         else:
             ax.set_xticks([])
             ax.set_xticklabels([])
             ax.tick_params(axis="x", bottom=False)
 
-        ax.set_xlabel("")  # remove duplicated labels
+        ax.set_xlabel("") 
         ax.set_ylabel("log10(Abundance)" if ax == axes[0] else "")
 
-        # Remove subplot-specific legends
+        # Remove subplot legends
         leg = ax.get_legend()
         if leg is not None:
             leg.remove()
 
-        # Add a clean axis label for the gene
         ax.set_title(gene, fontsize=10)
 
-    # --- Global legend ---
-    if global_legend:
-        unique_classes = sorted(df[classes].unique())
-
+    # global legend
+    if global_legend and classes is not None:
         # Build custom legend handles from palette
+        legend_classes = unique_classes
+
         if isinstance(palette, dict):
-            colors = [palette[c] for c in unique_classes]
+            colors = [palette[c] for c in legend_classes]
         else:
             # palette is a list in class order
             colors = palette
 
         handles = [
-            plt.Line2D(
-                [0], [0],
-                color=colors[i],
-                lw=3,
-                label=unique_classes[i]
-            )
-            for i in range(len(unique_classes))
+            plt.Line2D([0], [0], color=colors[i], lw=3, label=legend_classes[i])
+            for i in range(len(legend_classes))
         ]
 
         fig.legend(
             handles,
-            unique_classes,
+            legend_classes,
             title=classes,
             frameon=True,
             loc='center left',
