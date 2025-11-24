@@ -308,12 +308,14 @@ def test_boxgrid_multiple_genes(pdata):
     assert len(axes) == 2
     assert all(isinstance(ax, plt.Axes) for ax in axes)
 
-def test_boxgrid_show_n(pdata):
+@pytest.mark.parametrize("box", [True, False])
+def test_boxgrid_show_n(pdata, box):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
         classes="treatment",
-        show_n=True
+        show_n=True,
+        box=box
     )
     # Should draw at least one Text artist
     texts = [t for ax in axes for t in ax.texts]
