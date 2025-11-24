@@ -176,6 +176,42 @@ def format_log_prefix(level: str, indent=None) -> str:
         space = " " * indent_spaces.get(indent, 0)
         return f"{space}{prefix}"
 
+def parse_filename_index(df, obs_columns, delimiter="_"):
+    """
+    Parse DataFrame index (filenames) into metadata columns based on a list of obs_columns.
+
+    Args:
+        df (pd.DataFrame):
+            DataFrame whose index contains delimited filenames.
+        obs_columns (list of str):
+            Names of the metadata columns to extract from the filename.
+        delimiter (str):
+            Character used to split the filename. Default is "_".
+
+    Returns:
+        pd.DataFrame:
+            Copy of df with added metadata columns.
+    """
+    # Split index by delimiter
+    parts = df.index.to_series().str.split(delimiter, expand=True)
+
+    # Validate number of parts
+    expected = len(obs_columns)
+    actual = parts.shape[1]
+    if actual != expected:
+        raise ValueError(
+            f"Expected {expected} parts after splitting index by '{delimiter}', "
+            f"but got {actual}. Index example: '{df.index[0]}'"
+        )
+
+    df_parsed = df.copy()
+
+    # Assign parsed columns
+    for i, col in enumerate(obs_columns):
+        df_parsed[col] = parts.iloc[:, i]
+
+    return df_parsed
+
 # ----------------
 # DATA PROCESSING FUNCTIONS
 # NOTE: get_samplenames and get_classlist are very similar, may want to explain better the difference (classlist is basically samplenames.unique?)

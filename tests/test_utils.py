@@ -32,6 +32,59 @@ def adata_gene():
     adata = AnnData(X=X, obs=obs, var=var)
     return adata
 
+# --- utility tests
+def test_parse_filename_index_success():
+    # Example filenames
+    idx = [
+        "20250101_A_123_10um_mouse_ctx_A1",
+        "20250102_B_456_20um_mouse_snpc_B7",
+    ]
+
+    df = pd.DataFrame({"value": [1, 2]}, index=idx)
+
+    obs_columns = [
+        "date",
+        "gradient",
+        "sample_id",
+        "size",
+        "organism",
+        "region",
+        "well",
+    ]
+
+    out = utils.parse_filename_index(df, obs_columns, delimiter="_")
+
+    # Ensure metadata columns exist
+    for col in obs_columns:
+        assert col in out.columns
+
+    # Check correct parsing for first row
+    assert out.loc[idx[0], "date"] == "20250101"
+    assert out.loc[idx[0], "gradient"] == "A"
+    assert out.loc[idx[0], "sample_id"] == "123"
+    assert out.loc[idx[0], "size"] == "10um"
+    assert out.loc[idx[0], "organism"] == "mouse"
+    assert out.loc[idx[0], "region"] == "ctx"
+    assert out.loc[idx[0], "well"] == "A1"
+
+
+def test_parse_filename_index_wrong_parts_raises():
+    # Filename with fewer parts
+    idx = ["20250101_A_123_mouse"]
+
+    df = pd.DataFrame({"value": [1]}, index=idx)
+
+    obs_columns = ["date", "gradient", "sample_id", "organism", "region"]
+
+    with pytest.raises(ValueError) as excinfo:
+        utils.parse_filename_index(df, obs_columns, delimiter="_")
+
+    msg = str(excinfo.value)
+    assert "Expected 5 parts" in msg
+    assert "but got 4" in msg
+    assert "20250101_A_123_mouse" in msg
+
+# data processing functions
 # get class_list()
 def test_get_classlist_single_column(adata_example):
     result = utils.get_classlist(adata_example, classes="cellline")
