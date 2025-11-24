@@ -1055,18 +1055,23 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes=No
         ticks = np.arange(min(int(np.floor(ymin)), 0), int(np.ceil(ymax)) + 1)
         ax.set_yticks(ticks)
 
-        if label_x: # put class names as x-axis labels
-            if classes is not None:
-                ax.set_xticks(x_centers)
-                ax.set_xticklabels(unique_classes, rotation=45, ha="right")
-            else:
-                # single group
-                ax.set_xticks([])
-                ax.set_xticklabels([])
-        else:
+        if len(x_centers) == 0:
+            # No dodge positions were created (e.g., only one class had data)
+            # → Do NOT set xticks or xticklabels
             ax.set_xticks([])
             ax.set_xticklabels([])
-            ax.tick_params(axis="x", bottom=False)
+        else:
+            if label_x:
+                if classes is not None:
+                    ax.set_xticks(x_centers)
+                    ax.set_xticklabels(unique_classes, rotation=45, ha="right")
+                else:
+                    ax.set_xticks([])
+                    ax.set_xticklabels([])
+            else:
+                ax.set_xticks([])
+                ax.set_xticklabels([])
+                ax.tick_params(axis="x", bottom=False)
 
         ax.set_xlabel("") 
         ax.set_ylabel("log10(Abundance)" if ax == axes[0] else "")
@@ -1128,9 +1133,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         classes (str, list of str, or None): Coloring scheme.
             
             - None: plot all samples in grey.
-            
             - str: an `.obs` column (e.g. `"treatment"`) or a gene/protein (e.g. `"UBE4B"`).
-            
             - list of str: combine multiple `.obs` columns (e.g. `["cellline", "treatment"]`).
 
         layer (str): Data layer to use. Default is `"X"`.
@@ -1138,9 +1141,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         cmap (str, list, or matplotlib colormap): Colormap for point coloring.
             
             - `"default"`: uses `get_color()` scheme.
-            
             - list of colors: categorical mapping for `classes`.
-            
             - colormap name or object: continuous coloring for expression values.
 
         s (float): Scatter dot size. Default is 20.
@@ -1152,9 +1153,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         show_labels (bool or list): Whether to label points.
             
             - False: no labels.
-            
             - True: label all samples.
-            
             - list: label only specified samples.
 
         label_column (str, optional): Column in `.summary` to use as label source.
@@ -1948,17 +1947,13 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
         fold_change_mode (str): Method for computing fold change.
             
             - `"mean"`: log2(mean(group1) / mean(group2))
-            
             - `"pairwise_median"`: median of all pairwise log2 ratios.
 
         label (int, list, or None): Features to highlight.
             
             - If int: label top and bottom *n* features.
-            
             - If list of str: label only the specified features.
-            
             - If list of two ints: `[top, bottom]` to label asymmetric counts.
-            
             - If None: no labels plotted.
 
         label_type (str): Label content type. Currently `"Gene"` is recommended.
@@ -2126,6 +2121,188 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
     else:
         return ax
 
+def plot_volcano_adata(
+    ax,
+    adata=None,
+    values=None,
+    class_type=None,
+    de_data=None,
+    method='ttest',
+    fold_change_mode='mean',
+    layer='X',
+    label=5,
+    fontsize=8,
+    alpha=0.5,
+    color=None,
+    linewidth=0.5,
+    pval=0.05,
+    log2fc=1.0,
+    no_marks=False,
+    return_df=False,
+    **kwargs
+):
+    """
+    Volcano plot for AnnData with the *same API behavior* as pdata.plot_volcano.
+
+    Required:
+        - Either `de_data` OR (`adata`, `values`, `class_type`).
+        
+    Supports:
+        - Dictionary-style values: [{"cellline":"HCT116","tx":"DMSO"}, {...}]
+        - Legacy-style values: ["A","B"]
+        - Legacy multi-col values: [["HCT116","DMSO"], ["HCT116","DrugX"]]
+
+    Produces: identical volcano to pAnnData version.
+    """
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from adjustText import adjust_text
+    import matplotlib.patheffects as PathEffects
+
+    # ----------------------------------------------
+    # 1 — Load or compute DE
+    # ----------------------------------------------
+    if de_data is not None:
+        df = de_data.copy()
+        # For labels: user must supply labels manually if needed
+        group1_label = None
+        group2_label = None
+
+    else:
+        if adata is None or values is None:
+            raise ValueError("When de_data is not provided, must supply adata and values.")
+
+        # Use de_adata() which understands both legacy & dict-style
+        df = utils.de_adata(
+            adata=adata,
+            values=values,
+            class_type=class_type,
+            method=method,
+            fold_change_mode=fold_change_mode,
+            layer=layer,
+            pval=pval,
+            log2fc=log2fc
+        )
+
+        def format_group(val, class_type):
+            if isinstance(val, dict):
+                return "/".join(str(v) for v in val.values())
+            elif isinstance(val, list) and isinstance(class_type, list):
+                return "/".join(str(v) for v in val)
+            else:
+                return str(val)
+
+        group1_label = format_group(values[0], class_type)
+        group2_label = format_group(values[1], class_type)
+
+    # volcano plotting
+    volcano_df = df.dropna(subset=['p_value']).copy()
+    volcano_df = volcano_df[volcano_df["significance"] != "not comparable"]
+
+    default_color = {'not significant': 'grey', 'upregulated': 'red', 'downregulated': 'blue'}
+    if color:
+        default_color.update(color)
+    elif no_marks:
+        default_color = {k: 'grey' for k in default_color}
+
+    scatter_kwargs = dict(s=20, edgecolors='none')
+    scatter_kwargs.update(kwargs)
+
+    colors = volcano_df['significance'].astype(str).map(default_color)
+
+    ax.scatter(
+        volcano_df['log2fc'],
+        volcano_df['-log10(p_value)'],
+        c=colors, alpha=alpha,
+        **scatter_kwargs
+    )
+
+    # threshold lines
+    ax.axhline(-np.log10(pval), color='black', linestyle='--', linewidth=linewidth)
+    ax.axvline(log2fc, color='black', linestyle='--', linewidth=linewidth)
+    ax.axvline(-log2fc, color='black', linestyle='--', linewidth=linewidth)
+
+    ax.set_xlabel('$log_{2}$ fold change')
+    ax.set_ylabel('-$log_{10}$ p value')
+
+    # symmetric x-limits
+    log2fc_clean = pd.to_numeric(volcano_df['log2fc'], errors='coerce').dropna()
+    max_abs = log2fc_clean.abs().max() + 0.5 if not log2fc_clean.empty else 1
+    ax.set_xlim(-max_abs, max_abs)
+
+    if not no_marks and label not in [None, 0, [0, 0]]:
+        if isinstance(label, int):
+            up = volcano_df[volcano_df['significance'] == 'upregulated'].sort_values(
+                'significance_score', ascending=False
+            )
+            down = volcano_df[volcano_df['significance'] == 'downregulated'].sort_values(
+                'significance_score', ascending=True
+            )
+            label_df = pd.concat([up.head(label), down.head(label)])
+
+        elif isinstance(label, list):
+            if len(label) == 2 and all(isinstance(i, int) for i in label):
+                up = volcano_df[volcano_df['significance'] == 'upregulated'].sort_values(
+                    'significance_score', ascending=False
+                )
+                down = volcano_df[volcano_df['significance'] == 'downregulated'].sort_values(
+                    'significance_score', ascending=True
+                )
+                label_df = pd.concat([up.head(label[0]), down.head(label[1])])
+
+            else:
+                ll = [str(v).lower() for v in label]
+                label_df = volcano_df[
+                    volcano_df.index.str.lower().isin(ll) |
+                    volcano_df.get("Genes", pd.Series("", index=volcano_df.index)).str.lower().isin(ll)
+                ]
+
+        else:
+            raise ValueError("label must be int or list")
+
+        # plot labels
+        texts = []
+        for idx, row in label_df.iterrows():
+            text_val = row.get('Genes', idx)
+            txt = ax.text(
+                row['log2fc'], row['-log10(p_value)'],
+                s=text_val,
+                fontsize=fontsize,
+                bbox=dict(facecolor='white', edgecolor='black', boxstyle='round', alpha=0.6)
+            )
+            txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='w')])
+            texts.append(txt)
+
+        adjust_text(texts, expand=(2, 2),
+                    arrowprops=dict(arrowstyle='->', color='k', zorder=5))
+
+    bbox_style = dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='black')
+
+    if group1_label:
+        ax.annotate(group1_label, xy=(0.98, 1.07), xycoords='axes fraction',
+                    ha='right', va='bottom', fontsize=fontsize,
+                    weight='bold', bbox=bbox_style)
+
+    if group2_label:
+        ax.annotate(group2_label, xy=(0.02, 1.07), xycoords='axes fraction',
+                    ha='left', va='bottom', fontsize=fontsize,
+                    weight='bold', bbox=bbox_style)
+
+    up_count = (volcano_df['significance'] == 'upregulated').sum()
+    down_count = (volcano_df['significance'] == 'downregulated').sum()
+
+    ax.annotate(f'n={up_count}', xy=(0.98, 1.015), xycoords='axes fraction',
+                ha='right', va='bottom', fontsize=fontsize,
+                color=default_color['upregulated'])
+
+    ax.annotate(f'n={down_count}', xy=(0.02, 1.015), xycoords='axes fraction',
+                ha='left', va='bottom', fontsize=fontsize,
+                color=default_color['downregulated'])
+
+    return (ax, df) if return_df else ax
+
+
 def add_volcano_legend(ax, colors=None):
     """
     Add a standard legend for volcano plots.
@@ -2215,22 +2392,33 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
         label = [label]
         label_color = [label_color] if isinstance(label_color, str) else label_color
 
+    if "Genes" in volcano_df.columns:
+        gene_col = volcano_df["Genes"].astype(str)
+    else:
+        # fallback: use the index as feature names
+        gene_col = volcano_df.index.astype(str)
+
     for i, label_group in enumerate(label):
         color = label_color[i % len(label_color)] if isinstance(label_color, list) else label_color
 
         # Match by index or 'Genes' column
-        match_df = volcano_df[
+        match_mask = (
             volcano_df.index.isin(label_group) |
-            volcano_df['Genes'].isin(label_group)
-        ]
+            gene_col.isin(label_group)
+        )
+        match_df = volcano_df[match_mask]
 
         ax.scatter(match_df['log2fc'], match_df['-log10(p_value)'],
                    c=color, s=s, alpha=alpha, edgecolors='none')
 
         if show_names:
             texts = []
-            for _, row in match_df.iterrows():
-                text = row['Genes'] if label_type == 'Gene' and pd.notna(row.get('Genes')) else row.name
+            for idx, row in match_df.iterrows():
+                if label_type == "Gene" and "Genes" in volcano_df.columns:
+                    text = row.get("Genes", idx)
+                else:
+                    text = idx
+
                 txt = ax.text(row['log2fc'], row['-log10(p_value)'],
                               s=text,
                               fontsize=fontsize,
