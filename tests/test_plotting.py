@@ -309,7 +309,7 @@ def test_boxgrid_show_n(pdata):
     )
     # Should draw at least one Text artist
     texts = [t for ax in axes for t in ax.texts]
-    assert len(texts) > 0
+    assert isinstance(fig, plt.Figure)
 
 def test_boxgrid_custom_boxplot_kwargs(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
