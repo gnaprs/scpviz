@@ -255,6 +255,14 @@ def test_plot_abundance_custom_order(pdata):
     plt.close("all")
 
 # Tests for scplt.plot_abundance_boxgrid
+def test_boxgrid_noclass(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes=None
+    )
+    assert isinstance(fig, plt.Figure)
+
 def test_boxgrid_smoke(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
