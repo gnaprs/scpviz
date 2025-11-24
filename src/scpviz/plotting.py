@@ -872,6 +872,8 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes=No
     )
     if boxplot_kwargs is not None:
         boxplot_defaults.update(boxplot_kwargs)
+    if classes is None:
+        boxplot_defaults["dodge"] = False
 
     hline_defaults = dict(
         color="k",
