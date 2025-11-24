@@ -529,6 +529,11 @@ def test_plot_umap_runs_without_error(pdata):
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
 
+def test_plot_umap_runs_without_class(pdata):
+    fig, ax = plt.subplots()
+    result = scplt.plot_umap(ax, pdata, classes=None, on="protein")
+    assert _is_axes_container(result)
+
 def test_plot_umap_forces_recompute(pdata):
     fig, ax = plt.subplots()
     result = scplt.plot_umap(ax, pdata, force=True, classes="treatment")
