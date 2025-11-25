@@ -159,6 +159,10 @@ class SummaryMixin:
                 obs[col] = summary[col]
             return skipped, updated
 
+        # remove unused categorical columns
+        for col in self._summary.select_dtypes(['category']).columns:
+            self._summary[col] = self._summary[col].cat.remove_unused_categories()
+
         if self.prot is not None:
             if self.prot.is_view:
                 self.prot = self.prot.copy()
