@@ -1847,6 +1847,12 @@ class FilterMixin:
             classes_list = utils.get_classlist(adata, classes=classes)
 
             for class_value in classes_list:
+                if "_" in class_value:
+                    print(
+                        f"{format_log_prefix('warn')} class_value '{class_value}' contains an underscore ('_'), "
+                        "which may break format_class_filter(). Consider removing or replacing ('_')."
+                    )
+
                 class_data = utils.resolve_class_filter(adata, classes, class_value)
                 class_samples = class_data.obs_names
 
@@ -1942,6 +1948,12 @@ class FilterMixin:
             classes_list = utils.get_classlist(adata, classes=classes)
 
             for class_value in classes_list:
+                if "_" in class_value:
+                    print(
+                        f"{format_log_prefix('warn')} class_value '{class_value}' contains an underscore ('_'), "
+                        "which may break format_class_filter(). Consider removing or replacing ('_')."
+                    )
+
                 class_data = utils.resolve_class_filter(adata, classes, class_value)
                 class_samples = class_data.obs_names
 
