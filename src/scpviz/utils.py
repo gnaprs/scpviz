@@ -901,7 +901,7 @@ def format_class_filter(classes, class_value, exact_cases=False):
                     raise ValueError("Each class_value entry must be a string or a list.")
 
                 if len(values) != len(classes):
-                    raise ValueError("Each class_value entry must match the number of classes.")
+                    raise ValueError("Each class_value entry must match the number of classes. Check that group/class labels did not contain unintentional underscores ('_').")
                 formatted.append({cls: val for cls, val in zip(classes, values)})
 
             return formatted
@@ -913,7 +913,7 @@ def format_class_filter(classes, class_value, exact_cases=False):
             else:
                 values = class_value
             if len(values) != len(classes):
-                raise ValueError("class_value must align with the number of classes.")
+                raise ValueError("class_value must align with the number of classes. Check that group/class labels did not contain unintentional underscores ('_').")
             return {cls: val for cls, val in zip(classes, values)}
 
     else:
