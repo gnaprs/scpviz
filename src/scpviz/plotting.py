@@ -37,7 +37,10 @@ Functions:
 
 Functions:
     plot_volcano: Volcano plot of differential expression results.
-    mark_volcano: Highlight specific features on a volcano plot.
+    plot_volcano_adata: Same as above, but for AnnData objects.
+    mark_volcano: Highlight specific features on a volcano plot with a specific color.
+    mark_volcano_significance: Similar to above, but colored by significance.
+    volcano_adjust_and_outline_texts: Adjust text labels for volcano plots after multiple mark_volcanos.
     add_volcano_legend: Add standard legend handles for volcano plots.
 
 ## Enrichment Plots
@@ -2164,6 +2167,183 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
     else:
         return ax
 
+def plot_volcano_adata(
+    ax,
+    adata=None,
+    values=None,
+    class_type=None,
+    de_data=None,
+    method='ttest',
+    fold_change_mode='mean',
+    layer='X',
+    label=5,
+    fontsize=8,
+    alpha=0.5,
+    color=None,
+    linewidth=0.5,
+    pval=0.05,
+    log2fc=1.0,
+    no_marks=False,
+    return_df=False,
+    **kwargs
+):
+    """
+    Volcano plot for AnnData with the *same API behavior* as pdata.plot_volcano.
+
+    Required:
+        - Either `de_data` OR (`adata`, `values`, `class_type`).
+        
+    Supports:
+        - Dictionary-style values: [{"cellline":"HCT116","tx":"DMSO"}, {...}]
+        - Legacy-style values: ["A","B"]
+        - Legacy multi-col values: [["HCT116","DMSO"], ["HCT116","DrugX"]]
+
+    Produces: identical volcano to pAnnData version.
+    """
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from adjustText import adjust_text
+    import matplotlib.patheffects as PathEffects
+
+    if de_data is not None:
+        df = de_data.copy()
+        # For labels: user must supply labels manually if needed
+        group1_label = df.attrs.get("group1_label", None)
+        group2_label = df.attrs.get("group2_label", None)
+
+    else:
+        if adata is None or values is None:
+            raise ValueError("When de_data is not provided, must supply adata and values.")
+
+        df = utils.de_adata(
+            adata=adata,
+            values=values,
+            class_type=class_type,
+            method=method,
+            fold_change_mode=fold_change_mode,
+            layer=layer,
+            pval=pval,
+            log2fc=log2fc
+        )
+
+        def format_group(val, class_type):
+            if isinstance(val, dict):
+                return "/".join(str(v) for v in val.values())
+            elif isinstance(val, list) and isinstance(class_type, list):
+                return "/".join(str(v) for v in val)
+            else:
+                return str(val)
+
+        group1_label = format_group(values[0], class_type)
+        group2_label = format_group(values[1], class_type)
+
+    # volcano plotting
+    volcano_df = df.dropna(subset=['p_value']).copy()
+    volcano_df = volcano_df[volcano_df["significance"] != "not comparable"]
+
+    default_color = {'not significant': 'grey', 'upregulated': 'red', 'downregulated': 'blue'}
+    if color:
+        default_color.update(color)
+    elif no_marks:
+        default_color = {k: 'grey' for k in default_color}
+
+    scatter_kwargs = dict(s=20, edgecolors='none')
+    scatter_kwargs.update(kwargs)
+
+    colors = volcano_df['significance'].astype(str).map(default_color)
+
+    ax.scatter(
+        volcano_df['log2fc'],
+        volcano_df['-log10(p_value)'],
+        c=colors, alpha=alpha,
+        **scatter_kwargs
+    )
+
+    # threshold lines
+    ax.axhline(-np.log10(pval), color='black', linestyle='--', linewidth=linewidth)
+    ax.axvline(log2fc, color='black', linestyle='--', linewidth=linewidth)
+    ax.axvline(-log2fc, color='black', linestyle='--', linewidth=linewidth)
+
+    ax.set_xlabel('$log_{2}$ fold change')
+    ax.set_ylabel('-$log_{10}$ p value')
+
+    # symmetric x-limits
+    log2fc_clean = pd.to_numeric(volcano_df['log2fc'], errors='coerce').dropna()
+    max_abs = log2fc_clean.abs().max() + 0.5 if not log2fc_clean.empty else 1
+    ax.set_xlim(-max_abs, max_abs)
+
+    if not no_marks and label not in [None, 0, [0, 0]]:
+        if isinstance(label, int):
+            up = volcano_df[volcano_df['significance'] == 'upregulated'].sort_values(
+                'significance_score', ascending=False
+            )
+            down = volcano_df[volcano_df['significance'] == 'downregulated'].sort_values(
+                'significance_score', ascending=True
+            )
+            label_df = pd.concat([up.head(label), down.head(label)])
+
+        elif isinstance(label, list):
+            if len(label) == 2 and all(isinstance(i, int) for i in label):
+                up = volcano_df[volcano_df['significance'] == 'upregulated'].sort_values(
+                    'significance_score', ascending=False
+                )
+                down = volcano_df[volcano_df['significance'] == 'downregulated'].sort_values(
+                    'significance_score', ascending=True
+                )
+                label_df = pd.concat([up.head(label[0]), down.head(label[1])])
+
+            else:
+                ll = [str(v).lower() for v in label]
+                label_df = volcano_df[
+                    volcano_df.index.str.lower().isin(ll) |
+                    volcano_df.get("Genes", pd.Series("", index=volcano_df.index)).str.lower().isin(ll)
+                ]
+
+        else:
+            raise ValueError("label must be int or list")
+
+        # plot labels
+        texts = []
+        for idx, row in label_df.iterrows():
+            text_val = row.get('Genes', idx)
+            txt = ax.text(
+                row['log2fc'], row['-log10(p_value)'],
+                s=text_val,
+                fontsize=fontsize,
+                bbox=dict(facecolor='white', edgecolor='black', boxstyle='round', alpha=0.6)
+            )
+            txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='w')])
+            texts.append(txt)
+
+        adjust_text(texts, expand=(2, 2),
+                    arrowprops=dict(arrowstyle='->', color='k', zorder=5))
+
+    bbox_style = dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='black')
+
+    if group1_label:
+        ax.annotate(group1_label, xy=(0.98, 1.07), xycoords='axes fraction',
+                    ha='right', va='bottom', fontsize=fontsize,
+                    weight='bold', bbox=bbox_style)
+
+    if group2_label:
+        ax.annotate(group2_label, xy=(0.02, 1.07), xycoords='axes fraction',
+                    ha='left', va='bottom', fontsize=fontsize,
+                    weight='bold', bbox=bbox_style)
+
+    up_count = (volcano_df['significance'] == 'upregulated').sum()
+    down_count = (volcano_df['significance'] == 'downregulated').sum()
+
+    ax.annotate(f'n={up_count}', xy=(0.98, 1.015), xycoords='axes fraction',
+                ha='right', va='bottom', fontsize=fontsize,
+                color=default_color['upregulated'])
+
+    ax.annotate(f'n={down_count}', xy=(0.02, 1.015), xycoords='axes fraction',
+                ha='left', va='bottom', fontsize=fontsize,
+                color=default_color['downregulated'])
+
+    return (ax, df) if return_df else ax
+
 def add_volcano_legend(ax, colors=None):
     """
     Add a standard legend for volcano plots.
@@ -2207,7 +2387,7 @@ def add_volcano_legend(ax, colors=None):
     ]
     ax.legend(handles=handles, loc='upper right', frameon=True, fontsize=7)
 
-def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', s=10, alpha=1, show_names=True, fontsize=8):
+def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', s=10, alpha=1, show_names=True, fontsize=8, return_texts=False):
     """
     Mark a volcano plot with specific proteins or genes.
 
@@ -2228,6 +2408,9 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
         show_names (bool): Whether to show labels for the selected features.
             Default is True.
         fontsize (int): Font size for labels. Default is 8.
+        return_texts (bool): Whether to return the list of created text artists.
+            This is useful when labeling multiple groups and performing a single
+            global `adjust_text()` call at the end.
 
     Returns:
         ax (matplotlib.axes.Axes): Axis with the highlighted volcano plot.
@@ -2248,6 +2431,9 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
         `plot_volcano(..., no_marks=True)` to render all points in grey,
         followed by `mark_volcano()` to selectively highlight features of interest.
     """
+    if return_texts and not show_names:
+        print(f"{utils.format_log_prefix('warn_only')} "
+            "return_texts=True but show_names=False; no text labels will be returned.")
 
     if not isinstance(label[0], list):
         label = [label]
@@ -2259,6 +2445,7 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
         # fallback: use the index as feature names
         gene_col = volcano_df.index.astype(str)
 
+    all_texts = []
     for i, label_group in enumerate(label):
         color = label_color[i % len(label_color)] if isinstance(label_color, list) else label_color
 
@@ -2287,10 +2474,250 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
                               bbox=dict(facecolor='white', edgecolor=color, boxstyle='round'))
                 txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='w')])
                 texts.append(txt)
-            adjust_text(texts, expand=(2, 2),
-                        arrowprops=dict(arrowstyle='->', color=color, zorder=5))
+                all_texts.append(txt)
 
+            if not return_texts:
+                adjust_text(texts, expand=(2, 2),
+                            arrowprops=dict(arrowstyle='->', color=color, zorder=5))
+
+    if return_texts:
+        return ax, all_texts
     return ax
+
+def mark_volcano_by_significance(
+    ax, volcano_df, label, color=None, label_type="Gene", s=10, alpha=1, show_names=True, fontsize=8, return_texts=False,):
+    """
+    Mark a volcano plot with specific proteins or genes, colored by significance.
+
+    This function highlights selected features on an existing volcano plot,
+    using the `significance` column in `volcano_df` to determine colors
+    (e.g. "upregulated", "downregulated", "not significant").
+
+    Args:
+        ax (matplotlib.axes.Axes): Axis on which to plot.
+        volcano_df (pandas.DataFrame): DataFrame returned by `plot_volcano()` or
+            `pdata.de()`, containing differential expression results and a
+            `significance` column with values such as:
+            "upregulated", "downregulated", "not significant".
+        label (list): Features to highlight. Can also be a nested list, with
+            separate lists of features for different cases. All features are
+            colored according to their `significance`, not by group.
+        color (dict, optional): Mapping from significance category to color.
+            Defaults to:
+                {
+                    "not significant": "grey",
+                    "upregulated": "red",
+                    "downregulated": "blue",
+                }
+            You can override any of these by passing a dict with the same keys.
+        label_type (str): Type of label to display. Default is `"Gene"`.
+        s (float): Marker size. Default is 10.
+        alpha (float): Marker transparency. Default is 1.
+        show_names (bool): Whether to show labels for the selected features.
+            Default is True.
+        fontsize (int): Font size for labels. Default is 8.
+        return_texts (bool): Whether to return the list of created text artists.
+            This is useful when labeling multiple groups and performing a single
+            global `adjust_text()` call at the end.
+
+    Returns:
+        matplotlib.axes.Axes: Axis with highlighted points if `return_texts=False`.
+        tuple (matplotlib.axes.Axes, list): Returned if `return_texts=True`,
+            where the list contains the text artists for further adjustment.
+
+    Example:
+        Highlight specific features on a volcano plot using significance colors:
+
+            ```python
+            fig, ax = plt.subplots()
+            ax, df = scplt.plot_volcano(
+                ax, pdata, classes="treatment", values=["ctrl", "drug"]
+            )
+
+            custom_prot = ['Snca','Sox2']
+            custom_dict = {"downregulated": "#1F2CCF"}
+            ax = scplt.mark_volcano_by_significance(
+                ax, df, label=custom_prot, color=custom_dict, show_names=False
+            )
+            ```
+
+    Note:
+        This function is designed to work seamlessly with
+        `plot_volcano(..., no_marks=True)` for workflows where you first plot
+        all points in grey and then selectively highlight features of interest.
+    """
+
+    default_color = {
+        "not significant": "grey",
+        "upregulated": "red",
+        "downregulated": "blue",
+    }
+    if color:
+        default_color.update(color)
+
+    if "significance" not in volcano_df.columns:
+        raise ValueError(
+            "volcano_df must contain a 'significance' column to use "
+            "`mark_volcano_by_significance`."
+        )
+
+    if return_texts and show_names:
+        print(f"{utils.format_log_prefix('warn_only')} "
+            "return_texts=True but show_names=True; no text labels will be returned.")
+
+    if not isinstance(label[0], list):
+        label = [label]
+
+    # Decide what we match on for names
+    if "Genes" in volcano_df.columns:
+        gene_col = volcano_df["Genes"].astype(str)
+    else:
+        gene_col = volcano_df.index.astype(str)
+
+    all_texts = []
+    for label_group in label:
+        # Match by index or 'Genes' column
+        match_mask = (
+            volcano_df.index.isin(label_group) |
+            gene_col.isin(label_group)
+        )
+        match_df = volcano_df[match_mask].copy()
+
+        if match_df.empty:
+            continue
+
+        sig_series = match_df["significance"].astype(str)
+        point_colors = sig_series.map(default_color).fillna(default_color["not significant"])
+
+        ax.scatter(
+            match_df["log2fc"],
+            match_df["-log10(p_value)"],
+            c=point_colors,
+            s=s,
+            alpha=alpha,
+            edgecolors="none",
+        )
+
+        if show_names:
+            texts = []
+            for (idx, row), c in zip(match_df.iterrows(), point_colors):
+                if label_type == "Gene" and "Genes" in volcano_df.columns:
+                    text = row.get("Genes", idx)
+                else:
+                    text = idx
+
+                txt = ax.text(
+                    row["log2fc"],
+                    row["-log10(p_value)"],
+                    s=text,
+                    fontsize=fontsize,
+                    color=c,
+                    bbox=dict(facecolor="white", edgecolor=c, boxstyle="round"),
+                )
+                txt.set_path_effects(
+                    [PathEffects.withStroke(linewidth=3, foreground="w")]
+                )
+                texts.append(txt)
+                all_texts.append(txt)
+
+            if not return_texts:
+                adjust_text(
+                    texts,
+                    expand=(2, 2),
+                    arrowprops=dict(arrowstyle="->", color="black", zorder=5),
+                )
+
+    if return_texts:
+        return ax, all_texts
+    return ax
+
+def volcano_adjust_and_outline_texts(texts, expand=(2, 2), arrowprops=dict(arrowstyle='->', color='k', lw=0.8), linewidth=3, outline_color="w",):
+    """
+    Adjust text labels for volcano plots and apply a white outline for readability.
+
+    This function runs `adjust_text()` on a list of text artists while temporarily
+    removing their path effects to ensure stable label placement. A white outline
+    is re-applied after adjustment to improve legibility on dense volcano plots
+    or scatter backgrounds.
+
+    Args:
+        texts (list): List of `matplotlib.text.Text` objects, typically returned
+            from `mark_volcano_by_significance(..., return_texts=True)`.
+        expand (tuple): Expansion parameters passed to `adjust_text()`.
+            Default is `(2, 2)`.
+        arrowprops (dict or None): Arrow properties passed to `adjust_text()`.
+            Set to `None` to disable arrow drawing. Default draws black arrows.
+        linewidth (float): Line width of the outline applied after adjustment.
+            Default is 3.
+        outline_color (str): Color of the outline stroke. Default is `"w"`.
+
+    Returns:
+        list: The same list of text objects (modified in place).
+
+    Example:
+        Adjust and outline labels for multiple marked volcano groups:
+
+            ```python
+            ax, volcano_df = scplt.plot_volcano(
+                ax, pdata_6mo_snpc_norm, values=case_values,
+                return_df=True, no_marks=True
+            )
+
+            rps_dict={'downregulated': '#5166FF'}
+            rpl_dict={'downregulated': '#1F2CCF'}
+
+            # in this case, two sets of texts from mark_volcano or mark_volcano_by_significance (return_texts=True)
+            texts = []
+            ax, t = scplt.mark_volcano(
+                ax, volcano_df, label=rpl_top5, label_color='#1F2CCF',return_texts=True
+            )
+            texts.extend(t)
+
+            ax, t = scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rps_top5, color=rps_dict, return_texts=True
+            )
+            texts.extend(t)
+
+            # and for others, use show_names=False to not show any names/arrows
+            scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rpl_others, color=rpl_dict, show_names=False
+            )
+            scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rps_others, color=rps_dict, show_names=False
+            )
+
+            volcano_adjust_and_outline_texts(texts, expand=(2, 2))
+            ```
+
+    Note:
+        This function is designed to be used after collecting all labels from
+        multiple `mark_volcano_by_significance(..., return_texts=True)` calls.
+        Running `adjust_text()` once globally produces cleaner layouts than
+        multiple per-group adjustments.
+    """
+
+    from adjustText import adjust_text
+    import matplotlib.patheffects as PathEffects
+
+    orig_effects = []
+    for txt in texts:
+        orig_effects.append(txt.get_path_effects())
+        txt.set_path_effects([])
+
+    # adjustText
+    adjust_kwargs = {"expand": expand}
+    if arrowprops is not None:
+        adjust_kwargs["arrowprops"] = arrowprops
+
+    adjust_text(texts, **adjust_kwargs)
+
+    for txt in texts:
+        txt.set_path_effects([
+            PathEffects.withStroke(linewidth=linewidth, foreground=outline_color)
+        ])
+
+    return texts
+
 
 def plot_rankquant(ax, pdata, classes = None, layer = "X", on = 'protein', cmap=['Blues'], color=['blue'], order = None, s=20, alpha=0.2, calpha=1, exp_alpha = 70, debug = False):
     """
