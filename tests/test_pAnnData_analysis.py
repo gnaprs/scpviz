@@ -379,10 +379,20 @@ def test_normalize_force_bad_rows(pdata_preprocessing, capsys):
     assert "Proceeding with normalization despite bad rows" in captured
     assert "X_norm_sum" in pdata.prot.layers
 
-@pytest.mark.xfail(reason="directlfq fails on some pandas versions (odule 'pandas.core.strings' has no attribute 'StringMethods')")
+@pytest.mark.xfail(reason="directlfq fails on some pandas versions (module 'pandas.core.strings' has no attribute 'StringMethods')")
 def test_normalize_directlfq(pdata):
     pdata.normalize(method='directlfq')
     assert 'X_norm_directlfq' in pdata.prot.layers
+
+@pytest.mark.xfail(reason="directlfq fails on some pandas versions (module 'pandas.core.strings' has no attribute 'StringMethods')")
+def test_normalize_directlfq_strict_true(pdata):
+    pdata.normalize(method='directlfq', strict=True)
+    assert 'X_norm_directlfq' in pdata.prot.layers
+
+def test_normalize_directlfq_nopep_raises(pdata_nopep):
+    """Test that directLFQ raises a clear error when peptide-level data is missing."""
+    with pytest.raises(ValueError, match="Peptide-level data not found"):
+        pdata_nopep.normalize(method='directlfq')
 
 def test_normalize_robust_scale(pdata_preprocessing):
     pdata = pdata_preprocessing
