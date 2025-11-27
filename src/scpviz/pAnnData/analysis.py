@@ -1465,6 +1465,17 @@ class AnalysisMixin:
             raise FileNotFoundError("directlfq did not produce a '*protein_intensities.tsv' file in current directory.")
 
         norm_prot = pd.read_csv(out_file, sep="\t").set_index("protein")
+        # Handle multi-protein groups like "P03995;P03995-2"
+        expanded_rows = []
+        for prot, row in norm_prot.iterrows():
+            proteins = prot.split(";")
+            for p in proteins:
+                expanded_rows.append((p, row.copy()))
+
+        # Build new DataFrame where each protein appears exactly once
+        norm_prot_expanded = pd.DataFrame({p: r for p, r in expanded_rows}).T
+
+        norm_prot = norm_prot_expanded
         aligned = norm_prot.reindex(
             index=self.prot.var_names,
             columns=self.prot.obs_names
