@@ -6,6 +6,10 @@ purpose, with paired "plot" and "mark" functions where applicable.
 
 Functions are written to work seamlessly with the `pAnnData` object structure and metadata conventions in scpviz.
 
+## Convenience Plotting Wrappers
+    get_color: Generate a list of colors, a colormap, or a palette from package defaults.
+    shift_legend: Reposition an axis legend outside the plot while maintaining figure size.
+
 ## Distribution and Abundance Plots
 
 Functions:
@@ -230,6 +234,36 @@ def get_color(resource_type: str, n=None):
 
     else:
         raise ValueError("Invalid resource_type. Options are 'colors', 'cmap', and 'palette'")
+
+def shift_legend(ax, anchor_pos=(1.05, 0.5), loc='center left'):
+    """
+    Reposition an axis legend.
+
+    This helper moves an existing Matplotlib legend to a custom anchor point
+    (outside or inside the axis) without modifying its contents.
+
+    Args:
+        ax (matplotlib.axes.Axes): Axis containing the legend.
+        anchor_pos (tuple of float, optional): (x, y) anchor position for the legend
+            in axis coordinates. Default is `(1.05, 0.5)`, placing the legend just
+            outside the right edge.
+        loc (str, optional): Legend location relative to the anchor. Default is
+            `'center left'`.
+
+    Returns:
+        None
+
+    Example:
+        ```python
+        fig, ax = plt.subplots(figsize=(3, 3))
+        ax, = scplt.plot_pca(ax, pdata, classes='treatment')
+        scplt.shift_legend(ax)
+        ```
+    """    
+    leg = ax.get_legend()
+    if leg is not None:
+        leg.set_bbox_to_anchor(anchor_pos)
+        leg.set_loc(loc)
 
 def plot_significance(ax, y, h, x1=0, x2=1, col='k', pval='n.s.', fontsize=12):
     """
