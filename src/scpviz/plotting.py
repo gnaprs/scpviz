@@ -1160,7 +1160,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
              cmap='default', s=20, alpha=.8, plot_pc=[1, 2],
              pca_params=None, force=False, basis='X_pca',
              show_labels=False, label_column=None,
-             add_ellipses=False, ellipse_kwargs=None, return_fit=False):
+             add_ellipses=False, ellipse_kwargs=None, return_fit=False, **kwargs):
     """
     Plot principal component analysis (PCA) of protein or peptide abundance.
 
@@ -1203,6 +1203,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
             Ellipses represent a 95% confidence region under a bivariate Gaussian assumption.
         ellipse_kwargs (dict, optional): Additional keyword arguments for the ellipse patch.
         return_fit (bool): If True, also return the fitted PCA object.
+        **kwargs: Keyword arguments passed to `ax.scatter()`.
 
     Returns:
         ax (matplotlib.axes.Axes): Axis containing the PCA scatter plot.
@@ -1309,7 +1310,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
 
     # Plot
     if len(plot_pc) == 2:
-        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel(f'PC{pc_x+1} ({pca["variance_ratio"][pc_x]*100:.2f}%)')
         ax.set_ylabel(f'PC{pc_y+1} ({pca["variance_ratio"][pc_y]*100:.2f}%)')
 
@@ -1334,7 +1335,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
                 plot_confidence_ellipse(sub['PC1'].values, sub['PC2'].values, ax=ax, **kwargs)
 
     elif len(plot_pc) == 3:
-        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], X_pca[:, pc_z], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], X_pca[:, pc_z], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel(f'PC{pc_x+1} ({pca["variance_ratio"][pc_x]*100:.2f}%)')
         ax.set_ylabel(f'PC{pc_y+1} ({pca["variance_ratio"][pc_y]*100:.2f}%)')
         ax.set_zlabel(f'PC{pc_z+1} ({pca["variance_ratio"][pc_z]*100:.2f}%)')
@@ -1524,7 +1525,7 @@ def plot_enrichment_svg(*args, **kwargs):
     from .enrichment import plot_enrichment_svg as actual_plot
     return actual_plot(*args, **kwargs)
 
-def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='default', s=20, alpha=.8, umap_params={}, text_size = 10, force = False, return_fit=False):
+def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='default', s=20, alpha=.8, umap_params={}, text_size = 10, force = False, return_fit=False, **kwargs):
     """
     Plot UMAP projection of protein or peptide abundance data.
 
@@ -1552,6 +1553,7 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
         text_size (int): Font size for axis labels and legend (default: 10).
         force (bool): If True, re-compute UMAP even if results already exist.
         return_fit (bool): If True, return the fitted UMAP object along with the axis.
+        **kwargs: Keyword arguments passed to `ax.scatter()`.
 
     Returns:
         ax (matplotlib.axes.Axes): The axis with the UMAP plot.
@@ -1605,7 +1607,7 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
     color_mapped, cmap_resolved, legend_elements = resolve_plot_colors(adata, classes, cmap, layer=layer)
 
     if umap_param['n_components'] == 1:
-        ax.scatter(Xt[:,0], range(len(Xt)), c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(Xt[:,0], range(len(Xt)), c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
 
         _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
@@ -1613,7 +1615,7 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
                                 text_size=text_size)
         
     elif umap_param['n_components'] == 2:
-        ax.scatter(Xt[:,0], Xt[:,1], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(Xt[:,0], Xt[:,1], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
         ax.set_ylabel('UMAP 2', fontsize=text_size)
 
@@ -1622,7 +1624,7 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
                                 text_size=text_size)
         
     elif umap_param['n_components'] == 3:
-        ax.scatter(Xt[:,0], Xt[:,1], Xt[:,2], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(Xt[:,0], Xt[:,1], Xt[:,2], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
         ax.set_ylabel('UMAP 2', fontsize=text_size)
         ax.set_zlabel('UMAP 3', fontsize=text_size)
@@ -2126,7 +2128,7 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
                            bbox=dict(facecolor='white', edgecolor='black', boxstyle='round', alpha=0.6))
             txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='w')])
             texts.append(txt)
-
+        
         adjust_text(texts, expand=(2, 2), arrowprops=dict(arrowstyle='->', color='k', zorder=5))
 
     # Add group names and DE counts to plot
