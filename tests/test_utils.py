@@ -352,7 +352,6 @@ def test_get_upset_query_returns_dataframe(monkeypatch):
     assert isinstance(result, pd.DataFrame)
     assert set(result["Accession"]) == {"P12345", "Q67890"}
 
-
 def test_get_upset_query_handles_empty(monkeypatch):
     """Handle case where no proteins are found."""
     # Mock return structure of upsetplot.query
@@ -389,6 +388,36 @@ def test_get_upset_query_passes_verbose_flag(monkeypatch):
     assert called["verbose"] is False
     assert called["ids"] == ["A1"]
 
+# test de()
+
+@pytest.mark.parametrize("fold_change_mode", ["mean", "pairwise_median"])
+@pytest.mark.parametrize("test", ["ttest", "mannwhitneyu", "wilcoxon"])
+def test_de_adata_passes_on_valid_inputs(pdata, fold_change_mode, test):
+    df = utils.de_adata(pdata.prot, values=[
+            {"cellline": "BE", "treatment": "kd"},
+            {"cellline": "AS", "treatment": "sc"}
+        ],
+        method=test, fold_change_mode=fold_change_mode)
+    assert isinstance(df, pd.DataFrame)
+    assert "p_value" in df.columns
+    assert "log2fc" in df.columns
+    assert "BE_kd" in df.columns
+    assert "AS_sc" in df.columns
+
+def test_de_adata_raises_on_invalid_foldchange(pdata):
+    with pytest.raises(ValueError, match="Unsupported fold_change_mode"):
+        utils.de_adata(pdata.prot,
+            values=[
+                {"cellline": "BE"},
+                {"cellline": "AS"}
+            ],
+            fold_change_mode="bogus"
+        )
+
+def test_de_adata_raises_on_single_class(pdata):
+    with pytest.raises(ValueError, match="two distinct groups"):
+        utils.de_adata(pdata.prot, values=[{"cellline": "BE"}, {"cellline": "BE"}]) 
+
 class DummyPDataMapping:
     def __init__(self, source):
         self.metadata = {"source": source}
@@ -398,8 +427,6 @@ class DummyPDataMapping:
             "Protein.Group": ["C", "D"],
             "Leading razor protein": ["E", "F"],
         })
-
-# --- known sources ---
 
 @pytest.mark.parametrize("source,expected_col", [
     ("proteomediscoverer", "Master Protein Accessions"),
@@ -411,22 +438,17 @@ def test_get_pep_prot_mapping_known_sources(source, expected_col):
     result = utils.get_pep_prot_mapping(pdata)
     assert result == expected_col
 
-
-# --- return_series=True ---
 def test_get_pep_prot_mapping_return_series():
     pdata = DummyPDataMapping("diann")
     series = utils.get_pep_prot_mapping(pdata, return_series=True)
     assert isinstance(series, pd.Series)
     assert series.equals(pdata.pep.var["Protein.Group"])
 
-# --- unknown source ---
 def test_get_pep_prot_mapping_unknown_source_raises():
     pdata = DummyPDataMapping("unknown_source")
     with pytest.raises(ValueError, match="Unknown data source"):
         utils.get_pep_prot_mapping(pdata)
 
-
-# from setup.py
 def test_get_datetime_format():
     from scpviz.setup import get_datetime
     dt = get_datetime()
@@ -441,8 +463,8 @@ def test_print_versions_runs(capsys):
     assert "scpviz version" in captured
     assert "Dependencies:" in captured
 
-# ------------- unprot API tests
-# --------- local
+# uniprot API tests
+# -- local
 def test_standardize_uniprot_columns_handles_variants():
     """Ensure UniProt column names are normalized across API naming changes."""
     df = pd.DataFrame(columns=[
@@ -595,7 +617,7 @@ def test_standardize_uniprot_columns_emits_warning_on_drift():
     assert not any("Missing expected UniProt columns" in msg for msg in messages), \
         "❌ Suppression of benign missing-column warnings not active!"
 
-# --------- external
+# -- external
 @pytest.mark.external
 def test_get_uniprot_fields_live_consistency():
     """
@@ -654,7 +676,6 @@ def test_get_uniprot_fields_live_consistency():
     if new_fields:
         print(f"[INFO] New or renamed UniProt columns detected: {new_fields}")
 
-
 @pytest.mark.external
 def test_get_uniprot_fields_live_standardized_subset():
     """
@@ -690,9 +711,6 @@ def test_get_uniprot_fields_live_standardized_subset():
         )
 
 # test convert_identifier...
-# -------------------------------------------------------------------------
-# Fixtures
-# -------------------------------------------------------------------------
 
 @pytest.fixture
 def mock_pdata_CI():
@@ -719,9 +737,7 @@ def mock_uniprot_CI(monkeypatch):
     monkeypatch.setattr(utils, "standardize_uniprot_columns", lambda x: x)
     return df
 
-# -------------------------------------------------------------------------
 # Core Tests
-# -------------------------------------------------------------------------
 
 def test_convert_identifiers_empty_input_returns_expected_df():
     """Empty input should return empty dict or DataFrame depending on return_type."""
@@ -736,9 +752,7 @@ def test_convert_identifiers_invalid_return_type_raises(mock_uniprot_CI):
     with pytest.raises(ValueError):
         utils.convert_identifiers(["P12345"], "accession", "gene", return_type="xyz")
 
-# -------------------------------------------------------------------------
 # Cache-based Lookups
-# -------------------------------------------------------------------------
 
 def test_convert_identifiers_accession_to_gene_uses_cache(mock_pdata_CI):
     """When pdata provided, accession→gene mapping should use cached map."""
@@ -750,9 +764,7 @@ def test_convert_identifiers_gene_to_accession_uses_cache(mock_pdata_CI):
     res = utils.convert_identifiers(["GAPDH"], "gene", "accession", pdata=mock_pdata_CI, verbose=False)
     assert res["GAPDH"]["accession"] == "P12345"
 
-# -------------------------------------------------------------------------
 # API / Mocked UniProt Lookups
-# -------------------------------------------------------------------------
 
 def test_convert_identifiers_accession_to_multiple_targets_triggers_api(monkeypatch, mock_uniprot_CI):
     """Accession→[gene, string, organism_id] should call get_uniprot_fields."""
@@ -778,9 +790,7 @@ def test_convert_identifiers_gene_to_string_triggers_nested_call(monkeypatch, mo
     assert "GAPDH" in res
     assert res["GAPDH"]["string"].startswith("9606.")
 
-# -------------------------------------------------------------------------
 # Output Format Variants
-# -------------------------------------------------------------------------
 
 def test_convert_identifiers_return_type_df_and_both(mock_uniprot_CI):
     """Return types 'df' and 'both' should match dict structure."""
@@ -793,9 +803,7 @@ def test_convert_identifiers_return_type_df_and_both(mock_uniprot_CI):
     assert isinstance(df, pd.DataFrame)
     assert res_dict["P12345"]["gene"] == df.loc[df["accession"] == "P12345", "gene"].iloc[0]
 
-# -------------------------------------------------------------------------
 # Edge & Robustness Cases
-# -------------------------------------------------------------------------
 
 def test_convert_identifiers_missing_identifier_returns_none(monkeypatch, mock_uniprot_CI):
     """Identifiers not found in UniProt should map to None."""
@@ -818,7 +826,7 @@ def test_convert_identifiers_warn_on_schema_drift(monkeypatch):
     res = utils.convert_identifiers(["P12345"], "accession", "string", verbose=False)
     assert res["P12345"]["string"] is None
 
-# ------------- statistical
+# -- statistical
 def test_get_pca_importance_dict_basic():
     model = {"PCs": np.array([[0.1, -0.8, 0.3], [0.5, -0.2, 0.4]])}
     df = utils.get_pca_importance(model, ["A", "B", "C"], n=1)
