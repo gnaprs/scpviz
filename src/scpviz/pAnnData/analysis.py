@@ -1451,6 +1451,21 @@ class AnalysisMixin:
             prot_col = "Protein.Group" if "Protein.Group" in self.pep.var.columns else "Master Protein Accessions"
             X_df.insert(0, "protein", self.pep.var[prot_col].to_list())
             X_df.insert(1, "ion", X_df.index.to_list())
+
+            # e.g. "P03995; P03995-2" → two rows with same intensities, one per protein
+            # ensure directLFQ sees only single-accession protein IDs
+            n_before = X_df.shape[0]
+            X_df["protein"] = X_df["protein"].astype(str).str.split(";")
+            X_df = X_df.explode("protein")
+            X_df["protein"] = X_df["protein"].str.strip()
+            X_df = X_df[X_df["protein"] != ""]
+
+            n_after = X_df.shape[0]
+            if n_after > n_before:
+                print(f"{format_log_prefix('info',2)} Expanded multi-protein peptide groups: {n_before} → {n_after} rows.")
+            else:
+                print(f"{format_log_prefix('info',2)} No multi-protein peptide groups detected for directlfq input.")
+
             X_df.reset_index(drop=True, inplace=True)
             tmp_file = "peptide_matrix.aq_reformat.tsv"
             X_df.to_csv(tmp_file, sep="\t", index=False)
@@ -1465,17 +1480,6 @@ class AnalysisMixin:
             raise FileNotFoundError("directlfq did not produce a '*protein_intensities.tsv' file in current directory.")
 
         norm_prot = pd.read_csv(out_file, sep="\t").set_index("protein")
-        # Handle multi-protein groups like "P03995;P03995-2"
-        expanded_rows = []
-        for prot, row in norm_prot.iterrows():
-            proteins = prot.split(";")
-            for p in proteins:
-                expanded_rows.append((p, row.copy()))
-
-        # Build new DataFrame where each protein appears exactly once
-        norm_prot_expanded = pd.DataFrame({p: r for p, r in expanded_rows}).T
-
-        norm_prot = norm_prot_expanded
         aligned = norm_prot.reindex(
             index=self.prot.var_names,
             columns=self.prot.obs_names
