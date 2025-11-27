@@ -117,7 +117,7 @@ class PlotMixin:
             kind=kind,**kwargs,
         )
     
-    def plot_abundance_boxgrid(self,namelist=None,layer='X',on='protein',classes="Grouping",return_df=False,
+    def plot_abundance_boxgrid(self,namelist=None,ax=None,layer='X',on='protein',classes="Grouping",return_df=False,
         box=True,fig_width=1.0,fig_height=2.0,palette=None,y_min=None,y_max=None,label_x=True,show_n=False,
         global_legend=True,boxplot_kwargs=None,hline_kwargs=None,text_kwargs=None,
     ):
@@ -135,6 +135,7 @@ class PlotMixin:
             pdata (pAnnData): Input pAnnData object.
             namelist (list of str, optional): List of accessions or gene names to plot.
                 If None, all available features are considered.
+            ax (matplotlib.axes.Axes): Axis to plot on. Generates a new axis if None.
             layer (str): Data layer to use for abundance values. Default is `'X'`.
             on (str): Data level to plot, either `'protein'` or `'peptide'`.
             return_df (bool): If True, returns the DataFrame of replicate and summary values.
@@ -234,7 +235,7 @@ class PlotMixin:
             ```
         """
         return plotting.plot_abundance_boxgrid(pdata=self,namelist=namelist,
-            layer=layer,on=on,classes=classes,return_df=return_df,
+            ax=ax,layer=layer,on=on,classes=classes,return_df=return_df,
             palette=palette, box=box,fig_width=fig_width,fig_height=fig_height,
             y_min=y_min,y_max=y_max,label_x=label_x,show_n=show_n,
             global_legend=global_legend,boxplot_kwargs=boxplot_kwargs,

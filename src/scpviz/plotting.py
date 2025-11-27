@@ -735,9 +735,9 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
 
     return _plot_bar(df) if kind == 'bar' else _plot_violin(df)
 
-def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes=None,return_df=False,
-    box=True,fig_width=1.0,fig_height=2.0,palette=None,y_min=None,y_max=None,label_x=True,show_n=False,
-    global_legend=True,boxplot_kwargs=None,hline_kwargs=None,text_kwargs=None,):
+def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein', classes=None, return_df=False,
+    box=True, fig_width=1.0, fig_height=2.0, palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
+    global_legend=True, boxplot_kwargs=None, hline_kwargs=None, text_kwargs=None,):
     """
     Plot log-scale abundance values in a one-row panel of boxplots or mean-lines.
 
@@ -752,6 +752,7 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes=No
         pdata (pAnnData): Input pAnnData object.
         namelist (list of str, optional): List of accessions or gene names to plot.
             If None, all available features are considered.
+        ax (matplotlib.axes.Axes): Axis to plot on. Generates a new axis if None.
         layer (str): Data layer to use for abundance values. Default is `'X'`.
         on (str): Data level to plot, either `'protein'` or `'peptide'`.
         return_df (bool): If True, returns the DataFrame of replicate and summary values.
@@ -930,9 +931,13 @@ def plot_abundance_boxgrid(pdata,namelist=None,layer='X',on='protein',classes=No
         text_defaults.update(text_kwargs)
 
     # Create subplots
-    fig, axes = plt.subplots(1, n, figsize=(fig_width * n, fig_height), sharey=True)
-    if n == 1:
-        axes = [axes]
+    if ax is None:
+        fig, axes = plt.subplots(1, n, figsize=(fig_width * n, fig_height), sharey=True)
+        if n == 1:
+            axes = [axes]
+    else:
+        fig = ax.get_figure()
+        axes = [ax]  # treat external ax as a single-panel layout
 
     for ax, gene in zip(axes, genes):
         sub = df[df["gene"] == gene]
