@@ -26,7 +26,7 @@ Proteomics data is stored in a `pAnnData` object. `scpviz` currently supports tw
 
 [![Download PD3.2 Proteins File](https://img.shields.io/badge/download-pd32__Proteins.txt-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/pd32_Proteins.txt)
 [![Download PD3.2 Peptides File](https://img.shields.io/badge/download-pd32__PeptideSequenceGroups.txt-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/pd32_PeptideSequenceGroups.txt)
-[![Download DIA-NN Report File](https://img.shields.io/badge/download-diann__report.parquet-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/diann_report.parquet)
+[![Download DIA-NN Report File](https://img.shields.io/badge/download-diann__report.parquet-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/releases/download/v0.5.2-alpha/diann_report.parquet)
 
 === "Proteome Discoverer"
 
