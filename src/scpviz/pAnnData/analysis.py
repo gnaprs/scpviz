@@ -1144,6 +1144,7 @@ class AnalysisMixin:
                 `'diann_precursor_ms1'`, or `'diann_precursor_ms1_and_ms2'`.
                 - `path` (str): For `'directlfq'`, path to the `report.tsv` or `report.parquet`
                 file from DIA-NN output.
+                - `strict` (bool): For `'directlfq'`, whether to use unique + shared peptides or only unique peptides. Defaults to False (unique + shared).
 
         Returns:
             None
@@ -1412,7 +1413,7 @@ class AnalysisMixin:
 
         return data_norm
 
-    def _normalize_helper_directlfq(self, input_type_to_use="pAnnData", path=None, **kwargs):
+    def _normalize_helper_directlfq(self, input_type_to_use="pAnnData", path=None, strict=False, **kwargs):
         """
         Run directlfq normalization and return normalized protein-level intensities.
 
@@ -1421,6 +1422,7 @@ class AnalysisMixin:
                 'diann_precursor_ms1_and_ms2'.
             path (str, optional): Path to DIA-NN report file (required if 
                 input_type_to_use='diann_precursor_ms1_and_ms2').
+            strict (bool): Whether to be strict and use only unique peptides, in which shared peptides are ignored for normalization. Defaults to False.
             **kwargs: Passed to directlfq.lfq_manager.run_lfq().
 
         Returns:
@@ -1429,6 +1431,8 @@ class AnalysisMixin:
         import directlfq.lfq_manager as lfq_manager
         import os
 
+        strict = kwargs.pop("strict", False)
+        
         if input_type_to_use == "diann_precursor_ms1_and_ms2":
             if path is None:
                 raise ValueError("For input_type_to_use='diann_precursor_ms1_and_ms2', please provide the DIA-NN report path via `path`.")
@@ -1452,19 +1456,20 @@ class AnalysisMixin:
             X_df.insert(0, "protein", self.pep.var[prot_col].to_list())
             X_df.insert(1, "ion", X_df.index.to_list())
 
-            # e.g. "P03995; P03995-2" → two rows with same intensities, one per protein
-            # ensure directLFQ sees only single-accession protein IDs
-            n_before = X_df.shape[0]
-            X_df["protein"] = X_df["protein"].astype(str).str.split(";")
-            X_df = X_df.explode("protein")
-            X_df["protein"] = X_df["protein"].str.strip()
-            X_df = X_df[X_df["protein"] != ""]
-
-            n_after = X_df.shape[0]
-            if n_after > n_before:
-                print(f"{format_log_prefix('info',2)} Expanded multi-protein peptide groups: {n_before} → {n_after} rows.")
-            else:
-                print(f"{format_log_prefix('info',2)} No multi-protein peptide groups detected for directlfq input.")
+            if strict:
+                # e.g. "P03995; P03995-2" → two rows with same intensities, one per protein
+                # ensure directLFQ sees only single-accession protein IDs
+                n_before = X_df.shape[0]
+                X_df["protein"] = X_df["protein"].astype(str).str.split(";")
+                X_df = X_df.explode("protein")
+                X_df["protein"] = X_df["protein"].str.strip()
+                X_df = X_df[X_df["protein"] != ""]
+                
+                n_after = X_df.shape[0]
+                if n_after > n_before:
+                    print(f"{format_log_prefix('info',2)} Expanded multi-protein peptide groups: {n_before} → {n_after} rows.")
+                else:
+                    print(f"{format_log_prefix('info',2)} No multi-protein peptide groups detected for directlfq input.")
 
             X_df.reset_index(drop=True, inplace=True)
             tmp_file = "peptide_matrix.aq_reformat.tsv"
