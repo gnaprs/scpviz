@@ -178,7 +178,9 @@ class AnalysisMixin:
 
         # --- Compute fold change ---
         if fold_change_mode == 'mean':
-            with np.errstate(all='ignore'):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                
                 group1_mean = np.nanmean(data1, axis=0)
                 group2_mean = np.nanmean(data2, axis=0)
 
@@ -291,8 +293,11 @@ class AnalysisMixin:
         var = self.prot.var.copy()
         df_stats = pd.DataFrame(index=self.prot.var_names)
         df_stats['Genes'] = var['Genes'] if 'Genes' in var.columns else var.index
-        df_stats[group1_string] = np.nanmean(data1, axis=0)
-        df_stats[group2_string] = np.nanmean(data2, axis=0)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            df_stats[group1_string] = np.nanmean(data1, axis=0)
+            df_stats[group2_string] = np.nanmean(data2, axis=0)
         df_stats['log2fc'] = log2fc_vals
         df_stats['p_value'] = pvals
         df_stats['test_statistic'] = stats
