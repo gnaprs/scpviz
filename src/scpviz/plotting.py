@@ -982,24 +982,24 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
         after_n = len(ax.collections)
         strip_collections = ax.collections[before_n:after_n]
 
-        if box:
-            # For boxplot: use patch positions (left + width/2)
-            sns_bp = ax.artists  # boxes
-            x_centers = [
-                artist.get_x() + artist.get_width() / 2
-                for artist in sns_bp
-            ]
-        else:
-            # For stripplot: use actual point offsets
-            x_centers = []
+        x_centers = []
+        if classes is not None:
+            # one collection per hue level when dodge=True
             for coll in strip_collections:
                 offs = coll.get_offsets()
                 x_centers.append(np.nanmean(offs[:, 0]) if offs.size > 0 else np.nan)
+        else:
+            # no grouping; we only need x_center in the box=False case
+            if not box and len(strip_collections) > 0:
+                offs = strip_collections[0].get_offsets()
+                x_centers = [np.nanmean(offs[:, 0]) if offs.size > 0 else np.nan]
+            else:
+                x_centers = []
 
         if box:
             # boxplot on log abundance
             if classes is None:
-                sns.boxplot(
+                ax_bp = sns.boxplot(
                     data=sub,
                     x="gene",
                     y="log_abundance",
@@ -1008,7 +1008,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
                     **boxplot_defaults,
                 )
             else:
-                sns.boxplot(
+                ax_bp = sns.boxplot(
                     data=sub,
                     x="gene",
                     y="log_abundance",
@@ -2561,9 +2561,9 @@ def mark_volcano_by_significance(
             "`mark_volcano_by_significance`."
         )
 
-    if return_texts and show_names:
+    if return_texts and not show_names:
         print(f"{utils.format_log_prefix('warn_only')} "
-            "return_texts=True but show_names=True; no text labels will be returned.")
+            "return_texts=True but show_names=False; no text labels will be returned.")
 
     if not isinstance(label[0], list):
         label = [label]
