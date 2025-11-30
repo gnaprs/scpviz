@@ -1432,7 +1432,7 @@ class AnalysisMixin:
         import os
 
         strict = kwargs.pop("strict", False)
-        
+
         if input_type_to_use == "diann_precursor_ms1_and_ms2":
             if path is None:
                 raise ValueError("For input_type_to_use='diann_precursor_ms1_and_ms2', please provide the DIA-NN report path via `path`.")
@@ -1456,7 +1456,7 @@ class AnalysisMixin:
             X_df.insert(0, "protein", self.pep.var[prot_col].to_list())
             X_df.insert(1, "ion", X_df.index.to_list())
 
-            if strict:
+            if not strict:
                 # e.g. "P03995; P03995-2" → two rows with same intensities, one per protein
                 # ensure directLFQ sees only single-accession protein IDs
                 n_before = X_df.shape[0]
