@@ -1072,3 +1072,42 @@ def test_mark_raincloud_adds_points():
     # The plot should now have at least one scatter collection
     assert len(ax.collections) > 0, "❌ mark_raincloud should add scatter points."
     plt.close(fig)
+
+# tests for shift_legend()
+def test_shift_legend_moves_existing_legend():
+    fig, ax = plt.subplots()
+
+    # Create a dummy plot with legend
+    ax.plot([0, 1], [0, 1], label="dummy")
+    ax.legend(loc='upper right')
+
+    # Capture the legend before shifting
+    leg_before = ax.get_legend()
+    orig_bbox = leg_before.get_bbox_to_anchor()
+
+    # Apply shift
+    scplt.shift_legend(ax, anchor_pos=(0.8, 0.2), loc="lower left")
+
+    leg_after = ax.get_legend()
+    new_bbox = leg_after.get_bbox_to_anchor()
+
+    # Check that the legend exists and was moved
+    assert leg_after is not None
+    assert orig_bbox != new_bbox      # anchor changed
+
+    plt.close(fig)
+
+
+def test_shift_legend_no_legend_does_nothing():
+    fig, ax = plt.subplots()
+
+    # Confirm no legend present
+    assert ax.get_legend() is None
+
+    # Should run silently without errors
+    scplt.shift_legend(ax)
+
+    # Still no legend
+    assert ax.get_legend() is None
+
+    plt.close(fig)
