@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scpviz"
-version = "0.5.4-alpha"
+version = "0.5.5-alpha"
 authors = [
   {name="Marion Pang", email="sr_pang@hotmail.com"},
 ]
@@ -37,6 +37,7 @@ dependencies = [
   "harmonypy",
   "leidenalg",
   "scikit-misc",
+  "directlfq",
 ]
 
 [project.urls]
@@ -54,4 +55,4 @@ filterwarnings = [
 
 [project.optional-dependencies]
 dev = ["pytest","coverage","flake8","openpyxl","pytest-cov"]
-external = ["pimms-learn","directlfq"]
+external = ["pimms-learn"]
