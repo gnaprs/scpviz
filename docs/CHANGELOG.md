@@ -6,11 +6,64 @@
 ### Unreleased <small>Unreleased</small> { id="Unreleased" }
 
 
+#### Added
+
+
+##### (Analysis)
+
+
+- Add pimms imputation (3745120…)
+
+
+
+
+#### Build System
+
+
+##### (V0.5.3a)
+
+
+- Update readme and dependencies (4abf8c2…)
+
+
+
+
 #### Chores
 
 
 
 - Update changelogs [skip ci] (9b4fecb…)
+
+- Update changelogs [skip ci] (0a63f6b…)
+
+- Update changelogs [skip ci] (525bdb9…)
+
+
+
+
+#### Documentation
+
+
+
+- General updates to site style, formatting for mixins (d0a1bca…)
+
+
+
+
+#### Fixed
+
+
+##### (Plot_umap)
+
+
+- Fix force to propagate through umap, neighbors and pca (9092ebb…)
+
+
+
+##### (Umap)
+
+
+- Fix force=True not propagating down to neighbors() and pca() (d75f1ed…)
 
 
 
@@ -22,6 +75,33 @@
 
 
 - Change root_heading to true, remove others section (bb68f1d…)
+
+
+
+##### (Editing)
+
+
+- Edit mixin docstring to include export_layer (b3d2cba…)
+
+
+
+##### (Rs)
+
+
+- Show rs filter message after instead of before printouts (2d1803f…)
+
+
+
+
+#### Tests
+
+
+##### (Pimms)
+
+
+- Add skip for pimms-learn dependency issue (6485e2e…)
+
+- Add tests for pimm imputation (d3a1832…)
 
 
 
