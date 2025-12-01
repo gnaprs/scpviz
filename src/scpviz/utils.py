@@ -68,6 +68,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import ttest_ind, mannwhitneyu, wilcoxon, chi2_contingency, fisher_exact
 from scipy.sparse import csr_matrix
+from scipy import sparse
 from sklearn.impute import SimpleImputer, KNNImputer
 
 import upsetplot
@@ -1007,18 +1008,8 @@ def get_pep_prot_mapping(pdata, return_series=False):
 
     return col
 
-def de_adata(
-    adata,
-    values=None,
-    class_type=None,
-    method='ttest',
-    fold_change_mode='mean',
-    layer='X',
-    pval=0.05,
-    log2fc=1.0,
-    data_is_log=False,
-    log_base=2.0,
-    pseudocount=1.0,
+def de_adata(adata, values=None,class_type=None, method='ttest', fold_change_mode='mean',
+    layer='X', pval=0.05, log2fc=1.0, data_is_log=False, log_base=2.0, pseudocount=1.0,
     gene_col='Genes',
 ):
     """
@@ -1057,10 +1048,6 @@ def de_adata(
     Returns:
         pandas.DataFrame: DE results with volcano-ready columns.
     """
-    import numpy as np
-    import pandas as pd
-    from scipy.stats import ttest_ind, mannwhitneyu, wilcoxon
-    from scipy import sparse
 
     def to_dict_list(class_type, val):
         """Convert legacy values into a list of dictionary filters."""
@@ -1182,20 +1169,22 @@ def de_adata(
     stats = []
 
     for j in range(X.shape[1]):
+        if method not in {"ttest", "mannwhitneyu", "wilcoxon"}:
+            raise ValueError(f"Unsupported method '{method}'")
+
         try:
             if method == 'ttest':
-                res = ttest_ind(data1[:, j], data2[:, j], nan_policy='omit')
+                res = ttest_ind(...)
             elif method == 'mannwhitneyu':
-                res = mannwhitneyu(data1[:, j], data2[:, j], alternative='two-sided')
+                res = mannwhitneyu(...)
             elif method == 'wilcoxon':
-                res = wilcoxon(data1[:, j], data2[:, j])
-            else:
-                raise ValueError(f"Unsupported method '{method}'")
+                res = wilcoxon(...)
             pvals.append(res.pvalue)
             stats.append(res.statistic)
         except Exception:
             pvals.append(np.nan)
             stats.append(np.nan)
+
 
     pvals = np.array(pvals)
     neglog10 = -np.log10(np.where(pvals == 0, np.nan, pvals))
@@ -1579,6 +1568,249 @@ def standardize_uniprot_columns(df):
         )
 
     return df.rename(columns=rename_map)
+
+## STRING
+def string_map_ids(identifiers, batch_size=100, verbose=True):
+    """
+    Map a list of gene symbols or UniProt accessions to STRING IDs using:
+    1) UniProt xref_string (fast)
+    2) STRING get_string_ids (fallback)
+
+    Args:
+        identifiers (list of str): Gene symbols or UniProt accessions.
+        batch_size (int): Batch size for STRING API.
+        verbose (bool): Print debug info.
+
+    Returns:
+        pd.DataFrame with columns:
+            input_identifier | string_identifier | ncbi_taxon_id
+    """
+    from io import StringIO
+
+    identifiers = list(dict.fromkeys(identifiers))  # unique order-preserving
+    n_total = len(identifiers)
+
+    print(f"{format_log_prefix('search', 2)} Resolving STRING IDs for {n_total} identifiers...")
+
+    found = {}        # id → STRING ID
+    species_map = {}  # id → species
+    uni_results = []  # rows captured from UniProt
+
+    # STEP 1 — UniProt xref_string
+    print(f"{format_log_prefix('info_only',2)} Using UniProt xref_string fields...")
+    try:
+        dfu = get_uniprot_fields(
+            identifiers,
+            search_fields=['xref_string', 'organism_id'],
+            batch_size=100,
+            standardize=True,
+            verbose=verbose
+        )
+
+        if dfu is not None and not dfu.empty:
+            entry_col = "accession" if "accession" in dfu.columns else None
+            xref_col = "xref_string" if "xref_string" in dfu.columns else None
+            org_col  = "organism_id" if "organism_id" in dfu.columns else None
+
+            def _first(s):
+                if pd.isna(s):
+                    return None
+                s = str(s).strip()
+                if not s:
+                    return None
+                return s.split(";")[0].strip()
+
+            if entry_col and xref_col:
+                dfu["__STRING__"] = dfu[xref_col].apply(_first)
+
+                for _, row in dfu.iterrows():
+                    inp = row[entry_col]
+                    sid = row["__STRING__"]
+
+                    if org_col and pd.notna(row[org_col]):
+                        try:
+                            species_map[inp] = int(row[org_col])
+                        except Exception:
+                            species_map[inp] = row[org_col]
+
+                    if sid:
+                        found[inp] = sid
+                        uni_results.append({"input_identifier": inp, "string_identifier": sid})
+
+        print(f"{format_log_prefix('info_only',3)} UniProt xref_string resolved {len(uni_results)} IDs.")
+
+    except Exception as e:
+        print(f"{format_log_prefix('warn')} UniProt xref_string step failed: {e}")
+
+    # Remaining missing
+    missing = [i for i in identifiers if i not in found]
+
+    print(f"{format_log_prefix('info_only',2)} Found {len(found)} via UniProt. {len(missing)} still missing.")
+
+    # STEP 2 — STRING get_string_ids
+    all_rows = []
+
+    if missing:
+        print(f"{format_log_prefix('info_only',2)} Querying STRING API for missing identifiers...")
+
+        for i in range(0, len(missing), batch_size):
+            batch = missing[i:i + batch_size]
+            bidx = i // batch_size + 1
+
+            print(f"{format_log_prefix('info',3)} Batch {bidx}: {len(batch)} identifiers")
+
+            url = "https://string-db.org/api/tsv-no-header/get_string_ids"
+            params = {
+                "identifiers": "\r".join(batch),
+                "limit": 1,
+                "echo_query": 1,
+                "caller_identity": "scpviz"
+            }
+
+            try:
+                r = requests.post(url, data=params)
+                r.raise_for_status()
+
+                dfb = pd.read_csv(StringIO(r.text), sep="\t", header=None)
+                if not dfb.empty:
+                    dfb.columns = [
+                        "input_identifier", "input_alias", "string_identifier", "ncbi_taxon_id",
+                        "preferred_name", "annotation", "score"
+                    ]
+                    all_rows.append(dfb)
+
+            except Exception as e:
+                print(f"{format_log_prefix('error')} STRING batch {bidx} failed: {e}")
+
+    # Process STRING results
+    if all_rows:
+        df2 = pd.concat(all_rows, ignore_index=True)
+
+        new_count = 0
+        for _, row in df2.iterrows():
+            inp = row["input_identifier"]
+            sid = row["string_identifier"]
+            tax = row["ncbi_taxon_id"]
+
+            if sid and str(sid).strip():
+                found[inp] = sid
+                species_map[inp] = tax
+                new_count += 1
+
+        print(f"{format_log_prefix('info_only',3)} STRING API resolved {new_count} additional IDs.")
+    else:
+        if missing:
+            print(f"{format_log_prefix('warn_only',3)} No STRING mappings returned for missing identifiers.")
+
+    # Build final DataFrame
+    out = []
+    for inp in identifiers:
+        out.append({
+            "input_identifier": inp,
+            "string_identifier": found.get(inp, None),
+            "ncbi_taxon_id": species_map.get(inp, None)
+        })
+
+    out_df = pd.DataFrame(out)
+
+    print(f"{format_log_prefix('result')} STRING mapping complete: "
+          f"{out_df['string_identifier'].notna().sum()}/{len(out_df)} mapped.")
+
+    return out_df
+
+def string_enrichment(string_ids, species, background=None, verbose=True):
+    """
+    Run STRING functional enrichment with verbose logging.
+
+    Args:
+        string_ids (list of str): STRING identifiers to analyze.
+        species (int or str): NCBI taxon ID (e.g., 9606 or 10090).
+        background (list of str, optional): Background STRING IDs.
+        verbose (bool): Print debug information.
+
+    Returns:
+        pd.DataFrame: STRING functional enrichment results.
+    """
+
+    n_ids = len(string_ids)
+    print(f"{format_log_prefix('info')} Running STRING functional enrichment...")
+    print(f"{format_log_prefix('info_only',2)} STRING IDs     : {n_ids}")
+    print(f"{format_log_prefix('info_only',2)} Species        : {species}")
+
+
+    url = "https://string-db.org/api/json/enrichment"
+    payload = {
+        "identifiers": "%0d".join(string_ids),
+        "species": species,
+        "caller_identity": "scpviz"
+    }
+
+    if background is not None:
+        print(f"{format_log_prefix('info_only',2)} Background IDs : {len(background)}")
+        payload["background_string_identifiers"] = "%0d".join(background)
+    else:
+        print(f"{format_log_prefix('info_only',2)} Background IDs : None")
+
+    try:
+        r = requests.post(url, data=payload)
+        r.raise_for_status()
+        df = pd.DataFrame(r.json())
+    except Exception as le:
+        print(f"{format_log_prefix('error')} STRING enrichment API failed: {e}")
+        raise
+
+    print(f"{format_log_prefix('result')} Functional enrichment complete.")
+
+    return df
+
+def string_ppi_enrichment(string_ids, species, verbose=False):
+    """
+    Run STRING PPI enrichment with verbose logging.
+
+    Args:
+        string_ids (list of str): STRING identifiers.
+        species (int or str): NCBI taxonomy ID.
+        verbose (bool): Print debug information.
+
+    Returns:
+        dict: Result from STRING PPI enrichment API.
+    """
+
+    print(f"{format_log_prefix('info')} Running STRING PPI enrichment...")
+    print(f"{format_log_prefix('info_only',2)} STRING IDs : {len(string_ids)}")
+    print(f"{format_log_prefix('info_only',2)} Species    : {species}")
+
+    url = "https://string-db.org/api/json/ppi_enrichment"
+    payload = {
+        "identifiers": "%0d".join(string_ids),
+        "species": species,
+        "caller_identity": "scpviz"
+    }
+
+    if verbose:
+        print(f"{format_log_prefix('debug')} Payload:\n{payload}")
+
+    try:
+        r = requests.post(url, data=payload)
+        r.raise_for_status()
+        result = r.json()
+        result = result[0] if isinstance(result, list) else result
+    except Exception as e:
+        print(f"{format_log_prefix('error')} STRING PPI enrichment failed: {e}")
+        raise
+
+    # Mirror MixIn-style reporting
+    edges = result.get("number_of_edges", None)
+    expected = result.get("expected_number_of_edges", None)
+    pval = result.get("p_value", None)
+
+    print(f"{format_log_prefix('result')} PPI enrichment complete.")
+    if edges is not None and expected is not None:
+        print(f"{format_log_prefix('info_only',3)} Edges found : {edges} vs {expected} expected")
+    if pval is not None:
+        print(f"{format_log_prefix('info_only',3)} p-value     : {pval:.2e}")
+
+    return result
 
 # ----------------
 # STATISTICAL TEST FUNCTIONS

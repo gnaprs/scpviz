@@ -388,7 +388,7 @@ def test_get_upset_query_passes_verbose_flag(monkeypatch):
     assert called["verbose"] is False
     assert called["ids"] == ["A1"]
 
-# test de()
+# test de_adata()
 
 @pytest.mark.parametrize("fold_change_mode", ["mean", "pairwise_median"])
 @pytest.mark.parametrize("test", ["ttest", "mannwhitneyu", "wilcoxon"])
@@ -417,6 +417,81 @@ def test_de_adata_raises_on_invalid_foldchange(pdata):
 def test_de_adata_raises_on_single_class(pdata):
     with pytest.raises(ValueError, match="two distinct groups"):
         utils.de_adata(pdata.prot, values=[{"cellline": "BE"}, {"cellline": "BE"}]) 
+
+def test_de_adata_raises_when_values_missing(pdata):
+    with pytest.raises(ValueError, match="Please supply"):
+        utils.de_adata(pdata.prot, values=None)
+
+def test_de_adata_raises_when_not_two_groups(pdata):
+    with pytest.raises(ValueError, match="exactly two"):
+        utils.de_adata(pdata.prot, values=[{"cellline":"A"}])
+
+def test_de_adata_legacy_requires_class_type(pdata):
+    with pytest.raises(ValueError, match="class_type must be provided"):
+        utils.de_adata(
+            pdata.prot,
+            values=[["A"], ["B"]]   # legacy lists
+        )
+
+def test_de_adata_legacy_length_mismatch(pdata):
+    with pytest.raises(ValueError, match="Length mismatch"):
+        utils.de_adata(
+            pdata.prot,
+            values=[["A"], ["B","C"]],
+            class_type=["cellline","treatment"]
+        )
+
+def test_de_adata_group_with_zero_samples(pdata):
+    with pytest.raises(ValueError, match="zero samples"):
+        utils.de_adata(
+            pdata.prot,
+            values=[{"cellline":"NONEXIST"}, {"cellline":"AS"}]
+        )
+
+def test_de_adata_missing_layer_raises(pdata):
+    with pytest.raises(KeyError, match="not found"):
+        utils.de_adata(
+            pdata.prot,
+            values=[{"cellline":"BE"}, {"cellline":"AS"}],
+            layer="nonexistent_layer"
+        )
+
+def test_de_adata_unlog_branch(pdata):
+    df = utils.de_adata(
+        adata=pdata.prot,
+        values=[{"cellline":"BE"}, {"cellline":"AS"}],
+        data_is_log=True,
+        log_base=2.0,
+        pseudocount=1.0,
+    )
+    assert "log2fc" in df
+
+def test_de_adata_gene_col_missing(pdata):
+    with pytest.raises(KeyError, match="gene_col"):
+        utils.de_adata(
+            pdata.prot,
+            values=[{"cellline":"BE"}, {"cellline":"AS"}],
+            gene_col="NONEXISTENT"
+        )
+
+def test_de_adata_gene_col_none_fallbacks(pdata):
+    df = utils.de_adata(
+        pdata.prot,
+        values=[{"cellline":"BE"}, {"cellline":"AS"}],
+        gene_col=None
+    )
+    assert "Genes" in df.columns
+
+def test_de_adata_invalid_method(pdata):
+    with pytest.raises(ValueError, match="Unsupported method"):
+        utils.de_adata(
+            pdata.prot,
+            values=[
+                {"cellline": "BE", "treatment": "kd"},
+                {"cellline": "AS", "treatment": "sc"},
+            ],
+            method="invalid_method"
+        )
 
 class DummyPDataMapping:
     def __init__(self, source):
