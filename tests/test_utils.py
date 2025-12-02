@@ -6,6 +6,10 @@ import warnings
 
 from scpviz import utils
 from anndata import AnnData
+import scpviz.setup
+
+scpviz.setup.GLOBAL_DEBUG = True
+print(utils._setup.GLOBAL_DEBUG)
 
 @pytest.fixture
 def adata_example():
