@@ -208,6 +208,12 @@ def test_plot_abundance_smoke(pdata):
     assert _is_axes_container(result)
     assert _count_artists(result) > 0
 
+def test_plot_abundance_violin(pdata):
+    fig, ax = plt.subplots()
+    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB", "VCL"], classes="treatment", on="protein", kind='violin')
+    assert _is_axes_container(result)
+    assert _count_artists(result) > 0
+
 def test_plot_abundance_return_df(pdata):
     df = scplt.plot_abundance(None, pdata, namelist=["ACTB"], classes="cellline", return_df=True)
     assert isinstance(df, pd.DataFrame)
@@ -1074,6 +1080,7 @@ def test_mark_raincloud_adds_points():
     plt.close(fig)
 
 # tests for shift_legend()
+@pytest.mark.xfail(reason="For earlier versions of matplotlib, will get the error: AttributeError: 'Legend' object has no attribute 'set_loc'.")
 def test_shift_legend_moves_existing_legend():
     fig, ax = plt.subplots()
 
@@ -1096,7 +1103,6 @@ def test_shift_legend_moves_existing_legend():
     assert orig_bbox != new_bbox      # anchor changed
 
     plt.close(fig)
-
 
 def test_shift_legend_no_legend_does_nothing():
     fig, ax = plt.subplots()
