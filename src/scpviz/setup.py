@@ -42,6 +42,8 @@ def print_versions():
         except ImportError:
             print(package, "not installed")
 
+GLOBAL_DEBUG = False
+
 # look into session info
 # from session_info2 import session_info
 # sinfo = session_info(os=True, cpu=True, gpu=True, dependencies=True)

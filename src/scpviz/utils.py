@@ -74,6 +74,7 @@ from sklearn.impute import SimpleImputer, KNNImputer
 import upsetplot
 import anndata as ad
 from scpviz import pAnnData
+from scpviz.setup import GLOBAL_DEBUG
 
 # Thoughts: functions that act on panndata and return only panndata should be panndata methods, utility functions should be in utils
 
@@ -1561,11 +1562,12 @@ def standardize_uniprot_columns(df):
     # verify that all critical fields exist at least once
     missing_critical = [c for c in critical_fields if c not in df.columns]
     if missing_critical:
-        warnings.warn(
-            f"[standardize_uniprot_columns] Missing expected UniProt columns: {', '.join(missing_critical)}",
-            RuntimeWarning,
-            stacklevel=2,
-        )
+        if GLOBAL_DEBUG:
+            warnings.warn(
+                f"[standardize_uniprot_columns] Missing expected UniProt columns: {', '.join(missing_critical)}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     return df.rename(columns=rename_map)
 
