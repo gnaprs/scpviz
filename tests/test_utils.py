@@ -189,6 +189,39 @@ def test_parse_filename_index_mask_alignment_after_shuffle():
     for name in idx:
         assert out.loc[name, "date"] == name.split("_")[0]
 
+def test_parse_filename_index_invalid_condition_syntax():
+    idx = ["20250101_A_123_10um_mouse_ctx_A1"]
+    df = pd.DataFrame({"value": [1]}, index=idx)
+
+    obs_columns = ["date", "gradient", "sample_id", "size", "organism", "region", "well"]
+
+    # invalid syntax: missing quote, invalid operator
+    with pytest.raises(ValueError) as excinfo:
+        utils.parse_filename_index(
+            df, obs_columns, condition="parsingType === 5"   # invalid Python syntax
+        )
+
+    msg = str(excinfo.value)
+    assert "Invalid condition" in msg
+    assert "parsingType === 5" in msg
+
+def test_parse_filename_index_condition_not_boolean():
+    idx = ["20250101_A_123_10um_mouse_ctx_A1"]
+    df = pd.DataFrame({"value": [1]}, index=idx)
+
+    obs_columns = ["date", "gradient", "sample_id", "size", "organism", "region", "well"]
+
+    # This produces a Series of integers, not booleans
+    with pytest.raises(ValueError) as excinfo:
+        utils.parse_filename_index(
+            df,
+            obs_columns,
+            condition="value + 1"  # valid syntax, wrong dtype
+        )
+
+    msg = str(excinfo.value)
+    assert "did not evaluate to a boolean mask" in msg
+
 # data processing functions
 # get class_list()
 def test_get_classlist_single_column(adata_example):
