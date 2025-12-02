@@ -178,9 +178,9 @@ def format_log_prefix(level: str, indent=None) -> str:
         space = " " * indent_spaces.get(indent, 0)
         return f"{space}{prefix}"
 
-def parse_filename_index(df, obs_columns, delimiter="_"):
+def parse_filename_index(df, obs_columns, delimiter="_", condition=None):
     """
-    Parse DataFrame index (filenames) into metadata columns based on a list of obs_columns.
+    Parse DataFrame index (filenames) into metadata columns based on a list of obs_columns. Can label a subset based on condition.
 
     Args:
         df (pd.DataFrame):
@@ -189,13 +189,40 @@ def parse_filename_index(df, obs_columns, delimiter="_"):
             Names of the metadata columns to extract from the filename.
         delimiter (str):
             Character used to split the filename. Default is "_".
+        condition (str or None):
+            Optional boolean expression (evaluated with df.eval) that selects a
+            subset of rows for parsing. If None, parse all rows. For example, `condition="parsingType == '5-tokens'"`
 
     Returns:
         pd.DataFrame:
             Copy of df with added metadata columns.
     """
+
+    df_parsed = df.copy()
+
+    if condition is None:
+        mask = pd.Series(True, index=df.index)
+    else:
+        try:
+            mask = df.eval(condition)
+        except Exception as e:
+            raise ValueError(f"Invalid condition '{condition}': {e}")
+
+        if mask.dtype != bool:
+            raise ValueError(f"Condition '{condition}' did not evaluate to a boolean mask.")
+
+    # Nothing to parse
+    if not mask.any():
+        raise ValueError(
+            f"Condition '{condition}' selected 0 rows. "
+            f"Check that the column names and values in the condition are correct."
+        )
+
+    # Subset of filenames to parse
+    idx_to_parse = df.index[mask]
+
     # Split index by delimiter
-    parts = df.index.to_series().str.split(delimiter, expand=True)
+    parts = idx_to_parse.to_series().str.split(delimiter, expand=True)
 
     # Validate number of parts
     expected = len(obs_columns)
@@ -203,14 +230,16 @@ def parse_filename_index(df, obs_columns, delimiter="_"):
     if actual != expected:
         raise ValueError(
             f"Expected {expected} parts after splitting index by '{delimiter}', "
-            f"but got {actual}. Index example: '{df.index[0]}'"
+            f"but got {actual}. Index example: '{idx_to_parse[0]}'"
         )
 
-    df_parsed = df.copy()
-
-    # Assign parsed columns
+    # Assign parsed components
     for i, col in enumerate(obs_columns):
-        df_parsed[col] = parts.iloc[:, i]
+        # Create column if missing
+        if col not in df_parsed.columns:
+            df_parsed[col] = pd.NA
+        # Fill only selected rows
+        df_parsed.loc[mask, col] = parts.iloc[:, i].values
 
     return df_parsed
 
