@@ -4,8 +4,16 @@
  [![DOI](https://zenodo.org/badge/762480088.svg)](https://doi.org/10.5281/zenodo.17362532)
 
 **Build & Tests:**  
-[![Build Status](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml)
+[![CI](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml)
 [![codecov](https://codecov.io/gh/gnaprs/scpviz/branch/main/graph/badge.svg)](https://codecov.io/gh/gnaprs/scpviz)
+
+*CI Matrix Status:*
+
+| Python | Ubuntu | macOS | Windows |
+|--------|--------|--------|----------|
+| **3.11** | ![3.11-Ubuntu](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg?job=Python%203.11%20%E2%80%94%20ubuntu-latest) | ![3.11-macOS](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg?job=Python%203.11%20%E2%80%94%20macos-latest) | ![3.11-Windows](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg?job=Python%203.11%20%E2%80%94%20windows-latest) |
+| **3.8** | ![3.8-Ubuntu](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg?job=Python%203.8%20%E2%80%94%20ubuntu-latest) | ![3.8-macOS](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg?job=Python%203.8%20%E2%80%94%20macos-latest) | ![3.8-Windows](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg?job=Python%203.8%20%E2%80%94%20windows-latest) |
+
 
 **Documentation:**  
 [![Docs CI](https://github.com/gnaprs/scpviz/actions/workflows/ci.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/ci.yml)
