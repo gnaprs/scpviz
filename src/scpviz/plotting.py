@@ -6,6 +6,10 @@ purpose, with paired "plot" and "mark" functions where applicable.
 
 Functions are written to work seamlessly with the `pAnnData` object structure and metadata conventions in scpviz.
 
+## Convenience Plotting Wrappers
+    get_color: Generate a list of colors, a colormap, or a palette from package defaults.
+    shift_legend: Reposition an axis legend outside the plot while maintaining figure size.
+
 ## Distribution and Abundance Plots
 
 Functions:
@@ -32,9 +36,12 @@ Functions:
 ## Differential Expression and Volcano Plots
 
 Functions:
-        plot_volcano: Volcano plot of differential expression results.
-        mark_volcano: Highlight specific features on a volcano plot.
-        add_volcano_legend: Add standard legend handles for volcano plots.
+    plot_volcano: Volcano plot of differential expression results.
+    plot_volcano_adata: Same as above, but for AnnData objects.
+    mark_volcano: Highlight specific features on a volcano plot with a specific color.
+    mark_volcano_significance: Similar to above, but colored by significance.
+    volcano_adjust_and_outline_texts: Adjust text labels for volcano plots after multiple mark_volcanos.
+    add_volcano_legend: Add standard legend handles for volcano plots.
 
 ## Enrichment Plots
 
@@ -230,6 +237,36 @@ def get_color(resource_type: str, n=None):
 
     else:
         raise ValueError("Invalid resource_type. Options are 'colors', 'cmap', and 'palette'")
+
+def shift_legend(ax, anchor_pos=(1.05, 0.5), loc='center left'):
+    """
+    Reposition an axis legend.
+
+    This helper moves an existing Matplotlib legend to a custom anchor point
+    (outside or inside the axis) without modifying its contents.
+
+    Args:
+        ax (matplotlib.axes.Axes): Axis containing the legend.
+        anchor_pos (tuple of float, optional): (x, y) anchor position for the legend
+            in axis coordinates. Default is `(1.05, 0.5)`, placing the legend just
+            outside the right edge.
+        loc (str, optional): Legend location relative to the anchor. Default is
+            `'center left'`.
+
+    Returns:
+        None
+
+    Example:
+        ```python
+        fig, ax = plt.subplots(figsize=(3, 3))
+        ax, = scplt.plot_pca(ax, pdata, classes='treatment')
+        scplt.shift_legend(ax)
+        ```
+    """    
+    leg = ax.get_legend()
+    if leg is not None:
+        leg.set_bbox_to_anchor(anchor_pos)
+        leg.set_loc(loc)
 
 def plot_significance(ax, y, h, x1=0, x2=1, col='k', pval='n.s.', fontsize=12):
     """
@@ -521,7 +558,7 @@ def plot_abundance_housekeeping(ax, pdata, classes=None, loading_control='all', 
 
 def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
                    classes=None, return_df=False, order=None, palette=None,
-                   log=True, facet=None, height=4, aspect=0.5,
+                   log=False, facet=None, height=4, aspect=0.5,
                    plot_points=True, x_label='gene', kind='auto', **kwargs):
     """
     Plot abundance of proteins or peptides across samples.
@@ -529,6 +566,12 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
     This function visualizes expression values for selected proteins or peptides
     using violin + box + strip plots, or bar plots when the number of replicates
     per group is small. Supports grouping, faceting, and custom ordering.
+
+    **Important default behavior:**
+    - Abundances are **not log-transformed** by default (`log=False`)
+    - The plotted abundance values remain **raw**
+    - The **y-axis is transformed to log10 scale**, so the plot displays
+      log10(abundance) even when raw abundances are used.    
 
     Args:
         ax (matplotlib.axes.Axes): Axis to plot on. Ignored if `facet` is used.
@@ -544,7 +587,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
             keys are class names and values are the ordered categories.  
             Example: `order = {"condition": ["sc", "kd"]}`.
         palette (list or dict, optional): Color palette mapping groups to colors.
-        log (bool): If True, apply log2 transformation to abundance values. Default is True.
+        log (bool): If True, apply log2 transformation to abundance values. Default is False (raw values used; y-axis log10-scaled instead).
         facet (str, optional): `.obs` column to facet by, creating multiple subplots.
         height (float): Height of each facet plot. Default is 4.
         aspect (float): Aspect ratio of each facet plot. Default is 0.5.
@@ -559,8 +602,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
         **kwargs: Additional keyword arguments passed to seaborn plotting functions.
 
     Returns:
-        ax (matplotlib.axes.Axes or seaborn.FacetGrid):
-            The axis or facet grid containing the plot.
+        ax (matplotlib.axes.Axes or seaborn.FacetGrid): The axis or facet grid containing the plot.
         df (pandas.DataFrame, optional): Returned if `return_df=True`.
 
     !!! example
@@ -578,7 +620,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
         classes=classes, log=log, x_label=x_label
     )
 
-    # --- Handle custom class ordering ---
+    # custom class ordering
     if classes is not None and order is not None:
         unused = set(order) - (set([classes]) if isinstance(classes, str) else set(classes))
         if unused:
@@ -594,7 +636,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
                     cat_type = pd.api.types.CategoricalDtype(order[cls], ordered=True)
                     df[cls] = df[cls].astype(cat_type)
 
-    # --- Sort the dataframe so group order is preserved in plotting ---
+    # sort the dataframe so group order is preserved in plotting
     if classes is not None:
         sort_cols = ['x_label_name']
         if isinstance(classes, str):
@@ -603,8 +645,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
             sort_cols.extend(classes)
         df = df.sort_values(by=sort_cols)
 
-
-    # Add facet column (plotting only)
+    # Facet handling
     df['facet'] = df[facet] if facet else 'all'
 
     if facet and classes and facet == classes:
@@ -637,18 +678,27 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
+
+            if not log:
+                for ax_ in g.axes.flatten():
+                    ax_.set_yscale("log")                
             return g
         else:
             if ax is None:
                 fig, _ax = plt.subplots(figsize=(6, 4))
             else:
                 _ax = ax
+
             sns.barplot(data=df, x=x_col, y=y_col, hue='class', ax=_ax, **bar_kwargs)
+
+            # deduplicate legend
             handles, labels = _ax.get_legend_handles_labels()
             by_label = dict(zip(labels, handles))
             _ax.legend(by_label.values(), by_label.keys(), title='Class', frameon=True)
+            _ax.set_yscale("log") if not log else None
             _ax.set_ylabel("log2(Abundance)" if log else "Abundance")
             _ax.set_xlabel("Gene" if x_label == 'gene' else "Accession")
+
             return _ax
 
     def _plot_violin(df):
@@ -663,6 +713,9 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
                                   color='black', size=3, alpha=0.5, legend=False, **kwargs_inner)
                 g.map_dataframe(_strip)
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
+            if not log:
+                for ax_ in g.axes.flatten():
+                    ax_.set_yscale("log")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
             return g
@@ -680,15 +733,437 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
             _ax.legend(by_label.values(), by_label.keys(), title='Class', frameon=True)
             _ax.set_ylabel("log2(Abundance)" if log else "Abundance")
             _ax.set_xlabel("Gene" if x_label == 'gene' else "Accession")
+            _ax.set_yscale("log") if not log else None
             return _ax
 
     return _plot_bar(df) if kind == 'bar' else _plot_violin(df)
+
+def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein', classes=None, return_df=False,
+    box=True, fig_width=1.0, fig_height=2.0, palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
+    global_legend=True, boxplot_kwargs=None, hline_kwargs=None, text_kwargs=None,):
+    """
+    Plot log-scale abundance values in a one-row panel of boxplots or mean-lines.
+
+    This function generates a clean horizontal panel, with one subplot per gene,
+    using either boxplots (default) or colored mean-lines. Abundance values are
+    visualized on a log10-transformed y-axis, with zero or negative values clipped
+    to 0 before transformation. The layout is optimized for compact manuscript
+    figure panels and supports custom global legends, count annotations, colored
+    mean-lines, and flexible formatting via keyword dictionaries.
+
+    Args:
+        pdata (pAnnData): Input pAnnData object.
+        namelist (list of str, optional): List of accessions or gene names to plot.
+            If None, all available features are considered.
+        ax (matplotlib.axes.Axes): Axis to plot on. Generates a new axis if None.
+        layer (str): Data layer to use for abundance values. Default is `'X'`.
+        on (str): Data level to plot, either `'protein'` or `'peptide'`.
+        return_df (bool): If True, returns the DataFrame of replicate and summary values.
+        classes (str): Column in ``df`` to use for grouping samples (default: None).
+        box (bool): If True, draw boxplots. If False, draw colored mean-lines.
+        fig_width (float): Width per subplot, in inches.
+        fig_height (float): Height of the entire figure, in inches.
+        palette (dict or list, optional): Color palette for grouping categories. 
+            Defaults to ``scplt.get_color('colors', n_classes)``.
+        y_min (float or None): Lower y-axis limit in log10 units (e.g., 2 → 10²). If None, inferred.
+        y_max (float or None): Upper y-axis limit in log10 units (e.g., 6 → 10⁶). If None, inferred.
+        label_x (bool): Whether to display x tick labels inside each subplot.
+        show_n (bool): Whether to annotate each subplot with sample counts.
+        global_legend (bool): Whether to display a single global legend.
+        boxplot_kwargs (dict, optional): Additional arguments passed to ``sns.boxplot``.
+        hline_kwargs (dict, optional): Keyword arguments for mean-lines (e.g., color, linewidth).
+        text_kwargs (dict, optional): Keyword arguments for count labels (e.g., fontsize, offset).
+
+
+    Returns:
+        fig (matplotlib.figure.Figure): The generated figure.
+        axes (list of matplotlib.axes.Axes): One axis per gene.
+        df (pandas.DataFrame, optional): Returned if `return_df=True`.
+
+    !!! note
+        Default customizations for keyword dictionaries:
+
+        Boxplot styling:
+        ```python
+        boxplot_kwargs = {
+            "showcaps"=False,
+            "whiskerprops"={"visible": False},
+            "showfliers"=False,
+            "boxprops"=dict(alpha=0.6, linewidth=1),
+            "linewidth"=1,
+            "dodge"=True,
+        }
+        ```
+
+        Mean-line styling (used when ``box=False``):
+        ```python
+        hline_kwargs = {
+            "color"="k",
+            "linewidth"=2.0,
+            "zorder"=5,
+            "half_width"=0.15,
+        }
+        ```
+
+        Text annotation styling (used when ``show_n=True``):
+        ```python
+        text_kwargs = {
+            "fontsize"=7,
+            "color"="black",
+            "ha"="center",
+            "va"="bottom",
+            "zorder"=10,
+            "offset"=0.1,
+        }
+        ```
+
+    !!! example
+        Basic usage:
+        ```python
+        df = pdata.get_abundance(
+            namelist=["Slc17a7", "Camk2a", "Nrgn", "Homer1"],
+            classes="group"
+        )
+        fig, axes = plot_abundance_boxgrid(df, classes="group")
+        ```
+
+        Using colored mean-lines with count annotations:
+        ```python
+        fig, axes = plot_abundance_boxgrid(
+            df,
+            classes="group",
+            box=False,
+            show_n=True,
+            fig_width=1,
+            fig_height=2
+        )
+        ```
+
+        Customizing appearance:
+        ```python
+        fig, axes = plot_abundance_boxgrid(
+            df,
+            classes="group",
+            box=False,
+            global_legend=True,
+            show_n=True,
+            y_max=8,
+            hline_kwargs={"color": "red", "linewidth": 2},
+            text_kwargs={"fontsize": 9, "color": "blue", "offset": 1}
+        )
+        ```
+    """
+    if classes is None:
+        df = pdata.get_abundance(
+            namelist=namelist,
+            on=on,
+            layer=layer,
+        )
+    else:
+        try:
+            df = pdata.get_abundance(
+                namelist=namelist,
+                classes=classes,
+                on=on,
+                layer=layer,
+            )
+        except KeyError:
+            raise ValueError(f"Column '{classes}' not found in DataFrame.")  # safety check
+
+    df = df.copy()
+
+    # Create log10-transformed abundance, preserving zeros as 0
+    df["log_abundance"] = np.nan
+    pos = df["abundance"] > 0
+    df.loc[pos,  "log_abundance"] = np.log10(df.loc[pos, "abundance"])
+    df.loc[~pos, "log_abundance"] = 0.0
+
+    # Get gene list
+    genes = df["gene"].unique()
+    n = len(genes)
+
+    # Determine unique_classes
+    if classes is not None:
+        unique_classes = list(df[classes].unique())  # DO NOT sort
+    else:
+        unique_classes = [None]  # placeholder for no grouping
+
+    # Determine palette
+    if classes is not None:
+        n_classes = df[classes].nunique()
+        if palette is None:
+            palette = get_color("colors", n_classes)
+    else:
+        # no classes → everything is one group, no hue
+        n_classes = 1
+        if palette is None:
+            palette = get_color("colors", 1)  # or any default single color
+
+    # setup kwargs defaults
+    boxplot_defaults = dict(
+        showcaps=False,
+        whiskerprops={"visible": False},
+        showfliers=False,
+        boxprops=dict(alpha=0.6, linewidth=1),
+        linewidth=1,
+        dodge=True,
+    )
+    if boxplot_kwargs is not None:
+        boxplot_defaults.update(boxplot_kwargs)
+    if classes is None:
+        boxplot_defaults["dodge"] = False
+
+    hline_defaults = dict(
+        color="k",
+        linewidth=2.0,
+        zorder=5,
+        half_width=0.15,
+    )
+    if hline_kwargs is not None:
+        hline_defaults.update(hline_kwargs)
+
+    text_defaults = dict(
+        fontsize=7,
+        color="black",
+        ha="center",
+        va="bottom",
+        zorder=10,
+        offset=0.1,             # vertical offset from anchor
+    )
+    if text_kwargs is not None:
+        text_defaults.update(text_kwargs)
+
+    # Create subplots
+    if ax is None:
+        fig, axes = plt.subplots(1, n, figsize=(fig_width * n, fig_height), sharey=True)
+        if n == 1:
+            axes = [axes]
+    else:
+        fig = ax.get_figure()
+        axes = [ax]  # treat external ax as a single-panel layout
+
+    for ax, gene in zip(axes, genes):
+        sub = df[df["gene"] == gene]
+
+        if classes is not None:
+            unique_classes = list(sub[classes].unique())  # keep order, see next section
+        else:
+            unique_classes = [None]  # placeholder        
+
+        # Stripplot (raw points) on log_abundance
+        before_n = len(ax.collections)
+
+        strip_kwargs = dict(
+            data=sub,
+            x="gene",
+            y="log_abundance",
+            jitter=True,
+            alpha=0.4,
+            size=3,
+            legend=False,
+            ax=ax,
+        )
+
+        if classes is None:
+            # no hue, everything in one group
+            strip_kwargs["color"] = "black"
+            strip_kwargs["dodge"] = False
+        else:
+            strip_kwargs["hue"] = classes
+            strip_kwargs["dodge"] = True
+            strip_kwargs["hue_order"] = unique_classes
+            if box:
+                strip_kwargs["color"] = "black"
+            else:
+                strip_kwargs["palette"] = palette
+
+        sns.stripplot(**strip_kwargs)
+
+        after_n = len(ax.collections)
+        strip_collections = ax.collections[before_n:after_n]
+
+        x_centers = []
+        if classes is not None:
+            # one collection per hue level when dodge=True
+            for coll in strip_collections:
+                offs = coll.get_offsets()
+                x_centers.append(np.nanmean(offs[:, 0]) if offs.size > 0 else np.nan)
+        else:
+            # no grouping; we only need x_center in the box=False case
+            if not box and len(strip_collections) > 0:
+                offs = strip_collections[0].get_offsets()
+                x_centers = [np.nanmean(offs[:, 0]) if offs.size > 0 else np.nan]
+            else:
+                x_centers = []
+
+        if box:
+            # boxplot on log abundance
+            if classes is None:
+                ax_bp = sns.boxplot(
+                    data=sub,
+                    x="gene",
+                    y="log_abundance",
+                    color=palette[0],
+                    ax=ax,
+                    **boxplot_defaults,
+                )
+            else:
+                ax_bp = sns.boxplot(
+                    data=sub,
+                    x="gene",
+                    y="log_abundance",
+                    hue=classes,
+                    hue_order=unique_classes,
+                    palette=palette,
+                    ax=ax,
+                    **boxplot_defaults,
+                )
+        else:
+            if classes is None:
+                # one mean over all non-zero abundances
+                sub_pos = sub[sub["abundance"] > 0]
+                mean_val = sub_pos["log_abundance"].mean()
+                x_center = x_centers[0]
+                half_width = hline_defaults["half_width"]
+                ax.hlines(
+                    y=mean_val,
+                    xmin=x_center - half_width,
+                    xmax=x_center + half_width,
+                    color=hline_defaults["color"],
+                    linewidth=hline_defaults["linewidth"],
+                    zorder=hline_defaults["zorder"],
+                )
+            else:
+                # compute means excluding zeros
+                sub_pos = sub[sub["abundance"] > 0]
+                group_means = (
+                    sub_pos.groupby(classes)["log_abundance"]
+                    .mean()
+                    .reindex(unique_classes)
+                )
+
+                for cls, x_center in zip(unique_classes, x_centers):
+                    mean_val = group_means.loc[cls]
+                    if np.isnan(mean_val):
+                        continue
+                    half_width = hline_defaults["half_width"]
+                    ax.hlines(
+                        y=mean_val,
+                        xmin=x_center - half_width,
+                        xmax=x_center + half_width,
+                        color=hline_defaults["color"],
+                        linewidth=hline_defaults["linewidth"],
+                        zorder=hline_defaults["zorder"],
+                    )
+
+        # n = x annotation
+        if show_n and classes is not None:
+            # Count only non-zero abundances
+            n_nonzero = (
+                (sub["abundance"] > 0)
+                .groupby(sub[classes])
+                .sum()
+                .reindex(unique_classes)
+            )
+
+            for cls, x_center in zip(unique_classes, x_centers):
+                # choose y position
+                if box:
+                    # Q3 for this class
+                    dat = sub.loc[sub[classes] == cls, "log_abundance"]
+                    anchor = np.nanpercentile(dat, 75)
+                else:
+                    # use mean line position
+                    anchor = group_means.loc[cls]
+
+                y_anchor = anchor + text_defaults["offset"]
+                ax.text(
+                    x_center,
+                    y_anchor,
+                    f"n={int(n_nonzero.loc[cls])}",
+                    fontsize=text_defaults["fontsize"],
+                    color=text_defaults["color"],
+                    ha=text_defaults["ha"],
+                    va=text_defaults["va"],
+                    zorder=text_defaults["zorder"],
+                )
+
+        # Axis formatting (linear axis, log10 units)
+        if (y_min is not None) or (y_max is not None):
+            cur_ymin, cur_ymax = ax.get_ylim()
+            ymin = y_min if y_min is not None else cur_ymin
+            ymax = y_max if y_max is not None else cur_ymax
+            ax.set_ylim(ymin, ymax)
+
+        ymin, ymax = ax.get_ylim()
+        ticks = np.arange(min(int(np.floor(ymin)), 0), int(np.ceil(ymax)) + 1)
+        ax.set_yticks(ticks)
+
+        if len(x_centers) == 0:
+            # No dodge positions were created (e.g., only one class had data)
+            # → Do NOT set xticks or xticklabels
+            ax.set_xticks([])
+            ax.set_xticklabels([])
+        else:
+            if label_x:
+                if classes is not None:
+                    ax.set_xticks(x_centers)
+                    ax.set_xticklabels(unique_classes, rotation=45, ha="right")
+                else:
+                    ax.set_xticks([])
+                    ax.set_xticklabels([])
+            else:
+                ax.set_xticks([])
+                ax.set_xticklabels([])
+                ax.tick_params(axis="x", bottom=False)
+
+        ax.set_xlabel("") 
+        ax.set_ylabel("log10(Abundance)" if ax == axes[0] else "")
+
+        # Remove subplot legends
+        leg = ax.get_legend()
+        if leg is not None:
+            leg.remove()
+
+        ax.set_title(gene, fontsize=10)
+
+    # global legend
+    if global_legend and classes is not None:
+        # Build custom legend handles from palette
+        legend_classes = unique_classes
+
+        if isinstance(palette, dict):
+            colors = [palette[c] for c in legend_classes]
+        else:
+            # palette is a list in class order
+            colors = palette
+
+        handles = [
+            plt.Line2D([0], [0], color=colors[i], lw=3, label=legend_classes[i])
+            for i in range(len(legend_classes))
+        ]
+
+        fig.legend(
+            handles,
+            legend_classes,
+            title=classes,
+            frameon=True,
+            loc='center left',
+            bbox_to_anchor=(1.02, 0.5),
+        )
+
+    plt.tight_layout()
+
+    if return_df:
+        return fig,axes,df
+    else:
+        return fig, axes
 
 def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
              cmap='default', s=20, alpha=.8, plot_pc=[1, 2],
              pca_params=None, force=False, basis='X_pca',
              show_labels=False, label_column=None,
-             add_ellipses=False, ellipse_kwargs=None, return_fit=False):
+             add_ellipses=False, ellipse_kwargs=None, return_fit=False, **kwargs):
     """
     Plot principal component analysis (PCA) of protein or peptide abundance.
 
@@ -702,9 +1177,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         classes (str, list of str, or None): Coloring scheme.
             
             - None: plot all samples in grey.
-            
             - str: an `.obs` column (e.g. `"treatment"`) or a gene/protein (e.g. `"UBE4B"`).
-            
             - list of str: combine multiple `.obs` columns (e.g. `["cellline", "treatment"]`).
 
         layer (str): Data layer to use. Default is `"X"`.
@@ -712,9 +1185,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         cmap (str, list, or matplotlib colormap): Colormap for point coloring.
             
             - `"default"`: uses `get_color()` scheme.
-            
             - list of colors: categorical mapping for `classes`.
-            
             - colormap name or object: continuous coloring for expression values.
 
         s (float): Scatter dot size. Default is 20.
@@ -726,9 +1197,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         show_labels (bool or list): Whether to label points.
             
             - False: no labels.
-            
             - True: label all samples.
-            
             - list: label only specified samples.
 
         label_column (str, optional): Column in `.summary` to use as label source.
@@ -737,6 +1206,7 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
             Ellipses represent a 95% confidence region under a bivariate Gaussian assumption.
         ellipse_kwargs (dict, optional): Additional keyword arguments for the ellipse patch.
         return_fit (bool): If True, also return the fitted PCA object.
+        **kwargs: Keyword arguments passed to `ax.scatter()`.
 
     Returns:
         ax (matplotlib.axes.Axes): Axis containing the PCA scatter plot.
@@ -843,18 +1313,14 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
 
     # Plot
     if len(plot_pc) == 2:
-        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel(f'PC{pc_x+1} ({pca["variance_ratio"][pc_x]*100:.2f}%)')
         ax.set_ylabel(f'PC{pc_y+1} ({pca["variance_ratio"][pc_y]*100:.2f}%)')
 
         # Add colorbar if using continuous color (i.e., abundance coloring)
-        if isinstance(color_mapped, np.ndarray) and cmap_resolved is not None:
-            norm = mcolors.Normalize(vmin=np.min(color_mapped), vmax=np.max(color_mapped))
-            sm = cm.ScalarMappable(cmap=cmap_resolved, norm=norm)
-            sm.set_array([])
-            cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
-            cb.set_label(classes if isinstance(classes, str) else "Abundance", fontsize=9)
-
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance", text_size=9)
+        
         if add_ellipses and isinstance(classes, (str, list)) and all(c in adata.obs.columns for c in (classes if isinstance(classes, list) else [classes])):
             ellipse_kwargs = ellipse_kwargs.copy() if ellipse_kwargs else {}
             y = utils.get_samplenames(adata, classes)
@@ -872,18 +1338,14 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
                 plot_confidence_ellipse(sub['PC1'].values, sub['PC2'].values, ax=ax, **kwargs)
 
     elif len(plot_pc) == 3:
-        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], X_pca[:, pc_z], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], X_pca[:, pc_z], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel(f'PC{pc_x+1} ({pca["variance_ratio"][pc_x]*100:.2f}%)')
         ax.set_ylabel(f'PC{pc_y+1} ({pca["variance_ratio"][pc_y]*100:.2f}%)')
         ax.set_zlabel(f'PC{pc_z+1} ({pca["variance_ratio"][pc_z]*100:.2f}%)')
 
         # Add colorbar if using continuous color (i.e., abundance coloring)
-        if isinstance(color_mapped, np.ndarray) and cmap_resolved is not None:
-            norm = mcolors.Normalize(vmin=np.min(color_mapped), vmax=np.max(color_mapped))
-            sm = cm.ScalarMappable(cmap=cmap_resolved, norm=norm)
-            sm.set_array([])
-            cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
-            cb.set_label(classes if isinstance(classes, str) else "Abundance", fontsize=9)
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance", text_size=9)
 
     # Labels
     if show_labels:
@@ -931,16 +1393,13 @@ def resolve_plot_colors(adata, classes, cmap, layer="X"):
         classes (str): Class used for coloring. Can be:
             
             - An `.obs` column name (categorical or continuous).
-            
             - A gene or protein identifier, in which case coloring is based
               on abundance values from the specified `layer`.
 
         cmap (str, list, or matplotlib colormap): Colormap to use.
             
             - `"default"`: uses `get_color()` scheme.
-            
             - list of colors: categorical mapping.
-            
             - colormap name or object: continuous mapping.
 
         layer (str): Data layer to extract abundance values from when `classes`
@@ -1032,7 +1491,20 @@ def resolve_plot_colors(adata, classes, cmap, layer="X"):
         raise ValueError("Invalid classes input. Must be None, a protein in var_names, or an obs column/list.")
 
     else:
-        raise ValueError("Invalid classes input.")
+        raise ValueError("Invalid input. List input supports only classes ([class1, class2]), and string supports classes or protein accession or gene name. ")
+
+def _add_continuous_colorbar(ax, color_mapped, cmap_resolved, label, text_size=10):
+    """Attach a colorbar if using continuous coloring."""
+    import matplotlib.cm as cm
+    import matplotlib.colors as mcolors
+    import numpy as np
+
+    if isinstance(color_mapped, np.ndarray) and cmap_resolved is not None:
+        norm = mcolors.Normalize(vmin=np.min(color_mapped), vmax=np.max(color_mapped))
+        sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
+        sm.set_array([])
+        cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
+        cb.set_label(label, fontsize=text_size)
 
 # NOTE: STRING enrichment plots live in enrichment.py, not here.
 # This function is re-documented here for discoverability.
@@ -1056,7 +1528,7 @@ def plot_enrichment_svg(*args, **kwargs):
     from .enrichment import plot_enrichment_svg as actual_plot
     return actual_plot(*args, **kwargs)
 
-def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='default', s=20, alpha=.8, umap_params={}, text_size = 10, force = False, return_fit=False):
+def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='default', s=20, alpha=.8, umap_params={}, text_size = 10, force = False, return_fit=False, **kwargs):
     """
     Plot UMAP projection of protein or peptide abundance data.
 
@@ -1084,6 +1556,7 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
         text_size (int): Font size for axis labels and legend (default: 10).
         force (bool): If True, re-compute UMAP even if results already exist.
         return_fit (bool): If True, return the fitted UMAP object along with the axis.
+        **kwargs: Keyword arguments passed to `ax.scatter()`.
 
     Returns:
         ax (matplotlib.axes.Axes): The axis with the UMAP plot.
@@ -1137,17 +1610,31 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
     color_mapped, cmap_resolved, legend_elements = resolve_plot_colors(adata, classes, cmap, layer=layer)
 
     if umap_param['n_components'] == 1:
-        ax.scatter(Xt[:,0], range(len(Xt)), c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(Xt[:,0], range(len(Xt)), c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
+
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance",
+                                text_size=text_size)
+        
     elif umap_param['n_components'] == 2:
-        ax.scatter(Xt[:,0], Xt[:,1], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(Xt[:,0], Xt[:,1], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
         ax.set_ylabel('UMAP 2', fontsize=text_size)
+
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance",
+                                text_size=text_size)
+        
     elif umap_param['n_components'] == 3:
-        ax.scatter(Xt[:,0], Xt[:,1], Xt[:,2], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha)
+        ax.scatter(Xt[:,0], Xt[:,1], Xt[:,2], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
         ax.set_ylabel('UMAP 2', fontsize=text_size)
         ax.set_zlabel('UMAP 3', fontsize=text_size)
+
+        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
+                                classes if isinstance(classes, str) else "Abundance",
+                                text_size=text_size)
 
     if legend_elements:
         if classes is None:
@@ -1506,17 +1993,13 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
         fold_change_mode (str): Method for computing fold change.
             
             - `"mean"`: log2(mean(group1) / mean(group2))
-            
             - `"pairwise_median"`: median of all pairwise log2 ratios.
 
         label (int, list, or None): Features to highlight.
             
             - If int: label top and bottom *n* features.
-            
             - If list of str: label only the specified features.
-            
             - If list of two ints: `[top, bottom]` to label asymmetric counts.
-            
             - If None: no labels plotted.
 
         label_type (str): Label content type. Currently `"Gene"` is recommended.
@@ -1648,7 +2131,7 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
                            bbox=dict(facecolor='white', edgecolor='black', boxstyle='round', alpha=0.6))
             txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='w')])
             texts.append(txt)
-
+        
         adjust_text(texts, expand=(2, 2), arrowprops=dict(arrowstyle='->', color='k', zorder=5))
 
     # Add group names and DE counts to plot
@@ -1683,6 +2166,183 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
         return ax, df
     else:
         return ax
+
+def plot_volcano_adata(
+    ax,
+    adata=None,
+    values=None,
+    class_type=None,
+    de_data=None,
+    method='ttest',
+    fold_change_mode='mean',
+    layer='X',
+    label=5,
+    fontsize=8,
+    alpha=0.5,
+    color=None,
+    linewidth=0.5,
+    pval=0.05,
+    log2fc=1.0,
+    no_marks=False,
+    return_df=False,
+    **kwargs
+):
+    """
+    Volcano plot for AnnData with the *same API behavior* as pdata.plot_volcano.
+
+    Required:
+        - Either `de_data` OR (`adata`, `values`, `class_type`).
+        
+    Supports:
+        - Dictionary-style values: [{"cellline":"HCT116","tx":"DMSO"}, {...}]
+        - Legacy-style values: ["A","B"]
+        - Legacy multi-col values: [["HCT116","DMSO"], ["HCT116","DrugX"]]
+
+    Produces: identical volcano to pAnnData version.
+    """
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from adjustText import adjust_text
+    import matplotlib.patheffects as PathEffects
+
+    if de_data is not None:
+        df = de_data.copy()
+        # For labels: user must supply labels manually if needed
+        group1_label = df.attrs.get("group1_label", None)
+        group2_label = df.attrs.get("group2_label", None)
+
+    else:
+        if adata is None or values is None:
+            raise ValueError("When de_data is not provided, must supply adata and values.")
+
+        df = utils.de_adata(
+            adata=adata,
+            values=values,
+            class_type=class_type,
+            method=method,
+            fold_change_mode=fold_change_mode,
+            layer=layer,
+            pval=pval,
+            log2fc=log2fc
+        )
+
+        def format_group(val, class_type):
+            if isinstance(val, dict):
+                return "/".join(str(v) for v in val.values())
+            elif isinstance(val, list) and isinstance(class_type, list):
+                return "/".join(str(v) for v in val)
+            else:
+                return str(val)
+
+        group1_label = format_group(values[0], class_type)
+        group2_label = format_group(values[1], class_type)
+
+    # volcano plotting
+    volcano_df = df.dropna(subset=['p_value']).copy()
+    volcano_df = volcano_df[volcano_df["significance"] != "not comparable"]
+
+    default_color = {'not significant': 'grey', 'upregulated': 'red', 'downregulated': 'blue'}
+    if color:
+        default_color.update(color)
+    elif no_marks:
+        default_color = {k: 'grey' for k in default_color}
+
+    scatter_kwargs = dict(s=20, edgecolors='none')
+    scatter_kwargs.update(kwargs)
+
+    colors = volcano_df['significance'].astype(str).map(default_color)
+
+    ax.scatter(
+        volcano_df['log2fc'],
+        volcano_df['-log10(p_value)'],
+        c=colors, alpha=alpha,
+        **scatter_kwargs
+    )
+
+    # threshold lines
+    ax.axhline(-np.log10(pval), color='black', linestyle='--', linewidth=linewidth)
+    ax.axvline(log2fc, color='black', linestyle='--', linewidth=linewidth)
+    ax.axvline(-log2fc, color='black', linestyle='--', linewidth=linewidth)
+
+    ax.set_xlabel('$log_{2}$ fold change')
+    ax.set_ylabel('-$log_{10}$ p value')
+
+    # symmetric x-limits
+    log2fc_clean = pd.to_numeric(volcano_df['log2fc'], errors='coerce').dropna()
+    max_abs = log2fc_clean.abs().max() + 0.5 if not log2fc_clean.empty else 1
+    ax.set_xlim(-max_abs, max_abs)
+
+    if not no_marks and label not in [None, 0, [0, 0]]:
+        if isinstance(label, int):
+            up = volcano_df[volcano_df['significance'] == 'upregulated'].sort_values(
+                'significance_score', ascending=False
+            )
+            down = volcano_df[volcano_df['significance'] == 'downregulated'].sort_values(
+                'significance_score', ascending=True
+            )
+            label_df = pd.concat([up.head(label), down.head(label)])
+
+        elif isinstance(label, list):
+            if len(label) == 2 and all(isinstance(i, int) for i in label):
+                up = volcano_df[volcano_df['significance'] == 'upregulated'].sort_values(
+                    'significance_score', ascending=False
+                )
+                down = volcano_df[volcano_df['significance'] == 'downregulated'].sort_values(
+                    'significance_score', ascending=True
+                )
+                label_df = pd.concat([up.head(label[0]), down.head(label[1])])
+
+            else:
+                ll = [str(v).lower() for v in label]
+                label_df = volcano_df[
+                    volcano_df.index.str.lower().isin(ll) |
+                    volcano_df.get("Genes", pd.Series("", index=volcano_df.index)).str.lower().isin(ll)
+                ]
+
+        else:
+            raise ValueError("label must be int or list")
+
+        # plot labels
+        texts = []
+        for idx, row in label_df.iterrows():
+            text_val = row.get('Genes', idx)
+            txt = ax.text(
+                row['log2fc'], row['-log10(p_value)'],
+                s=text_val,
+                fontsize=fontsize,
+                bbox=dict(facecolor='white', edgecolor='black', boxstyle='round', alpha=0.6)
+            )
+            txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='w')])
+            texts.append(txt)
+
+        adjust_text(texts, expand=(2, 2),
+                    arrowprops=dict(arrowstyle='->', color='k', zorder=5))
+
+    bbox_style = dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='black')
+
+    if group1_label:
+        ax.annotate(group1_label, xy=(0.98, 1.07), xycoords='axes fraction',
+                    ha='right', va='bottom', fontsize=fontsize,
+                    weight='bold', bbox=bbox_style)
+
+    if group2_label:
+        ax.annotate(group2_label, xy=(0.02, 1.07), xycoords='axes fraction',
+                    ha='left', va='bottom', fontsize=fontsize,
+                    weight='bold', bbox=bbox_style)
+
+    up_count = (volcano_df['significance'] == 'upregulated').sum()
+    down_count = (volcano_df['significance'] == 'downregulated').sum()
+
+    ax.annotate(f'n={up_count}', xy=(0.98, 1.015), xycoords='axes fraction',
+                ha='right', va='bottom', fontsize=fontsize,
+                color=default_color['upregulated'])
+
+    ax.annotate(f'n={down_count}', xy=(0.02, 1.015), xycoords='axes fraction',
+                ha='left', va='bottom', fontsize=fontsize,
+                color=default_color['downregulated'])
+
+    return (ax, df) if return_df else ax
 
 def add_volcano_legend(ax, colors=None):
     """
@@ -1727,7 +2387,7 @@ def add_volcano_legend(ax, colors=None):
     ]
     ax.legend(handles=handles, loc='upper right', frameon=True, fontsize=7)
 
-def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', s=10, alpha=1, show_names=True, fontsize=8):
+def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', s=10, alpha=1, show_names=True, fontsize=8, return_texts=False):
     """
     Mark a volcano plot with specific proteins or genes.
 
@@ -1748,6 +2408,9 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
         show_names (bool): Whether to show labels for the selected features.
             Default is True.
         fontsize (int): Font size for labels. Default is 8.
+        return_texts (bool): Whether to return the list of created text artists.
+            This is useful when labeling multiple groups and performing a single
+            global `adjust_text()` call at the end.
 
     Returns:
         ax (matplotlib.axes.Axes): Axis with the highlighted volcano plot.
@@ -1768,27 +2431,42 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
         `plot_volcano(..., no_marks=True)` to render all points in grey,
         followed by `mark_volcano()` to selectively highlight features of interest.
     """
+    if return_texts and not show_names:
+        print(f"{utils.format_log_prefix('warn_only')} "
+            "return_texts=True but show_names=False; no text labels will be returned.")
 
     if not isinstance(label[0], list):
         label = [label]
         label_color = [label_color] if isinstance(label_color, str) else label_color
 
+    if "Genes" in volcano_df.columns:
+        gene_col = volcano_df["Genes"].astype(str)
+    else:
+        # fallback: use the index as feature names
+        gene_col = volcano_df.index.astype(str)
+
+    all_texts = []
     for i, label_group in enumerate(label):
         color = label_color[i % len(label_color)] if isinstance(label_color, list) else label_color
 
         # Match by index or 'Genes' column
-        match_df = volcano_df[
+        match_mask = (
             volcano_df.index.isin(label_group) |
-            volcano_df['Genes'].isin(label_group)
-        ]
+            gene_col.isin(label_group)
+        )
+        match_df = volcano_df[match_mask]
 
         ax.scatter(match_df['log2fc'], match_df['-log10(p_value)'],
                    c=color, s=s, alpha=alpha, edgecolors='none')
 
         if show_names:
             texts = []
-            for _, row in match_df.iterrows():
-                text = row['Genes'] if label_type == 'Gene' and pd.notna(row.get('Genes')) else row.name
+            for idx, row in match_df.iterrows():
+                if label_type == "Gene" and "Genes" in volcano_df.columns:
+                    text = row.get("Genes", idx)
+                else:
+                    text = idx
+
                 txt = ax.text(row['log2fc'], row['-log10(p_value)'],
                               s=text,
                               fontsize=fontsize,
@@ -1796,10 +2474,250 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
                               bbox=dict(facecolor='white', edgecolor=color, boxstyle='round'))
                 txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='w')])
                 texts.append(txt)
-            adjust_text(texts, expand=(2, 2),
-                        arrowprops=dict(arrowstyle='->', color=color, zorder=5))
+                all_texts.append(txt)
 
+            if not return_texts:
+                adjust_text(texts, expand=(2, 2),
+                            arrowprops=dict(arrowstyle='->', color=color, zorder=5))
+
+    if return_texts:
+        return ax, all_texts
     return ax
+
+def mark_volcano_by_significance(
+    ax, volcano_df, label, color=None, label_type="Gene", s=10, alpha=1, show_names=True, fontsize=8, return_texts=False,):
+    """
+    Mark a volcano plot with specific proteins or genes, colored by significance.
+
+    This function highlights selected features on an existing volcano plot,
+    using the `significance` column in `volcano_df` to determine colors
+    (e.g. "upregulated", "downregulated", "not significant").
+
+    Args:
+        ax (matplotlib.axes.Axes): Axis on which to plot.
+        volcano_df (pandas.DataFrame): DataFrame returned by `plot_volcano()` or
+            `pdata.de()`, containing differential expression results and a
+            `significance` column with values such as:
+            "upregulated", "downregulated", "not significant".
+        label (list): Features to highlight. Can also be a nested list, with
+            separate lists of features for different cases. All features are
+            colored according to their `significance`, not by group.
+        color (dict, optional): Mapping from significance category to color.
+            Defaults to:
+                {
+                    "not significant": "grey",
+                    "upregulated": "red",
+                    "downregulated": "blue",
+                }
+            You can override any of these by passing a dict with the same keys.
+        label_type (str): Type of label to display. Default is `"Gene"`.
+        s (float): Marker size. Default is 10.
+        alpha (float): Marker transparency. Default is 1.
+        show_names (bool): Whether to show labels for the selected features.
+            Default is True.
+        fontsize (int): Font size for labels. Default is 8.
+        return_texts (bool): Whether to return the list of created text artists.
+            This is useful when labeling multiple groups and performing a single
+            global `adjust_text()` call at the end.
+
+    Returns:
+        matplotlib.axes.Axes: Axis with highlighted points if `return_texts=False`.
+        tuple (matplotlib.axes.Axes, list): Returned if `return_texts=True`,
+            where the list contains the text artists for further adjustment.
+
+    Example:
+        Highlight specific features on a volcano plot using significance colors:
+
+            ```python
+            fig, ax = plt.subplots()
+            ax, df = scplt.plot_volcano(
+                ax, pdata, classes="treatment", values=["ctrl", "drug"]
+            )
+
+            custom_prot = ['Snca','Sox2']
+            custom_dict = {"downregulated": "#1F2CCF"}
+            ax = scplt.mark_volcano_by_significance(
+                ax, df, label=custom_prot, color=custom_dict, show_names=False
+            )
+            ```
+
+    Note:
+        This function is designed to work seamlessly with
+        `plot_volcano(..., no_marks=True)` for workflows where you first plot
+        all points in grey and then selectively highlight features of interest.
+    """
+
+    default_color = {
+        "not significant": "grey",
+        "upregulated": "red",
+        "downregulated": "blue",
+    }
+    if color:
+        default_color.update(color)
+
+    if "significance" not in volcano_df.columns:
+        raise ValueError(
+            "volcano_df must contain a 'significance' column to use "
+            "`mark_volcano_by_significance`."
+        )
+
+    if return_texts and not show_names:
+        print(f"{utils.format_log_prefix('warn_only')} "
+            "return_texts=True but show_names=False; no text labels will be returned.")
+
+    if not isinstance(label[0], list):
+        label = [label]
+
+    # Decide what we match on for names
+    if "Genes" in volcano_df.columns:
+        gene_col = volcano_df["Genes"].astype(str)
+    else:
+        gene_col = volcano_df.index.astype(str)
+
+    all_texts = []
+    for label_group in label:
+        # Match by index or 'Genes' column
+        match_mask = (
+            volcano_df.index.isin(label_group) |
+            gene_col.isin(label_group)
+        )
+        match_df = volcano_df[match_mask].copy()
+
+        if match_df.empty:
+            continue
+
+        sig_series = match_df["significance"].astype(str)
+        point_colors = sig_series.map(default_color).fillna(default_color["not significant"])
+
+        ax.scatter(
+            match_df["log2fc"],
+            match_df["-log10(p_value)"],
+            c=point_colors,
+            s=s,
+            alpha=alpha,
+            edgecolors="none",
+        )
+
+        if show_names:
+            texts = []
+            for (idx, row), c in zip(match_df.iterrows(), point_colors):
+                if label_type == "Gene" and "Genes" in volcano_df.columns:
+                    text = row.get("Genes", idx)
+                else:
+                    text = idx
+
+                txt = ax.text(
+                    row["log2fc"],
+                    row["-log10(p_value)"],
+                    s=text,
+                    fontsize=fontsize,
+                    color=c,
+                    bbox=dict(facecolor="white", edgecolor=c, boxstyle="round"),
+                )
+                txt.set_path_effects(
+                    [PathEffects.withStroke(linewidth=3, foreground="w")]
+                )
+                texts.append(txt)
+                all_texts.append(txt)
+
+            if not return_texts:
+                adjust_text(
+                    texts,
+                    expand=(2, 2),
+                    arrowprops=dict(arrowstyle="->", color="black", zorder=5),
+                )
+
+    if return_texts:
+        return ax, all_texts
+    return ax
+
+def volcano_adjust_and_outline_texts(texts, expand=(2, 2), arrowprops=dict(arrowstyle='->', color='k', lw=0.8), linewidth=3, outline_color="w",):
+    """
+    Adjust text labels for volcano plots and apply a white outline for readability.
+
+    This function runs `adjust_text()` on a list of text artists while temporarily
+    removing their path effects to ensure stable label placement. A white outline
+    is re-applied after adjustment to improve legibility on dense volcano plots
+    or scatter backgrounds.
+
+    Args:
+        texts (list): List of `matplotlib.text.Text` objects, typically returned
+            from `mark_volcano_by_significance(..., return_texts=True)`.
+        expand (tuple): Expansion parameters passed to `adjust_text()`.
+            Default is `(2, 2)`.
+        arrowprops (dict or None): Arrow properties passed to `adjust_text()`.
+            Set to `None` to disable arrow drawing. Default draws black arrows.
+        linewidth (float): Line width of the outline applied after adjustment.
+            Default is 3.
+        outline_color (str): Color of the outline stroke. Default is `"w"`.
+
+    Returns:
+        list: The same list of text objects (modified in place).
+
+    Example:
+        Adjust and outline labels for multiple marked volcano groups:
+
+            ```python
+            ax, volcano_df = scplt.plot_volcano(
+                ax, pdata_6mo_snpc_norm, values=case_values,
+                return_df=True, no_marks=True
+            )
+
+            rps_dict={'downregulated': '#5166FF'}
+            rpl_dict={'downregulated': '#1F2CCF'}
+
+            # in this case, two sets of texts from mark_volcano or mark_volcano_by_significance (return_texts=True)
+            texts = []
+            ax, t = scplt.mark_volcano(
+                ax, volcano_df, label=rpl_top5, label_color='#1F2CCF',return_texts=True
+            )
+            texts.extend(t)
+
+            ax, t = scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rps_top5, color=rps_dict, return_texts=True
+            )
+            texts.extend(t)
+
+            # and for others, use show_names=False to not show any names/arrows
+            scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rpl_others, color=rpl_dict, show_names=False
+            )
+            scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rps_others, color=rps_dict, show_names=False
+            )
+
+            volcano_adjust_and_outline_texts(texts, expand=(2, 2))
+            ```
+
+    Note:
+        This function is designed to be used after collecting all labels from
+        multiple `mark_volcano_by_significance(..., return_texts=True)` calls.
+        Running `adjust_text()` once globally produces cleaner layouts than
+        multiple per-group adjustments.
+    """
+
+    from adjustText import adjust_text
+    import matplotlib.patheffects as PathEffects
+
+    orig_effects = []
+    for txt in texts:
+        orig_effects.append(txt.get_path_effects())
+        txt.set_path_effects([])
+
+    # adjustText
+    adjust_kwargs = {"expand": expand}
+    if arrowprops is not None:
+        adjust_kwargs["arrowprops"] = arrowprops
+
+    adjust_text(texts, **adjust_kwargs)
+
+    for txt in texts:
+        txt.set_path_effects([
+            PathEffects.withStroke(linewidth=linewidth, foreground=outline_color)
+        ])
+
+    return texts
+
 
 def plot_rankquant(ax, pdata, classes = None, layer = "X", on = 'protein', cmap=['Blues'], color=['blue'], order = None, s=20, alpha=0.2, calpha=1, exp_alpha = 70, debug = False):
     """

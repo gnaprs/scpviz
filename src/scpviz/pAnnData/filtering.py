@@ -295,11 +295,12 @@ class FilterMixin:
             joined_filters = ", ".join(active_filters) if active_filters else "unspecified"
             message = (
                 f"{format_log_prefix('user')} Filtering proteins [{joined_filters}]:\n"
-                f"    {action} protein data based on {joined_filters}:"
+                f"    {action} protein data with the following filters applied:"
             )
 
             for part in message_parts:
-                    message += f"\n    → {part}"
+                formatted = part.replace(":", " —", 1)
+                message += f"\n     🔸 {formatted}"
 
             # Protein and peptide counts summary
             message += f"\n    → Proteins kept: {pdata.prot.shape[1]}"
@@ -389,21 +390,19 @@ class FilterMixin:
                 expanded_groups = adata.obs[obs_col].unique().tolist()
             else:
                 expanded_groups = (
-                    adata.obs[group].astype(str)
-                        .agg("_".join, axis=1)
-                        .unique()
-                        .tolist()
+                    adata.obs[group]
+                    .astype(str)
+                    .agg("_".join, axis=1)
+                    .unique()
+                    .tolist()
                 )
             # auto-annotate found features by these obs columns
             self.annotate_found(classes=group, on=on, verbose=False)
             group = expanded_groups
             auto_value_msg = (
-                f"{format_log_prefix('info', 2)} Found matching obs column(s): {group}. "
+                f"{format_log_prefix('info', 2)} Found matching groups(s): {group}. "
                 "Automatically annotating detection by group values."
             )
-
-        if verbose and auto_value_msg:
-            print(auto_value_msg)
 
         # Determine filtering mode: group vs file or handle ambiguity/missing
         group_metrics = adata.uns.get(f"found_metrics_{on}")
@@ -415,7 +414,7 @@ class FilterMixin:
             and all((g, "count") in group_metrics.columns for g in group)
         )
 
-        # --- 1️⃣ Explicit ambiguity: both file- and group-level indicators exist ---
+        # case 1: Explicit ambiguity: both file- and group-level indicators exist
         is_ambiguous, annotated_files, annotated_groups = _detect_ambiguous_input(group, var, group_metrics)
         if is_ambiguous:
             raise ValueError(
@@ -424,15 +423,15 @@ class FilterMixin:
                 "Please separate group-based and file-based filters into separate calls."
             )
 
-        # --- 2️⃣ Group-based mode ---
+        # case 2: Group-based mode
         elif all_group_cols:
             mode = "group"
 
-        # --- 3️⃣ File-based mode ---
+        # case 3: File-based mode
         elif all_file_cols:
             mode = "file"
 
-        # --- 4️⃣ Mixed or unresolved case (fallback) ---
+        # case 4: Mixed or unresolved case (fallback) 
         else:
             missing = []
             for g in group:
@@ -462,20 +461,18 @@ class FilterMixin:
                 mask = np.zeros(len(var), dtype=bool)
                 for g in group:
                     col = f"Found In: {g}"
-                    mask |= var[col]  
-                if verbose:
-                    print(f"{format_log_prefix('user')} Filtering proteins [Found|File-mode|ANY]: keeping {mask.sum()} / {len(mask)} features found in ANY of files: {group}")
-            else: # AND logic (default)
+                    mask |= var[col]
+            else:  # AND logic (default)
                 for g in group:
                     col = f"Found In: {g}"
                     mask &= var[col]
-                if verbose:
-                    print(f"{format_log_prefix('user')} Filtering proteins [Found|File-mode|ALL]: keeping {mask.sum()} / {len(mask)} features found in ALL files: {group}")
 
         elif mode == "group":
             if min_ratio is None and min_count is None:
-                raise ValueError("You must specify either `min_ratio` or `min_count` when filtering by group.")
-            
+                raise ValueError(
+                    "You must specify either `min_ratio` or `min_count` when filtering by group."
+                )
+
             if match_any: # ANY logic
                 mask = np.zeros(len(var), dtype=bool)
                 for g in group:
@@ -488,9 +485,6 @@ class FilterMixin:
                         this_mask = count_series >= min_count
 
                     mask |= this_mask
-                if verbose:
-                    print(f"{format_log_prefix('user')} Filtering proteins [Found|Group-mode|ANY]: keeping {mask.sum()} / {len(mask)} features passing threshold in ANY of groups: {group}")
-
             else:
                 for g in group:
                     count_series = group_metrics[(g, "count")]
@@ -502,9 +496,6 @@ class FilterMixin:
                         this_mask = count_series >= min_count
 
                     mask &= this_mask
-
-                if verbose:
-                    print(f"{format_log_prefix('user')} Filtering proteins [Found|Group-mode|ALL]: keeping {mask.sum()} / {len(mask)} features passing threshold {min_ratio if min_ratio is not None else min_count} across groups: {group}")
 
         # Apply filtering
         filtered = self.copy() if return_copy else self # type: ignore[attr-defined], EditingMixin
@@ -518,7 +509,7 @@ class FilterMixin:
                 proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names = filtered._filter_sync_peptides_to_proteins(
                     original=self,
                     updated_prot=filtered.prot,
-                    debug=verbose
+                    debug=False
                 )
 
                 rs_message = filtered._apply_rs_filter(
@@ -526,7 +517,7 @@ class FilterMixin:
                     keep_peptides=peptides_to_keep,
                     orig_prot_names=orig_prot_names,
                     orig_pep_names=orig_pep_names,
-                    debug=verbose
+                    debug=False
                 )
             else:
                 rs_message = None
@@ -536,17 +527,67 @@ class FilterMixin:
             # Optionally, we could also remove proteins no longer linked to any peptides,
             # but that's less common and we can leave it out unless requested.
 
-        if rs_message is not None:
-            print(rs_message)
+        if verbose:
+            n_kept = int(mask.sum())
+            n_total = len(mask)
+            n_dropped = n_total - n_kept
+
+            logic = "any" if match_any else "all"
+            mode_str = "Group-mode" if mode == "group" else "File-mode"
+            logic_tag = "ANY" if match_any else "ALL"
+            return_copy_str = ("Returning a copy of" if return_copy else "Filtered and modified")
+
+            # Header
+            print(f"{format_log_prefix('user')} Filtering {on}s [Found|{mode_str}|{logic_tag}]:")
+
+            # Auto-annotation info (if applicable)
+            if auto_value_msg:
+                print(auto_value_msg)
+
+            # Main action block
+            print(f"    {return_copy_str} {on} data based on detection thresholds:")
+
+            if mode == "group":
+                # Groups requested
+                print(f"{format_log_prefix('filter_conditions')}Groups requested: {group}")
+
+                # Threshold line
+                if min_ratio is not None:
+                    print(f"{format_log_prefix('filter_conditions')}Minimum ratio: {min_ratio}")
+                if min_count is not None:
+                    print(f"{format_log_prefix('filter_conditions')}Minimum count: {min_count}")
+
+                # Logic explanation
+                print(
+                    f"{format_log_prefix('filter_conditions')}Logic: {logic} "
+                    f"({on} must be detected in {'≥1' if match_any else 'all'} group(s))"
+                )
+
+            else:  # file mode
+                print(f"{format_log_prefix('filter_conditions')}Files requested: {group}")
+                print(
+                    f"{format_log_prefix('filter_conditions')}Logic: {logic} "
+                    f"({on} must be detected in {'≥1' if match_any else 'all'} file(s))"
+                )
+
+            # Footer: kept/dropped
+            label = "Proteins" if on == "protein" else "Peptides"
+            print(f"    → {label} kept: {n_kept}, {label} dropped: {n_dropped}")
+
+            # RS summary (if any)
+            if rs_message is not None and on == "protein":
+                print(rs_message)
+
+            print(f"")
 
         criteria_str = (
-            f"min_ratio={min_ratio}" if mode == "group" and min_ratio is not None else
-            f"min_count={min_count}" if mode == "group" else
-            ("ANY files" if match_any else "ALL files")
+            f"min_ratio={min_ratio}"
+            if mode == "group" and min_ratio is not None
+            else f"min_count={min_count}"
+            if mode == "group"
+            else ("ANY files" if match_any else "ALL files")
         )
-
         logic_str = "ANY" if match_any else "ALL"
-
         filtered._append_history(  # type: ignore[attr-defined], HistoryMixin
             f"{on}: Filtered by detection in {mode} group(s) {group} using {criteria_str} (match_{logic_str})."
         )
@@ -822,6 +863,8 @@ class FilterMixin:
 
             if rs_message is not None:
                 print(rs_message)
+
+            print(f"")
 
         return filtered if return_copy else None
 
@@ -1654,7 +1697,7 @@ class FilterMixin:
         if debug:
             print(f"{format_log_prefix('result')} RS matrix filtered: {prot_mask.sum()} proteins, {pep_mask.sum()} peptides retained.")
         else:
-            return(f"{format_log_prefix('result')} RS matrix filtered: {prot_mask.sum()} proteins, {pep_mask.sum()} peptides retained.\n")
+            return(f"{format_log_prefix('result')} RS matrix filtered: {prot_mask.sum()} proteins, {pep_mask.sum()} peptides retained.")
 
     def _format_filter_query(self, condition, dataframe):
         """
@@ -1804,6 +1847,12 @@ class FilterMixin:
             classes_list = utils.get_classlist(adata, classes=classes)
 
             for class_value in classes_list:
+                if "_" in class_value:
+                    print(
+                        f"{format_log_prefix('warn')} class_value '{class_value}' contains an underscore ('_'), "
+                        "which may break format_class_filter(). Consider removing or replacing ('_')."
+                    )
+
                 class_data = utils.resolve_class_filter(adata, classes, class_value)
                 class_samples = class_data.obs_names
 
@@ -1899,6 +1948,12 @@ class FilterMixin:
             classes_list = utils.get_classlist(adata, classes=classes)
 
             for class_value in classes_list:
+                if "_" in class_value:
+                    print(
+                        f"{format_log_prefix('warn')} class_value '{class_value}' contains an underscore ('_'), "
+                        "which may break format_class_filter(). Consider removing or replacing ('_')."
+                    )
+
                 class_data = utils.resolve_class_filter(adata, classes, class_value)
                 class_samples = class_data.obs_names
 

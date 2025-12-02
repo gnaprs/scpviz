@@ -208,26 +208,35 @@ def test_plot_abundance_smoke(pdata):
     assert _is_axes_container(result)
     assert _count_artists(result) > 0
 
+def test_plot_abundance_violin(pdata):
+    fig, ax = plt.subplots()
+    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB", "VCL"], classes="treatment", on="protein", kind='violin')
+    assert _is_axes_container(result)
+    assert _count_artists(result) > 0
+
 def test_plot_abundance_return_df(pdata):
     df = scplt.plot_abundance(None, pdata, namelist=["ACTB"], classes="cellline", return_df=True)
     assert isinstance(df, pd.DataFrame)
     assert {"x_label_name", "abundance", "class"}.intersection(df.columns)
     assert not df.empty
 
-def test_plot_abundance_violin_mode(pdata):
+@pytest.mark.parametrize("log", [True, False])
+def test_plot_abundance_violin_mode(pdata, log):
     fig, ax = plt.subplots()
-    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", kind="violin")
+    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", kind="violin", log=log)
     assert _is_axes_container(result)
     assert _count_artists(result) > 0
 
-def test_plot_abundance_bar_mode(pdata):
+@pytest.mark.parametrize("log", [True, False])
+def test_plot_abundance_bar_mode(pdata, log):
     fig, ax = plt.subplots()
-    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", kind="bar")
+    result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", kind="bar", log=log)
     assert _is_axes_container(result)
     assert _count_artists(result) > 0
 
-def test_plot_abundance_with_facet(pdata):
-    result = scplt.plot_abundance(None, pdata, namelist=["ACTB"], classes="treatment", facet="cellline")
+@pytest.mark.parametrize("log", [True, False])
+def test_plot_abundance_with_facet(pdata, log):
+    result = scplt.plot_abundance(None, pdata, namelist=["ACTB"], classes="treatment", facet="cellline",log=log)
     # FacetGrid should be returned when facet is used
     import seaborn as sns
     assert isinstance(result, sns.FacetGrid)
@@ -250,6 +259,142 @@ def test_plot_abundance_custom_order(pdata):
     result = scplt.plot_abundance(ax, pdata, namelist=["ACTB"], classes="treatment", order=order)
     assert _is_axes_container(result)
     plt.close("all")
+
+# Tests for scplt.plot_abundance_boxgrid
+def test_boxgrid_noclass(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes=None
+    )
+    assert isinstance(fig, plt.Figure)
+
+def test_boxgrid_smoke(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment"
+    )
+    assert isinstance(fig, plt.Figure)
+    assert isinstance(axes, list)
+    assert len(axes) == 1
+    assert _count_artists(axes) > 0
+
+def test_boxgrid_return_df(pdata):
+    fig, axes, df = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        return_df=True
+    )
+    assert isinstance(fig, plt.Figure)
+    assert isinstance(axes, list)
+    assert isinstance(df, pd.DataFrame)
+    assert {"gene", "abundance", "log_abundance"}.intersection(df.columns)
+    assert not df.empty
+
+@pytest.mark.parametrize("box", [True, False])
+def test_boxgrid_modes(pdata, box):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        box=box
+    )
+    assert isinstance(fig, plt.Figure)
+    assert isinstance(axes, list)
+    assert _count_artists(axes) > 0
+
+def test_boxgrid_multiple_genes(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB", "VCL"],
+        classes="treatment"
+    )
+    assert len(axes) == 2
+    assert all(isinstance(ax, plt.Axes) for ax in axes)
+
+@pytest.mark.parametrize("box", [True, False])
+def test_boxgrid_show_n(pdata, box):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        show_n=True,
+        box=box
+    )
+    # Should draw at least one Text artist
+    texts = [t for ax in axes for t in ax.texts]
+    assert isinstance(fig, plt.Figure)
+
+def test_boxgrid_custom_boxplot_kwargs(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        boxplot_kwargs={"linewidth": 3}
+    )
+    assert isinstance(fig, plt.Figure)
+
+def test_boxgrid_custom_hline_kwargs(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        box=False,
+        hline_kwargs={"linewidth": 5}
+    )
+    assert isinstance(fig, plt.Figure)
+
+def test_boxgrid_custom_text_kwargs(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        show_n=True,
+        text_kwargs={"fontsize": 20}
+    )
+    assert isinstance(fig, plt.Figure)
+
+def test_boxgrid_label_x_false(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        label_x=False
+    )
+    assert isinstance(fig, plt.Figure)
+
+def test_boxgrid_set_y_limits(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        y_min=0,
+        y_max=4
+    )
+    ymin, ymax = axes[0].get_ylim()
+    assert ymin == 0
+    assert ymax == 4
+
+def test_boxgrid_global_legend_false(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        global_legend=False
+    )
+
+    # No figure-level legend should exist
+    assert fig.legends == []
+
+def test_boxgrid_missing_group_column_raises(pdata):
+    with pytest.raises(ValueError):
+        scplt.plot_abundance_boxgrid(
+            pdata,
+            namelist=["ACTB"],
+            classes="does_not_exist"
+        )
 
 # Tests for scplt.plot_pca
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (for 3D projection)
@@ -389,6 +534,11 @@ def test_plot_umap_runs_without_error(pdata):
     result = scplt.plot_umap(ax, pdata, classes="treatment", on="protein")
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
+
+def test_plot_umap_runs_without_class(pdata):
+    fig, ax = plt.subplots()
+    result = scplt.plot_umap(ax, pdata, classes=None, on="protein")
+    assert _is_axes_container(result)
 
 def test_plot_umap_forces_recompute(pdata):
     fig, ax = plt.subplots()
@@ -563,6 +713,21 @@ def test_plot_volcano_returns_df():
     assert all(col in out_df.columns for col in ["log2fc", "p_value", "significance"]), "❌ Missing expected DE columns"
     plt.close(fig)
 
+def test_plot_volcano_adata_with_de_data():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    result = scplt.plot_volcano_adata(ax, de_data=df)
+    assert hasattr(result, "scatter"), "❌ Should return a matplotlib Axes"
+    plt.close(fig)
+
+def test_plot_volcano_adata_returns_df():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    ax, out_df = scplt.plot_volcano_adata(ax, de_data=df, return_df=True)
+    assert isinstance(out_df, pd.DataFrame), "❌ return_df=True should return a DataFrame"
+    assert all(col in out_df.columns for col in ["log2fc", "p_value", "significance"]), "❌ Missing expected DE columns"
+    plt.close(fig)
+
 def test_add_volcano_legend_adds_handles():
     fig, ax = plt.subplots()
     scplt.add_volcano_legend(ax)
@@ -582,6 +747,32 @@ def test_mark_volcano_highlights_points():
     assert n_after > n_before, "❌ mark_volcano should add new scatter points"
     plt.close(fig)
 
+def test_mark_volcano_return_texts():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    scplt.plot_volcano(ax, de_data=df, no_marks=True)
+    texts = scplt.mark_volcano(ax, df, label=["G1"], return_texts=True)
+    assert texts is not None, "mark_volcano with return_texts should return some texts"
+    plt.close(fig)
+
+def test_mark_volcano_by_significance_highlights_points():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    scplt.plot_volcano(ax, de_data=df, no_marks=True)
+    n_before = len(ax.collections)
+    scplt.mark_volcano_by_significance(ax, df, label=["G1"])
+    n_after = len(ax.collections)
+    assert n_after > n_before, "❌ mark_volcano_by_significance should add new scatter points"
+    plt.close(fig)
+
+def test_mark_volcano_by_significance_return_texts():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    scplt.plot_volcano(ax, de_data=df, no_marks=True)
+    texts = scplt.mark_volcano_by_significance(ax, df, label=["G1"], return_texts=True)
+    assert texts is not None, "mark_volcano_by_significance with return_texts should return some texts"
+    plt.close(fig)
+
 def test_plot_volcano_with_label_list():
     df = mock_volcano_df()
     fig, ax = plt.subplots()
@@ -589,11 +780,6 @@ def test_plot_volcano_with_label_list():
     texts = [t.get_text() for t in ax.texts]
     assert any(g in texts for g in ["G1", "G2"]), "❌ Gene labels should appear on volcano plot"
     plt.close(fig)
-
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-import scpviz.plotting as scplt
 
 # test scplt.plot_rankquant() and related functions
 
@@ -891,4 +1077,43 @@ def test_mark_raincloud_adds_points():
 
     # The plot should now have at least one scatter collection
     assert len(ax.collections) > 0, "❌ mark_raincloud should add scatter points."
+    plt.close(fig)
+
+# tests for shift_legend()
+@pytest.mark.xfail(reason="For earlier versions of matplotlib, will get the error: AttributeError: 'Legend' object has no attribute 'set_loc'.")
+def test_shift_legend_moves_existing_legend():
+    fig, ax = plt.subplots()
+
+    # Create a dummy plot with legend
+    ax.plot([0, 1], [0, 1], label="dummy")
+    ax.legend(loc='upper right')
+
+    # Capture the legend before shifting
+    leg_before = ax.get_legend()
+    orig_bbox = leg_before.get_bbox_to_anchor()
+
+    # Apply shift
+    scplt.shift_legend(ax, anchor_pos=(0.8, 0.2), loc="lower left")
+
+    leg_after = ax.get_legend()
+    new_bbox = leg_after.get_bbox_to_anchor()
+
+    # Check that the legend exists and was moved
+    assert leg_after is not None
+    assert orig_bbox != new_bbox      # anchor changed
+
+    plt.close(fig)
+
+def test_shift_legend_no_legend_does_nothing():
+    fig, ax = plt.subplots()
+
+    # Confirm no legend present
+    assert ax.get_legend() is None
+
+    # Should run silently without errors
+    scplt.shift_legend(ax)
+
+    # Still no legend
+    assert ax.get_legend() is None
+
     plt.close(fig)

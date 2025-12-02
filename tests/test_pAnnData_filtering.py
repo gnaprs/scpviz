@@ -156,13 +156,21 @@ def test_filter_prot_found_group_mode(pdata):
     assert group_cols, "No Found In: <group> ratio columns found. Did annotate_found() run correctly?"
 
     group_name = group_cols[0].replace("Found In: ", "").replace(" ratio", "")
-
-    # Run the filter
     pdata_filt = pdata.filter_prot_found(group=group_name, min_ratio=0.5, on="protein", return_copy=True, verbose=True)
 
     # Assert some filtering happened
     assert pdata_filt.prot.shape[1] < pdata.prot.shape[1]
     assert f"Found In: {group_name}" in pdata_filt.prot.var.columns
+
+def test_filter_prot_found_group_mode_auto(pdata):
+    grouping_column=["cellline"]
+    pdata_filt = pdata.filter_prot_found(group=grouping_column, min_ratio=0.5, on="protein", return_copy=True, verbose=True)
+    group_name = ['AS','BE']
+
+    assert pdata_filt.prot.shape[1] < pdata.prot.shape[1]
+    for g in group_name:
+        assert f"Found In: {g}" in pdata_filt.prot.var.columns
+        assert f"Found In: {g} ratio" in pdata_filt.prot.var.columns
 
 def test_filter_prot_found_file_mode(pdata):
     file_cols = [c for c in pdata.prot.var.columns if c.startswith("Found In: ")]

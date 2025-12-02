@@ -78,7 +78,6 @@ class AnalysisMixin:
 
         self._history.append(f"{on}: Coefficient of Variation (CV) calculated for {layer} data by {classes}. CV stored in var['CV: {class_value}'].") # type: ignore[attr-defined]
 
-    # TODO: implement methods for calculdating fold change, 1. mean, 2. prot pairwise median, or 3. pep pairwise median (will need to refer to RS)
     def de(self, values=None, class_type=None, method='ttest', layer='X', pval=0.05, log2fc=1.0, fold_change_mode='mean'):
         """
         Perform differential expression (DE) analysis on proteins across sample groups.
@@ -94,11 +93,8 @@ class AnalysisMixin:
                 - Legacy-style (if `class_type` is provided): [['HCT116', 'DMSO'], ['HCT116', 'DrugX']]
 
             class_type (str or list of str, optional): Legacy-style class label(s) to interpret `values`.
-
             method (str): Statistical test to use. Options: "ttest", "mannwhitneyu", "wilcoxon".
-
             layer (str): Name of the data layer to use (default is "X").
-
             pval (float): P-value cutoff used for labeling significance.
 
             log2fc (float): Minimum log2 fold change threshold for significance labeling.
@@ -182,7 +178,9 @@ class AnalysisMixin:
 
         # --- Compute fold change ---
         if fold_change_mode == 'mean':
-            with np.errstate(all='ignore'):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                
                 group1_mean = np.nanmean(data1, axis=0)
                 group2_mean = np.nanmean(data2, axis=0)
 
@@ -295,8 +293,11 @@ class AnalysisMixin:
         var = self.prot.var.copy()
         df_stats = pd.DataFrame(index=self.prot.var_names)
         df_stats['Genes'] = var['Genes'] if 'Genes' in var.columns else var.index
-        df_stats[group1_string] = np.nanmean(data1, axis=0)
-        df_stats[group2_string] = np.nanmean(data2, axis=0)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            df_stats[group1_string] = np.nanmean(data1, axis=0)
+            df_stats[group2_string] = np.nanmean(data2, axis=0)
         df_stats['log2fc'] = log2fc_vals
         df_stats['p_value'] = pvals
         df_stats['test_statistic'] = stats
@@ -1143,6 +1144,7 @@ class AnalysisMixin:
                 `'diann_precursor_ms1'`, or `'diann_precursor_ms1_and_ms2'`.
                 - `path` (str): For `'directlfq'`, path to the `report.tsv` or `report.parquet`
                 file from DIA-NN output.
+                - `strict` (bool): For `'directlfq'`, whether to use unique + shared peptides or only unique peptides. Defaults to False (unique + shared).
 
         Returns:
             None
@@ -1411,7 +1413,7 @@ class AnalysisMixin:
 
         return data_norm
 
-    def _normalize_helper_directlfq(self, input_type_to_use="pAnnData", path=None, **kwargs):
+    def _normalize_helper_directlfq(self, input_type_to_use="pAnnData", path=None, strict=False, **kwargs):
         """
         Run directlfq normalization and return normalized protein-level intensities.
 
@@ -1420,6 +1422,7 @@ class AnalysisMixin:
                 'diann_precursor_ms1_and_ms2'.
             path (str, optional): Path to DIA-NN report file (required if 
                 input_type_to_use='diann_precursor_ms1_and_ms2').
+            strict (bool): Whether to be strict and use only unique peptides, in which shared peptides are ignored for normalization. Defaults to False.
             **kwargs: Passed to directlfq.lfq_manager.run_lfq().
 
         Returns:
@@ -1427,6 +1430,8 @@ class AnalysisMixin:
         """
         import directlfq.lfq_manager as lfq_manager
         import os
+
+        strict = kwargs.pop("strict", False)
 
         if input_type_to_use == "diann_precursor_ms1_and_ms2":
             if path is None:
@@ -1450,6 +1455,22 @@ class AnalysisMixin:
             prot_col = "Protein.Group" if "Protein.Group" in self.pep.var.columns else "Master Protein Accessions"
             X_df.insert(0, "protein", self.pep.var[prot_col].to_list())
             X_df.insert(1, "ion", X_df.index.to_list())
+
+            if not strict:
+                # e.g. "P03995; P03995-2" → two rows with same intensities, one per protein
+                # ensure directLFQ sees only single-accession protein IDs
+                n_before = X_df.shape[0]
+                X_df["protein"] = X_df["protein"].astype(str).str.split(";")
+                X_df = X_df.explode("protein")
+                X_df["protein"] = X_df["protein"].str.strip()
+                X_df = X_df[X_df["protein"] != ""]
+                
+                n_after = X_df.shape[0]
+                if n_after > n_before:
+                    print(f"{format_log_prefix('info',2)} Expanded multi-protein peptide groups: {n_before} → {n_after} rows.")
+                else:
+                    print(f"{format_log_prefix('info',2)} No multi-protein peptide groups detected for directlfq input.")
+
             X_df.reset_index(drop=True, inplace=True)
             tmp_file = "peptide_matrix.aq_reformat.tsv"
             X_df.to_csv(tmp_file, sep="\t", index=False)
