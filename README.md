@@ -15,7 +15,7 @@
 *macOS + Python 3.8 is unsupported due to issues with `scikit-misc` installation.*
 
 **Documentation:**  
-[![Docs CI](https://github.com/gnaprs/scpviz/actions/workflows/ci.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/ci.yml)
+[![Docs CI](https://github.com/gnaprs/scpviz/actions/workflows/docs.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/docs.yml)
 [![Docs](https://img.shields.io/badge/docs-v0.5.2a-brightgreen.svg)](https://gnaprs.github.io/scpviz)
 
 ## Overview
