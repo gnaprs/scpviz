@@ -14,7 +14,68 @@ All notable changes to this project are documented here.
 
 
 
+##### (Directlfq)
+
+
+- Make strict/loose flag instead to replicate older behavior (d976225…)
+
+
+
+##### (Filtering)
+
+
+- Add warning about underscores in class_type throwing error within annotate_found and annotate_significant (51b0664…)
+
+
+
+##### (Plot_abundance_boxgrid)
+
+
+- Add publication quality abundance plot function (2957b40…)
+
+
+
+##### (Plotting)
+
+
+- Add classes=None support to plot_abundance_boxgrid, also fixed flipped label error by enforcing order from start (27043ea…)
+
+- Add shift_legend() convenience function (53a95df…)
+
+- Add ax input for plot_abundance_boxgrid, update wrapper in pAnnData (2caf525…)
+
+- Add plot_volcano_adata to support transcriptomics plotting, add mark_volcano_by_significance for more flexibility with marks (e859a97…)
+
+
+
+##### (Utils)
+
+
+- Add parse_filename_index to help with formatting imports (eb9da97…)
+
+- Add de_adata to support transcriptomics DE (e0cdb74…)
+
+- Add condition flag for parse_filename_index to parse subset of samples, added tests for condition (09ce308…)
+
+
+
 #### Build System
+
+
+##### (.gitignore)
+
+
+- Add parquet file (eecb64d…)
+
+
+
+##### (Docs)
+
+
+- Enforce version type on mkdocstrings since new build broke render (36b3734…)
+
+- Fix versions of mkdocstrings (feec11a…)
+
 
 
 ##### (V0.5.3a)
@@ -24,7 +85,101 @@ All notable changes to this project are documented here.
 
 
 
+#### CI
+
+
+##### (Codecov)
+
+
+- Update patch pass to 80% (809e06a…)
+
+- Patch pass to 70% (c19c842…)
+
+
+
+##### (Package)
+
+
+- Modify readme to show status matrix (5202a0e…)
+
+- Split ci tests into individual workflows (59dd2c9…)
+
+- Update with codecov token (24f61bf…)
+
+- Fix secrets passthrough to reusable workflow (70fd891…)
+
+
+
+##### (Pytest)
+
+
+- Update to test on macos and windows as well (66afe02…)
+
+
+
+#### Changed
+
+
+##### (Directlfq)
+
+
+- Default to strict (876a237…)
+
+
+
+##### (Git LFS)
+
+
+- Remove large tutorial parquet from LFS; keep small test parquet (5c46f16…)
+
+- Remove LFS flag from pytest workflow (b8b98c4…)
+
+- Move large parquet file to release and update download links in docs (dafcc43…)
+
+- Move small test parquet from LFS to local (c0170bf…)
+
+
+
+##### (Plotting)
+
+
+- Add _add_continuous_colorbar helper function, clean plot_pca and plot_umap code (60c724a…)
+
+- Update pca and umap to pass kwargs to scatter plot (fffa5e1…)
+
+- Enable label_x for box=True in plot_abundance_boxgrid (d789d43…)
+
+
+
+##### (Setup)
+
+
+- Add GLOBAL_DEBUG flag to suppress runtime warnings for user but allow at pytest logging (ad48d06…)
+
+
+
 #### Chores
+
+
+##### (Codecov)
+
+
+- Set success flag for ci (0f1f2bc…)
+
+
+
+##### (Plot_abundance)
+
+
+- Default to raw abundance with y-log scale (92beb20…)
+
+
+
+##### (Readme)
+
+
+- Update CI badge link in README.md (8ef019a…)
+
 
 
 
@@ -34,9 +189,18 @@ All notable changes to this project are documented here.
 
 - Update changelogs [skip ci] (525bdb9…)
 
+- Update changelogs [skip ci] (6c89f44…)
+
 
 
 #### Documentation
+
+
+##### (Refactor)
+
+
+- Overhaul documentation layout for API pAnnData reference (df24ead…)
+
 
 
 
@@ -47,10 +211,58 @@ All notable changes to this project are documented here.
 #### Fixed
 
 
+##### (Analysis)
+
+
+- Suppress warnings about nanmean (3b2f505…)
+
+
+
+##### (Directlfq)
+
+
+- Handle bug with multi proteins associated with same peptide in output file producing NaNs output (e.g. 'P03995;P03995-2') (ef8a915…)
+
+- Move expansion to peptide level data so normalization algorithm maps to correct protein (f676b44…)
+
+
+
+##### (Docs)
+
+
+- Fix link to importing tutorial (541b849…)
+
+
+
+##### (Mkdocstrings)
+
+
+- Downgrade to v0.30.1 for now while we figure out handler error (7d7ba8c…)
+
+
+
 ##### (Plot_umap)
 
 
 - Fix force to propagate through umap, neighbors and pca (9092ebb…)
+
+
+
+##### (Plotting)
+
+
+- Bug fix for plot_abundance_boxgrid when xtick only exists for one class (4e267fd…)
+
+- Default plot_abundnace_boxgrid to dodge=False when classes is None (6290754…)
+
+- Fix GLOBAL_DEBUG flag to be updated at start of test_utils.py (4c84318…)
+
+
+
+##### (Summary)
+
+
+- Check and remove_unused_categories after filter, mostly for PD data (925e72d…)
 
 
 
@@ -61,7 +273,31 @@ All notable changes to this project are documented here.
 
 
 
+##### (Utils)
+
+
+- Add warning/hint about source of length mismatch error in format_class_filter (664bfdf…)
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update Paper PDF Draft (4644379…)
+
+
+
 #### Style
+
+
+##### (Analysis)
+
+
+- Remove extra blank lines (1897136…)
+
 
 
 ##### (Docs)
@@ -69,12 +305,44 @@ All notable changes to this project are documented here.
 
 - Change root_heading to true, remove others section (bb68f1d…)
 
+- Add tabs back to website for better navigation (45ba11f…)
+
 
 
 ##### (Editing)
 
 
 - Edit mixin docstring to include export_layer (b3d2cba…)
+
+
+
+##### (Filter_prot_found)
+
+
+- Add new line after rs message (7a4146b…)
+
+- Reorder automatic annotation message (9147fea…)
+
+
+
+##### (Filtering)
+
+
+- Refactor the print statements from filter_prot_found to match filter_prot_significant, fix style for filter_prot valid genes and unique profile (1660e0b…)
+
+
+
+##### (Plotting)
+
+
+- More verbose error message for errors in resolve_plot_colors (1f2dc63…)
+
+
+
+##### (Readme)
+
+
+- Update badges (f773576…)
 
 
 
@@ -88,12 +356,96 @@ All notable changes to this project are documented here.
 #### Tests
 
 
+##### (Analysis)
+
+
+- Add mark xfail for failure due to potential package version mismatch (a7c808a…)
+
+
+
+##### (Boxgrid)
+
+
+- Fix boxgrid assertion error (c8c204f…)
+
+
+
+##### (De_adata)
+
+
+- Refactor raise error to earlier in check for method (41ba612…)
+
+
+
+##### (Directlfq)
+
+
+- Add tests for strict flag and no pep situation (cd05079…)
+
+
+
+##### (Filter_prot_found)
+
+
+- Add test for automated annotation with simple group (451ce0a…)
+
+
+
+##### (Impute)
+
+
+- Add test for use_zeros_as_nan flag (32fa2bd…)
+
+
+
+##### (PAnnData_plot)
+
+
+- Refactor base plot tests into test_pAnnData_plot file, centralize where to test pdata plotting functions (3c4c264…)
+
+
+
 ##### (Pimms)
 
 
+- Add tests for pimm imputation (d3a1832…)
+
 - Add skip for pimms-learn dependency issue (6485e2e…)
 
-- Add tests for pimm imputation (d3a1832…)
+
+
+##### (Plotting)
+
+
+- Add tests for plot_abundance_boxgrid (a42eb76…)
+
+- Add test for abundance_boxgrid classes = None case (121a9f5…)
+
+- Add test for abundance_boxgrid when show_n is true and parameterize box (e8aaf3b…)
+
+- Add test for plot_umap with classes as None (6bbbe6c…)
+
+- Add tests for shift_legend() (ed80cd9…)
+
+- Add mark xfail for known plt version error, add test for violin (c6a3854…)
+
+
+
+##### (Umap)
+
+
+- Update larger perturbation on force_neighbors to pass test on py3.11 (more stable umap) (571149f…)
+
+- Remove assertion on neighbour due to different stabilities across python versions (60badf5…)
+
+
+
+##### (Utils)
+
+
+- Add tests to exception and error for parse_filename_index (2446b41…)
+
+- Add test for parse_filename_index (ae713de…)
 
 
 
