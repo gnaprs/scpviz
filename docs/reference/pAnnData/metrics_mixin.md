@@ -1,10 +1,10 @@
-# Importing
+# Metrics
 
-Mixins for importing data into `pAnndata` objects.
+Mixins for computing and updating metadata from `.obs`, `.var`, or relational data.
 
 ---
 
-::: src.scpviz.pAnnData.io
+::: src.scpviz.pAnnData.metrics
     options:
       show_root_full_path: false
       show_root_heading: false

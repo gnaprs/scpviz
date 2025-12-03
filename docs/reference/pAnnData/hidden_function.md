@@ -9,7 +9,7 @@ Hidden functions for all MixIns.
 
 ---
 
-::: src.scpviz.pAnnData.analysis.AnalysisMixin
+::: src.scpviz.pAnnData.analysis
     options:
       show_root_heading: true
       heading_level: 3

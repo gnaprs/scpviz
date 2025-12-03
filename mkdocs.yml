@@ -118,20 +118,25 @@ nav:
   - API reference:
       - reference/index.md
       - pAnnData:
-          - Base Class: reference/pAnnData/pAnnData.md
-          - Importing: reference/pAnnData/import_mixin.md
-          - Core Utilities: reference/pAnnData/core_mixins.md
-          - Metadata + Summary: reference/pAnnData/metadata_mixins.md
-          - Editing + Filtering: reference/pAnnData/editing_mixins.md
-          - Analysis + Enrichment: reference/pAnnData/analysis_mixins.md
-          - Identifiers + STRING: reference/pAnnData/identifier_mixins.md
-          - Visualization: reference/pAnnData/plot_mixin.md
+          - Overview: reference/pAnnData/pAnnData.md
+          - .analysis: reference/pAnnData/analysis_mixin.md
+          - .base: reference/pAnnData/base_mixin.md
+          - .editing: reference/pAnnData/editing_mixin.md
+          - .enrichment: reference/pAnnData/enrichment_mixin.md
+          - .filtering: reference/pAnnData/filtering_mixin.md
+          - .history: reference/pAnnData/history_mixin.md
+          - .identifier: reference/pAnnData/identifier_mixin.md
+          - .import: reference/pAnnData/import_mixin.md
+          - .metrics: reference/pAnnData/metrics_mixin.md
+          - .plot: reference/pAnnData/plot_mixin.md
+          - .summary: reference/pAnnData/summary_mixin.md
+          - .validation: reference/pAnnData/validation_mixin.md
       - Modules:
         - scpviz.utils: reference/utils.md
         - scpviz.plotting: reference/plotting.md
       - Developer Utilities:
           - TrackedDataFrame: reference/TrackedDataFrame.md
-          - Hidden Functions: reference/pAnnData/hidden_functions.md
+          - Hidden Functions: reference/pAnnData/hidden_function.md
   - Development:
     - Contributing: dev/contributing.md
     - Code of Conduct: dev/CODE_OF_CONDUCT.md

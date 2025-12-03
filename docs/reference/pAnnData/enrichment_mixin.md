@@ -1,10 +1,10 @@
-# Importing
+# Enrichment
 
-Mixins for importing data into `pAnndata` objects.
+Mixins for enrichment analysis using STRING/UniProt.
 
 ---
 
-::: src.scpviz.pAnnData.io
+::: src.scpviz.pAnnData.enrichment.EnrichmentMixin
     options:
       show_root_full_path: false
       show_root_heading: false

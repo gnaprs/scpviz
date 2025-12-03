@@ -1,10 +1,10 @@
-# Importing
+# Summary
 
-Mixins for importing data into `pAnndata` objects.
+Mixin for summarizing `pAnnData` object.
 
 ---
 
-::: src.scpviz.pAnnData.io
+::: src.scpviz.pAnnData.summary
     options:
       show_root_full_path: false
       show_root_heading: false

@@ -59,8 +59,6 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
         history (list of str, optional):
             Chronological list of user-invoked operations, automatically tracked for reproducibility.
 
-    Todo:
-        Decide whether to standardize internal terminology to `classes` or `class_types` for sample-level grouping.
     """
     def __init__(self, 
                  prot = None, # np.ndarray | sparse.spmatrix 
