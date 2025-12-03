@@ -52,7 +52,7 @@ pdata = pAnnData.import_data(source_type='diann', report_file ="report.tsv")
 pdata = pAnnData.import_data(source_type='pd', prot_file ="proteomediscoverer_prot.txt", pept_file ="proteomediscoverer_pep.txt")
 ```
 
-See the [importing tutorial](tutorials/importing.md) for more information.
+See the [importing tutorial](../tutorials/importing.md) for more information.
 
 Once imported, the `pAnnData` object serves as the entry point for downstream workflows:
 filtering, normalization, imputation, visualization, and enrichment analysis.
