@@ -38,8 +38,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install \
             mkdocs-material \
-            mkdocstrings==0.30.1 \
-            mkdocstrings[python]==0.30.1 \
+            mkdocstrings==0.26.1 \
+            mkdocstrings[python]==1.11.1 \
             mkdocs-literate-nav \
             mkdocs-section-index \
             pymdown-extensions
