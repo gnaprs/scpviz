@@ -9,7 +9,11 @@ on:
       python:
         required: true
         type: string
-
+    secrets:
+      CODECOV_TOKEN:
+        required: true
+        description: 'The Codecov token.'
+        
 jobs:
   build:
     runs-on: ${{ inputs.os }}
