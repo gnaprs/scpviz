@@ -1,10 +1,10 @@
-# Importing
+# Editing
 
-Mixins for importing data into `pAnndata` objects.
+Mixins for manipulating or exports.
 
 ---
 
-::: src.scpviz.pAnnData.io
+::: src.scpviz.pAnnData.editing
     options:
       show_root_full_path: false
       show_root_heading: false

@@ -2,7 +2,7 @@
 
 ::: src.scpviz.pAnnData.pAnnData.pAnnData
     options:
-      show_root_heading: true
+      show_root_heading: false
       heading_level: 2
 
 ---

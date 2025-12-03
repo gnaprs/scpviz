@@ -1,17 +1,24 @@
 # scpviz
 <img src="https://raw.githubusercontent.com/gnaprs/scpviz/refs/heads/main/docs/assets/300ppi/logo_white_label@300x.png"
- align="right" width="256"/>
+ align="right" width="200"/>
  [![DOI](https://zenodo.org/badge/762480088.svg)](https://doi.org/10.5281/zenodo.17362532)
 
 **Build & Tests:**  
-[![Build Status](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/python-package.yml)
 [![codecov](https://codecov.io/gh/gnaprs/scpviz/branch/main/graph/badge.svg)](https://codecov.io/gh/gnaprs/scpviz)
+
+**CI Matrix Status:**
+| Python | Ubuntu | macOS | Windows |
+|--------|--------|--------|----------|
+| **3.11** | ![Ubuntu-3.11](https://github.com/gnaprs/scpviz/actions/workflows/ubuntu-3.11.yml/badge.svg) | ![macOS-3.11](https://github.com/gnaprs/scpviz/actions/workflows/macos-3.11.yml/badge.svg) | ![Windows-3.11](https://github.com/gnaprs/scpviz/actions/workflows/windows-3.11.yml/badge.svg) |
+| **3.8** | ![Ubuntu-3.8](https://github.com/gnaprs/scpviz/actions/workflows/ubuntu-3.8.yml/badge.svg) | Unsupported | ![Windows-3.8](https://github.com/gnaprs/scpviz/actions/workflows/windows-3.8.yml/badge.svg) |
+
+*macOS + Python 3.8 is unsupported due to issues with `scikit-misc` installation.*
 
 **Documentation:**  
 [![Docs CI](https://github.com/gnaprs/scpviz/actions/workflows/ci.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-v0.5.2a-brightgreen.svg)](https://gnaprs.github.io/scpviz)
 
-
+## Overview
 **scpviz** is a Python package for single-cell and spatial proteomics data analysis, built around a custom `pAnnData` object.  
 It extends the [AnnData](https://anndata.readthedocs.io/) ecosystem with proteomics-specific functionality, enabling seamless integration of proteins, peptides, and relational data.
 

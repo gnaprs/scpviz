@@ -6,6 +6,10 @@ import warnings
 
 from scpviz import utils
 from anndata import AnnData
+import scpviz.setup
+
+scpviz.setup.GLOBAL_DEBUG = True
+print(utils._setup.GLOBAL_DEBUG)
 
 @pytest.fixture
 def adata_example():
@@ -34,14 +38,8 @@ def adata_gene():
 
 # --- utility tests
 def test_parse_filename_index_success():
-    # Example filenames
-    idx = [
-        "20250101_A_123_10um_mouse_ctx_A1",
-        "20250102_B_456_20um_mouse_snpc_B7",
-    ]
-
+    idx = ["20250101_A_123_10um_mouse_ctx_A1", "20250102_B_456_20um_mouse_snpc_B7", ]
     df = pd.DataFrame({"value": [1, 2]}, index=idx)
-
     obs_columns = [
         "date",
         "gradient",
@@ -67,13 +65,10 @@ def test_parse_filename_index_success():
     assert out.loc[idx[0], "region"] == "ctx"
     assert out.loc[idx[0], "well"] == "A1"
 
-
 def test_parse_filename_index_wrong_parts_raises():
     # Filename with fewer parts
     idx = ["20250101_A_123_mouse"]
-
     df = pd.DataFrame({"value": [1]}, index=idx)
-
     obs_columns = ["date", "gradient", "sample_id", "organism", "region"]
 
     with pytest.raises(ValueError) as excinfo:
@@ -83,6 +78,147 @@ def test_parse_filename_index_wrong_parts_raises():
     assert "Expected 5 parts" in msg
     assert "but got 4" in msg
     assert "20250101_A_123_mouse" in msg
+
+def test_parse_filename_index_condition_subset_only():
+    idx = ["20250101_A_123_10um_mouse_ctx_A1", "20250102_B_456_20um_mouse_snpc_B7",]
+
+    df = pd.DataFrame({"value": [1, 2], "parsingType": ["keep", "skip"]}, index=idx)
+
+    obs_columns = [
+        "date",
+        "gradient",
+        "sample_id",
+        "size",
+        "organism",
+        "region",
+        "well",
+    ]
+
+    out = utils.parse_filename_index(
+        df,
+        obs_columns,
+        delimiter="_",
+        condition='parsingType == "keep"',
+    )
+
+    # First row parsed
+    assert out.loc[idx[0], "date"] == "20250101"
+    assert out.loc[idx[0], "gradient"] == "A"
+
+    # Second row untouched (all new columns should remain NaN)
+    for col in obs_columns:
+        if col != "date":  # date is parsed only for masked rows
+            assert pd.isna(out.loc[idx[1], col])
+
+def test_parse_filename_index_empty_mask_raises():
+    idx = ["20250101_A_123_10um_mouse_ctx_A1"]
+
+    df = pd.DataFrame({"value": [1], "parsingType": ["nope"]}, index=idx)
+
+    obs_columns = [
+        "date",
+        "gradient",
+        "sample_id",
+        "size",
+        "organism",
+        "region",
+        "well",
+    ]
+
+    with pytest.raises(ValueError) as excinfo:
+        utils.parse_filename_index(
+            df,
+            obs_columns,
+            delimiter="_",
+            condition='parsingType == "keep"',  # no rows match
+        )
+
+    msg = str(excinfo.value)
+    assert "selected 0 rows" in msg
+    assert "parsingType == \"keep\"" in msg
+
+def test_parse_filename_index_mask_alignment_after_shuffle():
+    idx = ["20250101_A_123_10um_mouse_ctx_A1", "20250102_B_456_20um_mouse_snpc_B7",]
+
+    df = pd.DataFrame({"value": [1, 2], "parsingType": ["keep", "keep"]}, index=idx,)
+
+    # Shuffle rows to disturb index order (common real-world scenario)
+    df_shuffled = df.sample(frac=1, random_state=42)
+
+    obs_columns = [
+        "date",
+        "gradient",
+        "sample_id",
+        "size",
+        "organism",
+        "region",
+        "well",
+    ]
+
+    out = utils.parse_filename_index(
+        df_shuffled,
+        obs_columns,
+        delimiter="_",
+        condition='parsingType == "keep"',
+    )
+
+    # Must correctly parse each filename according to its label, *not* position
+    for name in idx:
+        assert out.loc[name, "date"] == name.split("_")[0]
+
+def test_parse_filename_index_invalid_condition_syntax():
+    idx = ["20250101_A_123_10um_mouse_ctx_A1"]
+    df = pd.DataFrame({"value": [1]}, index=idx)
+
+    obs_columns = ["date", "gradient", "sample_id", "size", "organism", "region", "well"]
+
+    # invalid syntax: missing quote, invalid operator
+    with pytest.raises(ValueError) as excinfo:
+        utils.parse_filename_index(
+            df, obs_columns, condition="parsingType === 5"   # invalid Python syntax
+        )
+
+    msg = str(excinfo.value)
+    assert "Invalid condition" in msg
+    assert "parsingType === 5" in msg
+
+def test_parse_filename_index_condition_not_boolean():
+    idx = ["20250101_A_123_10um_mouse_ctx_A1"]
+    df = pd.DataFrame({"value": [1]}, index=idx)
+
+    obs_columns = ["date", "gradient", "sample_id", "size", "organism", "region", "well"]
+
+    with pytest.raises(ValueError) as excinfo:
+        utils.parse_filename_index(
+            df,
+            obs_columns,
+            condition="value + 1"  # valid syntax, wrong dtype
+        )
+
+    msg = str(excinfo.value)
+    assert "did not evaluate to a boolean mask" in msg
+
+def test_parse_filename_index_creates_missing_columns_only():
+    idx = ["20250101_A_123", "20250102_B_456",]
+
+    df = pd.DataFrame(
+            {"value": [1, 2],
+            "date": ["PREEXISTING_1", "PREEXISTING_2"]},   # existing column to test non-overwrite
+        index=idx,)
+
+    obs_columns = ["date", "gradient", "sample_id"]  # 3 columns expected from split
+
+    out = utils.parse_filename_index(df, obs_columns, delimiter="_")
+
+    assert "date" in out.columns
+    assert out.loc[idx[0], "date"] == "20250101"
+    assert out.loc[idx[1], "date"] == "20250102"
+    assert "gradient" in out.columns
+    assert "sample_id" in out.columns
+    assert out.loc[idx[0], "gradient"] == "A"
+    assert out.loc[idx[0], "sample_id"] == "123"
+    assert out.loc[idx[1], "gradient"] == "B"
+    assert out.loc[idx[1], "sample_id"] == "456"
 
 # data processing functions
 # get class_list()

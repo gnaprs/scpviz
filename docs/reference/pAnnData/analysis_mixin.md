@@ -1,10 +1,10 @@
-# Importing
+# Analysis
 
-Mixins for importing data into `pAnndata` objects.
+Mixins for statistical analysis and biological interpretation.
 
 ---
 
-::: src.scpviz.pAnnData.io
+::: src.scpviz.pAnnData.analysis.AnalysisMixin
     options:
       show_root_full_path: false
       show_root_heading: false

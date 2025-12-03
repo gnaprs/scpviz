@@ -1,10 +1,10 @@
-# Importing
+# Filtering
 
-Mixins for importing data into `pAnndata` objects.
+Mixin for filtering samples, proteins and RS.
 
 ---
 
-::: src.scpviz.pAnnData.io
+::: src.scpviz.pAnnData.filtering
     options:
       show_root_full_path: false
       show_root_heading: false

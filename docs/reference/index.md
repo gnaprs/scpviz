@@ -52,6 +52,8 @@ pdata = pAnnData.import_data(source_type='diann', report_file ="report.tsv")
 pdata = pAnnData.import_data(source_type='pd', prot_file ="proteomediscoverer_prot.txt", pept_file ="proteomediscoverer_pep.txt")
 ```
 
+See the [importing tutorial](../tutorials/importing.md) for more information.
+
 Once imported, the `pAnnData` object serves as the entry point for downstream workflows:
 filtering, normalization, imputation, visualization, and enrichment analysis.
 
@@ -131,5 +133,5 @@ In addition to the core `pAnnData` class, **scpviz** provides two standalone mod
 
 !!! warning "Developer utilities"  
     These tools are included for package maintainers and power users. Most end-users will not need to interact with them directly.  
-
+ 
 ---
