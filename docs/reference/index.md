@@ -133,5 +133,5 @@ In addition to the core `pAnnData` class, **scpviz** provides two standalone mod
 
 !!! warning "Developer utilities"  
     These tools are included for package maintainers and power users. Most end-users will not need to interact with them directly.  
-
+ 
 ---

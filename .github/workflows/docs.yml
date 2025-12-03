@@ -39,7 +39,7 @@ jobs:
           pip install \
             mkdocs-material \
             mkdocstrings==0.26.1 \
-            mkdocstrings[python]==1.11.1 \
+            mkdocstrings-python==1.11.1 \
             mkdocs-literate-nav \
             mkdocs-section-index \
             pymdown-extensions
