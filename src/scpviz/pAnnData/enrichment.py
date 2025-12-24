@@ -727,6 +727,8 @@ class EnrichmentMixin:
             The `key` must correspond to an existing entry in `.stats["functional"]`, created via 
             `enrichment_functional()`.
         """
+        from xml.parsers.expat import ExpatError
+
         if "functional" not in self.stats:
             raise ValueError("No STRING enrichment results found in .stats['functional'].")
 
@@ -773,7 +775,14 @@ class EnrichmentMixin:
             tmp_path = tmp.name
 
         try:
-            display(SVG(filename=tmp_path))
+            try:
+                display(SVG(filename=tmp_path))
+            except ExpatError:
+                print(
+                    f"{format_log_prefix('info_only')} No enrichment figure available "
+                    f"for key '{lookup_key}'"
+                    + (f" (category='{category}')." if category else ".")
+                )
         finally:
             os.remove(tmp_path)
 

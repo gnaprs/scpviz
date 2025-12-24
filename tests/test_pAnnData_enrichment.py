@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 from unittest.mock import patch, Mock
-from io import BytesIO
+from xml.parsers.expat import ExpatError
 
 from scpviz.enrichment import enrichment_functional, _resolve_de_key, enrichment_ppi, _pretty_vs_key
 
@@ -285,12 +285,29 @@ def test_plot_enrichment_svg_direction_error(mock_get, pdata):
 
 @patch("scpviz.enrichment.requests.get")
 def test_plot_enrichment_svg_fetch_and_save(mock_get, pdata, tmp_path):
-    """Covers normal flow including saving SVG."""
     pdata.stats["functional"] = {"UserSearch1": {"string_ids": ["S1"], "species": "9606"}}
-    mock_get.return_value = Mock(status_code=200, content=b"<svg></svg>")
+
+    resp = Mock(status_code=200, content=b"<svg></svg>")
+    resp.raise_for_status = Mock()
+    mock_get.return_value = resp
+
     tmpfile = tmp_path / "test.svg"
     pdata.plot_enrichment_svg("UserSearch1", save_as=str(tmpfile))
     assert tmpfile.exists()
+
+@patch("scpviz.enrichment.requests.get")
+@patch("IPython.display.SVG", side_effect=ExpatError("no element found: line 1, column 0"))
+def test_plot_enrichment_svg_no_image_expaterror(mock_svg, mock_get, pdata, capsys):
+    pdata.stats["functional"] = {"UserSearch1": {"string_ids": ["S1"], "species": "9606"}}
+
+    resp = Mock(status_code=200, content=b"")
+    resp.raise_for_status = Mock()
+    mock_get.return_value = resp
+
+    pdata.plot_enrichment_svg("UserSearch1")
+
+    out = capsys.readouterr().out
+    assert "No enrichment figure available" in out
 
 # ----------------------------------------------------------------------
 # get_string_network_link coverage
