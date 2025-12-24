@@ -2167,25 +2167,10 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
     else:
         return ax
 
-def plot_volcano_adata(
-    ax,
-    adata=None,
-    values=None,
-    class_type=None,
-    de_data=None,
-    method='ttest',
-    fold_change_mode='mean',
-    layer='X',
-    label=5,
-    fontsize=8,
-    alpha=0.5,
-    color=None,
-    linewidth=0.5,
-    pval=0.05,
-    log2fc=1.0,
-    no_marks=False,
-    return_df=False,
-    **kwargs
+def plot_volcano_adata(ax, adata=None, values=None, class_type=None, de_data=None,
+    gene_col=None, method='ttest', fold_change_mode='mean', layer='X', label=5, fontsize=8,
+    alpha=0.5, color=None, linewidth=0.5, pval=0.05, log2fc=1.0, no_marks=False,
+    return_df=False, **kwargs
 ):
     """
     Volcano plot for AnnData with the *same API behavior* as pdata.plot_volcano.
@@ -2216,15 +2201,9 @@ def plot_volcano_adata(
         if adata is None or values is None:
             raise ValueError("When de_data is not provided, must supply adata and values.")
 
-        df = utils.de_adata(
-            adata=adata,
-            values=values,
-            class_type=class_type,
-            method=method,
-            fold_change_mode=fold_change_mode,
-            layer=layer,
-            pval=pval,
-            log2fc=log2fc
+        df = utils.de_adata(adata=adata, values=values, class_type=class_type,
+            method=method, fold_change_mode=fold_change_mode, layer=layer,
+            pval=pval, log2fc=log2fc, gene_col=gene_col
         )
 
         def format_group(val, class_type):
