@@ -683,7 +683,7 @@ class EnrichmentMixin:
                 includes both contrast and direction (e.g., `"GroupA_Treatment1_vs_Control_up"`).
             direction (str, optional): Direction of DE result, either `"up"` or `"down"`. Use `None` for 
                 user-defined gene lists.
-            category (str, optional): STRING enrichment category to filter by (e.g., `"GO"`, `"KEGG"`).
+            category (str, optional): STRING enrichment category to filter by (e.g., `"Process"`, `"KEGG"`). See the table in the below note for options.
             save_as (str, optional): If provided, saves the retrieved SVG to the given file path.
 
         Returns:
