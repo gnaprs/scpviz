@@ -1290,7 +1290,14 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
     adata = utils.get_adata(pdata, on)
 
     default_pca_params = {'n_comps': min(len(adata.obs_names), len(adata.var_names)) - 1, 'random_state': 42}
-    pca_param = {**default_pca_params, **(pca_params or {})}
+    user_params = dict(pca_params or {})
+
+    # accept n_components OR n_comps
+    if "n_components" in user_params and "n_comps" not in user_params:
+        user_params["n_comps"] = user_params.pop("n_components")
+    else:
+        user_params.pop("n_components", None) 
+    pca_param = {**default_pca_params, **user_params}
 
     if basis != "X_pca":
         # User-specified alternative basis (e.g. Harmony, ICA)
