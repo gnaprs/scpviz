@@ -224,6 +224,38 @@ def test_get_string_mappings_all_cached(pdata):
     df = pdata.get_string_mappings(pdata.prot.var_names[:3].tolist())
     assert "string_identifier" in df.columns
 
+def test_get_string_mappings_scalarize_taxon_from_cache_only(monkeypatch, pdata):
+    """
+    Ensure nested _scalarize_taxon() converts list/array/empty values to scalars/NA
+    when building out_df["ncbi_taxon_id"] from cached prot.var values.
+    """
+    import scpviz.utils as utils_mod
+    import numpy as np
+
+    monkeypatch.setattr(utils_mod, "get_uniprot_fields", lambda *a, **k: None)
+
+    ids = pdata.prot.var_names[:4].tolist()
+    pdata.prot.var["STRING_id"] = pd.NA
+    pdata.prot.var.loc[ids, "STRING_id"] = ["S1", "S2", "S3", "S4"]
+
+    # Force from_map to be all missing - species_map is only filled from UniProt (bypass)
+    pdata.prot.var["ncbi_taxon_id"] = pd.NA
+    pdata.prot.var.at[ids[0], "ncbi_taxon_id"] = [9606]               # list -> first element
+    pdata.prot.var.at[ids[1], "ncbi_taxon_id"] = np.array([10090])    # array -> first element
+    pdata.prot.var.at[ids[2], "ncbi_taxon_id"] = ""                   # empty -> NA
+    pdata.prot.var.at[ids[3], "ncbi_taxon_id"] = None                 # None -> NA
+
+    df = pdata.get_string_mappings(ids, cache_col="STRING_id", debug=False)
+
+    assert "ncbi_taxon_id" in df.columns
+
+    got = df.set_index("input_identifier")["ncbi_taxon_id"]
+
+    assert str(got.loc[ids[0]]) == "9606"
+    assert str(got.loc[ids[1]]) == "10090"
+    assert pd.isna(got.loc[ids[2]])
+    assert pd.isna(got.loc[ids[3]])
+
 # ----------------------------------------------------------------------
 # resolve_to_accessions edge case
 def test_resolve_to_accessions_unresolved(pdata):
