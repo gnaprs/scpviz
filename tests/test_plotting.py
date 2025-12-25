@@ -720,6 +720,11 @@ def test_plot_volcano_adata_with_de_data():
     assert hasattr(result, "scatter"), "❌ Should return a matplotlib Axes"
     plt.close(fig)
 
+def test_plot_volcano_adata_no_data():
+    fix, ax = plt.subplots()
+    with pytest.raises(ValueError, match="must supply adata"):
+        scplt.plot_volcano_adata(ax, None)
+
 def test_plot_volcano_adata_returns_df():
     df = mock_volcano_df()
     fig, ax = plt.subplots()
