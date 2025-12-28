@@ -21,6 +21,13 @@ All notable changes to this project are documented here.
 
 
 
+##### (Enrichment)
+
+
+- Allow category argument for plot_enrichment_svg (297e9f7…)
+
+
+
 ##### (Filtering)
 
 
@@ -57,6 +64,8 @@ All notable changes to this project are documented here.
 
 - Add condition flag for parse_filename_index to parse subset of samples, added tests for condition (09ce308…)
 
+- Additional fixes to de_adata() (0a09fda…)
+
 
 
 #### Build System
@@ -82,6 +91,13 @@ All notable changes to this project are documented here.
 
 
 - Update readme and dependencies (4abf8c2…)
+
+
+
+##### (V0.5.6a)
+
+
+- Update dependencies and bump to updated readme link (4239e51…)
 
 
 
@@ -149,6 +165,10 @@ All notable changes to this project are documented here.
 
 - Enable label_x for box=True in plot_abundance_boxgrid (d789d43…)
 
+- Refactor volcano adata (0b2079d…)
+
+- Update docstrings, update references to old uniprot naming (64af394…)
+
 
 
 ##### (Setup)
@@ -192,6 +212,8 @@ All notable changes to this project are documented here.
 - Update changelogs [skip ci] (6c89f44…)
 
 - Update changelogs [skip ci] (fe0eb7b…)
+
+- Update changelogs [skip ci] (48a0c89…)
 
 
 
@@ -259,6 +281,8 @@ All notable changes to this project are documented here.
 
 - Fix GLOBAL_DEBUG flag to be updated at start of test_utils.py (4c84318…)
 
+- Allow n_comps or n_components (as per error message) to be passed to pca_params in plot_pca (0005636…)
+
 
 
 ##### (Summary)
@@ -315,6 +339,15 @@ All notable changes to this project are documented here.
 
 
 - Edit mixin docstring to include export_layer (b3d2cba…)
+
+
+
+##### (Enrichment)
+
+
+- Add categories to docstring of plot_enrichment_svg (06858b2…)
+
+- Add catch for no enrichment result (85c0399…)
 
 
 
@@ -383,6 +416,13 @@ All notable changes to this project are documented here.
 
 
 - Add tests for strict flag and no pep situation (cd05079…)
+
+
+
+##### (Enrichment)
+
+
+- Add test for helper _scalarize_taxon() within get_string_mappings (485b830…)
 
 
 
