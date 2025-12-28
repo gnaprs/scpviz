@@ -203,6 +203,31 @@ class EnrichmentMixin:
         # Use species_map (from UniProt and/or STRING) for ncbi_taxon_id
         from_map = out_df["input_identifier"].map(lambda acc: species_map.get(acc, np.nan))
         from_cache = out_df["input_identifier"].map(lambda acc: prot_var.at[acc, "ncbi_taxon_id"] if acc in prot_var.index else np.nan)
+
+        def _scalarize_taxon(x):
+            """
+            Normalize taxon-id values so they never contain lists or arrays.
+            Ensures dtype stability for combine_first().
+            """
+            # treat standard missing types
+            if x is None or (isinstance(x, float) and np.isnan(x)):
+                return pd.NA
+            
+            # empty string or empty container
+            if x == "" or x == []:
+                return pd.NA
+            if isinstance(x, (list, tuple, np.ndarray)):
+                if len(x) == 0:
+                    return pd.NA
+                # pick first element if list/array is non-empty
+                return x[0]
+            
+            # everything else → return scalar string
+            return str(x)
+
+        from_map = from_map.apply(_scalarize_taxon)
+        from_cache = from_cache.apply(_scalarize_taxon)
+
         out_df["ncbi_taxon_id"] = from_map.combine_first(from_cache)
 
         return out_df
@@ -658,7 +683,7 @@ class EnrichmentMixin:
                 includes both contrast and direction (e.g., `"GroupA_Treatment1_vs_Control_up"`).
             direction (str, optional): Direction of DE result, either `"up"` or `"down"`. Use `None` for 
                 user-defined gene lists.
-            category (str, optional): STRING enrichment category to filter by (e.g., `"GO"`, `"KEGG"`).
+            category (str, optional): STRING enrichment category to filter by (e.g., `"Process"`, `"KEGG"`). See the table in the below note for options.
             save_as (str, optional): If provided, saves the retrieved SVG to the given file path.
 
         Returns:
@@ -670,10 +695,40 @@ class EnrichmentMixin:
                 pdata.plot_enrichment_svg("UserSearch1")
                 ```
 
+        !!! note "Supported STRING Enrichment Categories"
+            The following category IDs are supported for functional enrichment.  
+            More details are available on the [STRING API documentation site](https://string-db.org/cgi/help?subpage=api).
+
+            | Category ID          | Description                                      |
+            |----------------------|--------------------------------------------------|
+            | **Process**          | Biological Process (Gene Ontology)               |
+            | **Function**         | Molecular Function (Gene Ontology)               |
+            | **Component**        | Cellular Component (Gene Ontology)               |
+            | **Keyword**          | Annotated Keywords (UniProt)                     |
+            | **KEGG**             | KEGG Pathways                                    |
+            | **RCTM**             | Reactome Pathways                                |
+            | **HPO**              | Human Phenotype (Monarch)                        |
+            | **MPO**              | Mammalian Phenotype Ontology (Monarch)           |
+            | **DPO**              | Drosophila Phenotype (Monarch)                   |
+            | **WPO**              | *C. elegans* Phenotype Ontology (Monarch)        |
+            | **ZPO**              | Zebrafish Phenotype Ontology (Monarch)           |
+            | **FYPO**             | Fission Yeast Phenotype Ontology (Monarch)       |
+            | **Pfam**             | Protein Domains (Pfam)                           |
+            | **SMART**            | Protein Domains (SMART)                          |
+            | **InterPro**         | Protein Domains and Features (InterPro)          |
+            | **PMID**             | Reference Publications (PubMed)                  |
+            | **NetworkNeighborAL**| Local Network Cluster (STRING)                   |
+            | **COMPARTMENTS**     | Subcellular Localization (COMPARTMENTS)          |
+            | **TISSUES**          | Tissue Expression (TISSUES)                      |
+            | **DISEASES**         | Disease–gene Associations (DISEASES)             |
+            | **WikiPathways**     | WikiPathways                                     |
+
         Note:
             The `key` must correspond to an existing entry in `.stats["functional"]`, created via 
             `enrichment_functional()`.
         """
+        from xml.parsers.expat import ExpatError
+
         if "functional" not in self.stats:
             raise ValueError("No STRING enrichment results found in .stats['functional'].")
 
@@ -720,7 +775,14 @@ class EnrichmentMixin:
             tmp_path = tmp.name
 
         try:
-            display(SVG(filename=tmp_path))
+            try:
+                display(SVG(filename=tmp_path))
+            except ExpatError:
+                print(
+                    f"{format_log_prefix('info_only')} No enrichment figure available "
+                    f"for key '{lookup_key}'"
+                    + (f" (category='{category}')." if category else ".")
+                )
         finally:
             os.remove(tmp_path)
 

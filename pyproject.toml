@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scpviz"
-version = "0.5.5-alpha"
+version = "0.5.6-alpha"
 authors = [
   {name="Marion Pang", email="sr_pang@hotmail.com"},
 ]
@@ -21,7 +21,7 @@ dependencies = [
   "numpy",
   "pandas", 
   "matplotlib", 
-  "seaborn<=0.13",
+  "seaborn",
   "upsetplot", 
   "scikit-learn", 
   "scipy",

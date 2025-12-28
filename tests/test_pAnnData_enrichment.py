@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 from unittest.mock import patch, Mock
-from io import BytesIO
+from xml.parsers.expat import ExpatError
 
 from scpviz.enrichment import enrichment_functional, _resolve_de_key, enrichment_ppi, _pretty_vs_key
 
@@ -224,6 +224,38 @@ def test_get_string_mappings_all_cached(pdata):
     df = pdata.get_string_mappings(pdata.prot.var_names[:3].tolist())
     assert "string_identifier" in df.columns
 
+def test_get_string_mappings_scalarize_taxon_from_cache_only(monkeypatch, pdata):
+    """
+    Ensure nested _scalarize_taxon() converts list/array/empty values to scalars/NA
+    when building out_df["ncbi_taxon_id"] from cached prot.var values.
+    """
+    import scpviz.utils as utils_mod
+    import numpy as np
+
+    monkeypatch.setattr(utils_mod, "get_uniprot_fields", lambda *a, **k: None)
+
+    ids = pdata.prot.var_names[:4].tolist()
+    pdata.prot.var["STRING_id"] = pd.NA
+    pdata.prot.var.loc[ids, "STRING_id"] = ["S1", "S2", "S3", "S4"]
+
+    # Force from_map to be all missing - species_map is only filled from UniProt (bypass)
+    pdata.prot.var["ncbi_taxon_id"] = pd.NA
+    pdata.prot.var.at[ids[0], "ncbi_taxon_id"] = [9606]               # list -> first element
+    pdata.prot.var.at[ids[1], "ncbi_taxon_id"] = np.array([10090])    # array -> first element
+    pdata.prot.var.at[ids[2], "ncbi_taxon_id"] = ""                   # empty -> NA
+    pdata.prot.var.at[ids[3], "ncbi_taxon_id"] = None                 # None -> NA
+
+    df = pdata.get_string_mappings(ids, cache_col="STRING_id", debug=False)
+
+    assert "ncbi_taxon_id" in df.columns
+
+    got = df.set_index("input_identifier")["ncbi_taxon_id"]
+
+    assert str(got.loc[ids[0]]) == "9606"
+    assert str(got.loc[ids[1]]) == "10090"
+    assert pd.isna(got.loc[ids[2]])
+    assert pd.isna(got.loc[ids[3]])
+
 # ----------------------------------------------------------------------
 # resolve_to_accessions edge case
 def test_resolve_to_accessions_unresolved(pdata):
@@ -285,12 +317,29 @@ def test_plot_enrichment_svg_direction_error(mock_get, pdata):
 
 @patch("scpviz.enrichment.requests.get")
 def test_plot_enrichment_svg_fetch_and_save(mock_get, pdata, tmp_path):
-    """Covers normal flow including saving SVG."""
     pdata.stats["functional"] = {"UserSearch1": {"string_ids": ["S1"], "species": "9606"}}
-    mock_get.return_value = Mock(status_code=200, content=b"<svg></svg>")
+
+    resp = Mock(status_code=200, content=b"<svg></svg>")
+    resp.raise_for_status = Mock()
+    mock_get.return_value = resp
+
     tmpfile = tmp_path / "test.svg"
     pdata.plot_enrichment_svg("UserSearch1", save_as=str(tmpfile))
     assert tmpfile.exists()
+
+@patch("scpviz.enrichment.requests.get")
+@patch("IPython.display.SVG", side_effect=ExpatError("no element found: line 1, column 0"))
+def test_plot_enrichment_svg_no_image_expaterror(mock_svg, mock_get, pdata, capsys):
+    pdata.stats["functional"] = {"UserSearch1": {"string_ids": ["S1"], "species": "9606"}}
+
+    resp = Mock(status_code=200, content=b"")
+    resp.raise_for_status = Mock()
+    mock_get.return_value = resp
+
+    pdata.plot_enrichment_svg("UserSearch1")
+
+    out = capsys.readouterr().out
+    assert "No enrichment figure available" in out
 
 # ----------------------------------------------------------------------
 # get_string_network_link coverage

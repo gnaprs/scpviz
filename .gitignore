@@ -139,6 +139,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# other large files
 dev/__assets__/Housekeeping_GenesHuman.csv
 dev/__assets__/Housekeeping_GenesMouse.csv
 dev/__assets__/MostStable_Human.csv
@@ -148,3 +150,5 @@ peptide_matrix.aq_reformat.tsv.ion_intensities.tsv
 peptide_matrix.aq_reformat.tsv.protein_intensities.tsv
 peptide_matrix.aq_reformat.tsv.run_config.tsv
 docs/assets/diann_report.parquet
+src/scpviz/pAnnData/enrichment.py
+dev/SWI-report.parquet

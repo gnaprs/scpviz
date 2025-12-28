@@ -1290,7 +1290,14 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
     adata = utils.get_adata(pdata, on)
 
     default_pca_params = {'n_comps': min(len(adata.obs_names), len(adata.var_names)) - 1, 'random_state': 42}
-    pca_param = {**default_pca_params, **(pca_params or {})}
+    user_params = dict(pca_params or {})
+
+    # accept n_components OR n_comps
+    if "n_components" in user_params and "n_comps" not in user_params:
+        user_params["n_comps"] = user_params.pop("n_components")
+    else:
+        user_params.pop("n_components", None) 
+    pca_param = {**default_pca_params, **user_params}
 
     if basis != "X_pca":
         # User-specified alternative basis (e.g. Harmony, ICA)
@@ -1994,6 +2001,7 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
             
             - `"mean"`: log2(mean(group1) / mean(group2))
             - `"pairwise_median"`: median of all pairwise log2 ratios.
+            - "pep_pairwise_median": median of peptide-level pairwise log2 ratios, aggregated per protein
 
         label (int, list, or None): Features to highlight.
             
@@ -2167,25 +2175,10 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
     else:
         return ax
 
-def plot_volcano_adata(
-    ax,
-    adata=None,
-    values=None,
-    class_type=None,
-    de_data=None,
-    method='ttest',
-    fold_change_mode='mean',
-    layer='X',
-    label=5,
-    fontsize=8,
-    alpha=0.5,
-    color=None,
-    linewidth=0.5,
-    pval=0.05,
-    log2fc=1.0,
-    no_marks=False,
-    return_df=False,
-    **kwargs
+def plot_volcano_adata(ax, adata=None, values=None, class_type=None, de_data=None,
+    gene_col=None, method='ttest', fold_change_mode='mean', layer='X', label=5, fontsize=8,
+    alpha=0.5, color=None, linewidth=0.5, pval=0.05, log2fc=1.0, no_marks=False,
+    return_df=False, **kwargs
 ):
     """
     Volcano plot for AnnData with the *same API behavior* as pdata.plot_volcano.
@@ -2216,15 +2209,9 @@ def plot_volcano_adata(
         if adata is None or values is None:
             raise ValueError("When de_data is not provided, must supply adata and values.")
 
-        df = utils.de_adata(
-            adata=adata,
-            values=values,
-            class_type=class_type,
-            method=method,
-            fold_change_mode=fold_change_mode,
-            layer=layer,
-            pval=pval,
-            log2fc=log2fc
+        df = utils.de_adata(adata=adata, values=values, class_type=class_type,
+            method=method, fold_change_mode=fold_change_mode, layer=layer,
+            pval=pval, log2fc=log2fc, gene_col=gene_col
         )
 
         def format_group(val, class_type):
@@ -2887,8 +2874,8 @@ def mark_rankquant(plot, pdata, mark_df, class_values, layer = "X", on = 'protei
         pdata (pAnnData): Input pAnnData object.
         mark_df (pandas.DataFrame): Features to highlight.
             
-            - DataFrame: Must include an `"Entry"` and `"accession"` column, and optionally
-              `"Gene Names"` if `label_type="gene"`.  
+            - DataFrame: Must include an `"accession"` column, and optionally
+              `"gene_primary"` if `label_type="gene"`.  
               A typical way to generate this is using
               `scutils.get_upset_query()`, e.g.:
 
@@ -2896,7 +2883,7 @@ def mark_rankquant(plot, pdata, mark_df, class_values, layer = "X", on = 'protei
               size_upset = scutils.get_upset_contents(pdata_filter, classes="size")
               prot_sc_df = scutils.get_upset_query(size_upset, present=["sc"], absent=["5k", "10k", "20k"])
               ```
-            
+    
         class_values (list of str): Class values to highlight (must match those
             used in `plot_rankquant`).
         layer (str): Data layer to use. Default is `"X"`.
@@ -2907,7 +2894,6 @@ def mark_rankquant(plot, pdata, mark_df, class_values, layer = "X", on = 'protei
         show_label (bool): Whether to display labels for highlighted features.
             Default is True.
         label_type (str): Label type. Options:
-            
             - `"accession"`: show accession IDs.
             - `"gene"`: map to gene names using `"Gene Names"` in `mark_df`.
 
@@ -2945,8 +2931,36 @@ def mark_rankquant(plot, pdata, mark_df, class_values, layer = "X", on = 'protei
         get_upset_query: Create a DataFrame of proteins based on set intersections (obs membership).
     """
     adata = utils.get_adata(pdata, on)
-    names = mark_df['Entry'].tolist()
     
+    # get entry label
+    id_precedence = [
+            "accession",    # new default with new Uniprot API
+            "Entry",        # legacy uniprot API?
+            "id",
+            "Accession",
+            "Protein IDs",
+            ]
+
+    id_col = next((c for c in id_precedence if c in mark_df.columns), None)
+    if id_col is None:
+        raise ValueError(
+            f"mark_df is missing an accession/ID column. "
+            f"Tried: {id_precedence}. Columns are: {list(mark_df.columns)}"
+        )
+
+    names = mark_df[id_col].astype(str).tolist()
+    
+    # get gene label if needed
+    gene_precedence = [
+            "gene_primary",   # NEW default
+            "Gene Names",
+            "Genes",
+            "gene_names",
+            "Gene",
+        ]
+
+    gene_col = next((c for c in gene_precedence if c in mark_df.columns), None)
+
     # TEST: check if names are in the data
     pdata._check_rankcol(on, class_values)
 
@@ -2955,20 +2969,24 @@ def mark_rankquant(plot, pdata, mark_df, class_values, layer = "X", on = 'protei
         
         for i, txt in enumerate(names):
             try:
-                x = adata.var['Average: '+class_value].loc[txt]
-                y = adata.var['Rank: '+class_value].loc[txt]
+                avg = adata.var[f"Average: {class_value}"].loc[txt]
+                rank = adata.var[f"Rank: {class_value}"].loc[txt]
             except Exception as e:
                 print(f"Name {txt} not found in {on}.var. Check {on} name for spelling errors and whether it is in data.")
                 continue
+
+            label_txt = txt
             if show_label:
                 if label_type == 'accession':
                     pass
                 elif label_type == 'gene':
-                    txt = mark_df.loc[mark_df['Entry'] == txt, 'Gene Names'].values[0]
-                # elif name_type == 'name':
+                    if gene_col and txt in mark_df[id_col].values:
+                        match = mark_df.loc[mark_df[id_col] == txt, gene_col]
+                        if not match.empty:
+                            label_txt = str(match.values[0])
 
-                plot.annotate(txt, (y,x), xytext=(y+10,x*1.1), fontsize=8)
-            plot.scatter(y,x,marker='o',color=color,s=s, alpha=alpha)
+                plot.annotate(label_txt, (rank, avg), xytext=(rank+10,avg*1.1), fontsize=8)
+            plot.scatter(rank, avg, marker='o', color=color, s=s, alpha=alpha)
     return plot
 
 def plot_venn(ax, pdata, classes, set_colors = 'default', return_contents = False, label_order=None, **kwargs):
@@ -3385,7 +3403,24 @@ def mark_raincloud(plot,pdata,mark_df,class_values,layer = "X", on = 'protein',l
         plot_rankquant: Alternative distribution visualization using rank abundance.
     """
     adata = utils.get_adata(pdata, on)
-    names = mark_df['Entry'].tolist()
+    # get entry label
+    id_precedence = [
+            "accession",    # new default with new Uniprot API
+            "Entry",        # legacy uniprot API?
+            "id",
+            "Accession",
+            "Protein IDs",
+            ]
+
+    id_col = next((c for c in id_precedence if c in mark_df.columns), None)
+    if id_col is None:
+        raise ValueError(
+            f"mark_df is missing an accession/ID column. "
+            f"Tried: {id_precedence}. Columns are: {list(mark_df.columns)}"
+        )
+
+    names = mark_df[id_col].astype(str).tolist()
+    
     # TEST: check if names are in the data
     pdata._check_rankcol(on, class_values)
 

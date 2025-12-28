@@ -1040,7 +1040,7 @@ def get_pep_prot_mapping(pdata, return_series=False):
 
 def de_adata(adata, values=None,class_type=None, method='ttest', fold_change_mode='mean',
     layer='X', pval=0.05, log2fc=1.0, data_is_log=False, log_base=2.0, pseudocount=1.0,
-    gene_col='Genes',
+    gene_col=None,
 ):
     """
     Standalone DE analysis for AnnData. Produces a volcano-ready DataFrame identical to pdata.de().
@@ -1138,7 +1138,6 @@ def de_adata(adata, values=None,class_type=None, method='ttest', fold_change_mod
     if values[0] == values[1]:
         raise ValueError("Both groups in `values` refer to the same condition. Please provide two distinct groups.")
 
-
     # convert values to standardized dict format
     if isinstance(values[0], dict):
         group1_filters = [values[0]]
@@ -1182,14 +1181,17 @@ def de_adata(adata, values=None,class_type=None, method='ttest', fold_change_mod
             log2fc_vals[mask_invalid] = np.nan
 
     elif fold_change_mode == 'pairwise_median':
-        log2fc_vals = np.full(X.shape[1], np.nan)
-        for j in range(X.shape[1]):
-            x1 = data1_fc[:, j]
-            x2 = data2_fc[:, j]
-            valid = (~np.isnan(x1) & ~np.isnan(x2) & (x1 > 0) & (x2 > 0))
-            if np.any(valid):
-                ratios = np.log2(x1[valid][:, None] / x2[valid][None, :])
-                log2fc_vals[j] = np.nanmedian(ratios)
+        mask_invalid = ( # Detect invalid features (any 0 or NaN in either group)
+            np.any((data1 == 0) | np.isnan(data1), axis=0) |
+            np.any((data2 == 0) | np.isnan(data2), axis=0)
+        )
+        # Compute median pairwise log2FC
+        log2fc_vals = pairwise_log2fc(data1, data2)
+        log2fc_vals[mask_invalid] = np.nan # Mark invalid features as NaN
+        n_invalid = np.sum(mask_invalid)
+        if n_invalid > 0:
+            print(f"{format_log_prefix('info',2)} {n_invalid} proteins were not comparable (zero or NaN mean in one group).")
+
     else:
         raise ValueError(f"Unsupported fold_change_mode '{fold_change_mode}'")
 
@@ -1198,17 +1200,18 @@ def de_adata(adata, values=None,class_type=None, method='ttest', fold_change_mod
     pvals = []
     stats = []
 
-    for j in range(X.shape[1]):
+    for i in range(X.shape[1]):
+        x1, x2 = data1[:, i], data2[:, i]
         if method not in {"ttest", "mannwhitneyu", "wilcoxon"}:
             raise ValueError(f"Unsupported method '{method}'")
 
         try:
             if method == 'ttest':
-                res = ttest_ind(...)
+                res = ttest_ind(x1, x2, nan_policy='omit')
             elif method == 'mannwhitneyu':
-                res = mannwhitneyu(...)
+                res = mannwhitneyu(x1, x2, alternative='two-sided')
             elif method == 'wilcoxon':
-                res = wilcoxon(...)
+                res = wilcoxon(x1, x2)
             pvals.append(res.pvalue)
             stats.append(res.statistic)
         except Exception:
