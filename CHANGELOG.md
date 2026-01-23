@@ -156,6 +156,13 @@ All notable changes to this project are documented here.
 
 
 
+##### (Joss)
+
+
+- Update to new joss paper format (46e5048…)
+
+
+
 ##### (Plotting)
 
 
@@ -214,6 +221,8 @@ All notable changes to this project are documented here.
 - Update changelogs [skip ci] (fe0eb7b…)
 
 - Update changelogs [skip ci] (48a0c89…)
+
+- Update changelogs [skip ci] (2bc44af…)
 
 
 
@@ -313,6 +322,8 @@ All notable changes to this project are documented here.
 
 
 - Update Paper PDF Draft (4644379…)
+
+- Update Paper PDF Draft (c371cd7…)
 
 
 
