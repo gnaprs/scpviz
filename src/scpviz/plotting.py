@@ -77,9 +77,14 @@ Functions:
 """
 
 import re
+from matplotlib import markers
 import numpy as np
 import pandas as pd
+import umap.umap_ as umap
+import scanpy as sc
+
 from sklearn.decomposition import PCA
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -87,10 +92,10 @@ import matplotlib.colors as mcolors
 import matplotlib.collections as clt
 import matplotlib.cm as cm
 import matplotlib.patheffects as PathEffects
+import matplotlib.lines as mlines
+
 import upsetplot
 from adjustText import adjust_text
-import umap.umap_ as umap
-import scanpy as sc
 import warnings
 
 from scpviz import utils
@@ -853,6 +858,8 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
         )
         ```
     """
+    from matplotlib.colors import to_rgba
+
     if classes is None:
         df = pdata.get_abundance(
             namelist=namelist,
@@ -2878,7 +2885,6 @@ def mark_rankquant(plot, pdata, mark_df, class_values, layer = "X", on = 'protei
               `"gene_primary"` if `label_type="gene"`.  
               A typical way to generate this is using
               `scutils.get_upset_query()`, e.g.:
-
               ```python
               size_upset = scutils.get_upset_contents(pdata_filter, classes="size")
               prot_sc_df = scutils.get_upset_query(size_upset, present=["sc"], absent=["5k", "10k", "20k"])
