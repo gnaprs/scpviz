@@ -2957,7 +2957,7 @@ def add_volcano_legend(ax, colors=None):
     ]
     ax.legend(handles=handles, loc='upper right', frameon=True, fontsize=7)
 
-def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', s=10, alpha=1, show_names=True, fontsize=8, return_texts=False):
+def mark_volcano(ax, volcano_df, label, label_color="black", text_color=None, label_type='Gene', s=10, alpha=1, show_names=True, fontsize=8, return_texts=False):
     """
     Mark a volcano plot with specific proteins or genes.
 
@@ -2972,6 +2972,7 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
             separate lists of features for different cases.
         label_color (str or list, optional): Marker color(s). Defaults to `"black"`.
             If a list is provided, each case receives a different color.
+        text_color (str, optional): Text color. Defaults to the same as label_color if not explicitly provided.
         label_type (str): Type of label to display. Default is `"Gene"`.
         s (float): Marker size. Default is 10.
         alpha (float): Marker transparency. Default is 1.
@@ -3018,6 +3019,7 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
     all_texts = []
     for i, label_group in enumerate(label):
         color = label_color[i % len(label_color)] if isinstance(label_color, list) else label_color
+        txt_color = text_color if text_color is not None else color
 
         # Match by index or 'Genes' column
         match_mask = (
@@ -3040,22 +3042,22 @@ def mark_volcano(ax, volcano_df, label, label_color="black", label_type='Gene', 
                 txt = ax.text(row['log2fc'], row['-log10(p_value)'],
                               s=text,
                               fontsize=fontsize,
-                              color=color,
-                              bbox=dict(facecolor='white', edgecolor=color, boxstyle='round'))
+                              color=txt_color ,
+                              bbox=dict(facecolor='white', edgecolor=txt_color , boxstyle='round'))
                 txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='w')])
                 texts.append(txt)
                 all_texts.append(txt)
 
             if not return_texts:
                 adjust_text(texts, expand=(2, 2),
-                            arrowprops=dict(arrowstyle='->', color=color, zorder=5))
+                            arrowprops=dict(arrowstyle='->', color=txt_color , zorder=5))
 
     if return_texts:
         return ax, all_texts
     return ax
 
 def mark_volcano_by_significance(
-    ax, volcano_df, label, color=None, label_type="Gene", s=10, alpha=1, show_names=True, fontsize=8, return_texts=False,):
+    ax, volcano_df, label, color=None, text_color=None, label_type="Gene", s=10, alpha=1, show_names=True, fontsize=8, return_texts=False,):
     """
     Mark a volcano plot with specific proteins or genes, colored by significance.
 
@@ -3080,6 +3082,13 @@ def mark_volcano_by_significance(
                     "downregulated": "blue",
                 }
             You can override any of these by passing a dict with the same keys.
+        text_color (str, optional): Text color. Default is None, which makes each label follow its corresponding marker color.
+            - If str: all labels use the same text color.
+            - If dict: mapping from significance category to text color
+              (e.g. "upregulated", "downregulated", "not significant").
+              Categories not found in the dict fall back to the `"not significant"`
+              text color (or black if not provided).
+
         label_type (str): Type of label to display. Default is `"Gene"`.
         s (float): Marker size. Default is 10.
         alpha (float): Marker transparency. Default is 1.
@@ -3170,7 +3179,18 @@ def mark_volcano_by_significance(
 
         if show_names:
             texts = []
-            for (idx, row), c in zip(match_df.iterrows(), point_colors):
+
+            # Resolve text colors
+            if text_color is None:
+                text_colors = point_colors  # follow marker color (per-point)
+            elif isinstance(text_color, dict):
+                tc = sig_series.map(text_color)
+                fallback = text_color.get("not significant", "black")
+                text_colors = tc.fillna(fallback)
+            else:
+                text_colors = [text_color] * len(match_df)  # single str
+
+            for (idx, row), c, tc in zip(match_df.iterrows(), point_colors, text_colors):
                 if label_type == "Gene" and "Genes" in volcano_df.columns:
                     text = row.get("Genes", idx)
                 else:
@@ -3181,8 +3201,8 @@ def mark_volcano_by_significance(
                     row["-log10(p_value)"],
                     s=text,
                     fontsize=fontsize,
-                    color=c,
-                    bbox=dict(facecolor="white", edgecolor=c, boxstyle="round"),
+                    color=tc,
+                    bbox=dict(facecolor="white", edgecolor=tc, boxstyle="round"),
                 )
                 txt.set_path_effects(
                     [PathEffects.withStroke(linewidth=3, foreground="w")]
