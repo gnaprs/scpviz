@@ -3591,7 +3591,7 @@ def mark_rankquant(plot, pdata, mark_df, class_values, layer = "X", on = 'protei
             plot.scatter(rank, avg, marker='o', color=color, s=s, alpha=alpha)
     return plot
 
-def plot_venn(ax, pdata, classes, set_colors = 'default', return_contents = False, label_order=None, **kwargs):
+def plot_venn(ax, pdata, classes, set_colors = 'default', weighted=False, return_contents = False, label_order=None, fixed_subset_sizes=None, **kwargs):
     """
     Plot a Venn diagram of shared proteins or peptides across groups.
 
@@ -3609,6 +3609,7 @@ def plot_venn(ax, pdata, classes, set_colors = 'default', return_contents = Fals
             - `"default"`: use internal color palette.
             - list of str: custom color list with length equal to the number of sets.
 
+        weighted (bool): If True, circle/region areas are proportional to set sizes (area-weighted). If False, draws an unweighted Venn (equal-sized regions).
         return_contents (bool): If True, return both the axis and the underlying
             set contents used for plotting.
         label_order (list of str, optional): Custom order of set labels. Must
@@ -3636,6 +3637,22 @@ def plot_venn(ax, pdata, classes, set_colors = 'default', return_contents = Fals
             )
             ```
 
+        Plot a weighted set by counts:
+            ```python
+            fig, ax = plt.subplots(figsize=(3, 3))
+            scplt.plot_venn(
+                ax, pdata, classes='treatment',
+                weighted=True)
+            ```
+
+        Plot a weighted set by specifying a fixed subset size:
+            ```python
+            fig, ax = plt.subplots(figsize=(3, 3))
+            scplt.plot_venn(
+                ax, pdata, classes='treatment',
+                weighted=True, fixed_subset_sizes=(1,1,3))
+            ```            
+
     See Also:
         plot_upset: Plot an UpSet diagram for >3 sets.  
         plot_rankquant: Rank-based visualization of protein/peptide distributions.
@@ -3657,8 +3674,8 @@ def plot_venn(ax, pdata, classes, set_colors = 'default', return_contents = Fals
         set_labels = list(upset_contents.keys())
         set_list = [set(value) for value in upset_contents.values()]
 
-    try:
         # New API (matplotlib-venn ≥ 0.12)
+    try:
         from matplotlib_venn.layout.venn2 import DefaultLayoutAlgorithm as Venn2Layout
         from matplotlib_venn.layout.venn3 import DefaultLayoutAlgorithm as Venn3Layout
         from matplotlib_venn import venn2, venn2_circles, venn3, venn3_circles
@@ -3668,22 +3685,32 @@ def plot_venn(ax, pdata, classes, set_colors = 'default', return_contents = Fals
         from matplotlib_venn import venn2_unweighted, venn3_unweighted, venn2_circles, venn3_circles
         USE_LAYOUT = False
 
-    if USE_LAYOUT:
+    if weighted:
         venn_functions = {
-            2: lambda: (venn2(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, layout_algorithm=Venn2Layout(fixed_subset_sizes=(1,1,1)), **kwargs),
-                        venn2_circles(subsets=(1, 1, 1), ax = ax,  linewidth=1)),
-            3: lambda: (venn3(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, layout_algorithm=Venn3Layout(fixed_subset_sizes=(1,1,1,1,1,1,1)), **kwargs),
-                        venn3_circles(subsets=(1, 1, 1, 1, 1, 1, 1), ax = ax, linewidth=1))
+            2: lambda: (venn2(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, 
+                                layout_algorithm=(Venn2Layout(fixed_subset_sizes=fixed_subset_sizes) if fixed_subset_sizes is not None else None), **kwargs),
+                        venn2_circles(subsets=fixed_subset_sizes if fixed_subset_sizes is not None else set_list, ax = ax, linewidth=1)),
+            3: lambda: (venn3(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5,
+                                layout_algorithm=(Venn3Layout(fixed_subset_sizes=fixed_subset_sizes) if fixed_subset_sizes is not None else None), **kwargs),
+                        venn3_circles(subsets=fixed_subset_sizes if fixed_subset_sizes is not None else set_list, ax = ax, linewidth=1))
         }
     else:
-        venn_functions = { 
-            2: lambda: (venn2_unweighted(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, **kwargs), 
-                        venn2_circles(subsets=(1, 1, 1), ax = ax, linewidth=1)), 
-            3: lambda: (venn3_unweighted(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, **kwargs), 
-                        venn3_circles(subsets=(1, 1, 1, 1, 1, 1, 1), ax = ax, linewidth=1)) }        
+        if USE_LAYOUT:
+            venn_functions = {
+                2: lambda: (venn2(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, layout_algorithm=Venn2Layout(fixed_subset_sizes=(1,1,1)), **kwargs),
+                            venn2_circles(subsets=(1, 1, 1), ax = ax,  linewidth=1)),
+                3: lambda: (venn3(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, layout_algorithm=Venn3Layout(fixed_subset_sizes=(1,1,1,1,1,1,1)), **kwargs),
+                            venn3_circles(subsets=(1, 1, 1, 1, 1, 1, 1), ax = ax, linewidth=1))
+            }
+        else:
+            venn_functions = { 
+                2: lambda: (venn2_unweighted(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, **kwargs), 
+                            venn2_circles(subsets=(1, 1, 1), ax = ax, linewidth=1)), 
+                3: lambda: (venn3_unweighted(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, **kwargs), 
+                            venn3_circles(subsets=(1, 1, 1, 1, 1, 1, 1), ax = ax, linewidth=1)) }
 
     if num_keys in venn_functions:
-        ax = venn_functions[num_keys]()
+        v, c = venn_functions[num_keys]()
     else:
         raise ValueError("Venn diagrams only accept either 2 or 3 sets. For more than 3 sets, use the plot_upset function.")
 
