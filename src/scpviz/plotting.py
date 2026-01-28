@@ -1166,10 +1166,10 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
     else:
         return fig, axes
 
-def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
-             cmap='default', s=20, alpha=.8, plot_pc=[1, 2],
-             pca_params=None, force=False, basis='X_pca',
-             show_labels=False, label_column=None,
+def plot_pca(ax, pdata, color=None, edge_color=None, point_shape=None, classes=None, 
+             layer="X", on='protein', cmap='default', edge_cmap="default", shape_cmap="default", edge_lw=0.8,
+             s=20, alpha=.8, plot_pc=[1, 2], pca_params=None, subset_mask=None,
+             force=False, basis='X_pca', text_size=9, show_labels=False, label_column=None,
              add_ellipses=False, ellipse_kwargs=None, return_fit=False, **kwargs):
     """
     Plot principal component analysis (PCA) of protein or peptide abundance.
@@ -1181,33 +1181,65 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
     Args:
         ax (matplotlib.axes.Axes): Axis to plot on. Must be 3D if plotting 3 PCs.
         pdata (pAnnData): Input pAnnData object with `.prot`, `.pep`, and `.summary`.
-        classes (str, list of str, or None): Coloring scheme.
-            
-            - None: plot all samples in grey.
-            - str: an `.obs` column (e.g. `"treatment"`) or a gene/protein (e.g. `"UBE4B"`).
-            - list of str: combine multiple `.obs` columns (e.g. `["cellline", "treatment"]`).
+        color (str or list of str or None): Face coloring for points.
 
+            - None: all samples are plotted with grey face color.
+            - str: an `.obs` column (categorical or continuous) OR a gene/protein identifier
+              (continuous abundance coloring).
+            - list of str: combine multiple `.obs` columns into a single categorical label
+              (e.g., `["cellline", "treatment"]`).
+
+        edge_color (str or list of str or None): Edge coloring for points (categorical only).
+
+            - None: no edge coloring (edges are disabled by default).
+            - str: an `.obs` column name (categorical).
+            - list of str: combine multiple `.obs` columns into a single categorical label.
+
+        point_shape (str or list of str or None): Shapes for points (categorical only).
+
+            - None: all points plotted with 'o' shape.
+            - str: an `.obs` column name (categorical).
+            - list of str: combine multiple `.obs` columns into a single categorical label.
+            
+        classes (str or list of str or None): Deprecated alias for `color`. If provided and `color` is None, `classes` is used as `color`.
         layer (str): Data layer to use. Default is `"X"`.
         on (str): Data level to plot, either `"protein"` or `"peptide"`. Default is `"protein"`.
-        cmap (str, list, or matplotlib colormap): Colormap for point coloring.
-            
-            - `"default"`: uses `get_color()` scheme.
-            - list of colors: categorical mapping for `classes`.
-            - colormap name or object: continuous coloring for expression values.
+        cmap (str, list, or dict): Palette/colormap for point face colors.
 
+            - `"default"`: uses internal `get_color()` scheme for categorical coloring and
+              defaults to a standard continuous colormap for abundance coloring.
+            - list: list of colors assigned to class labels in sorted order (categorical).
+            - dict: `{label: color}` mapping (categorical).
+            - str / colormap: continuous colormap name/object for abundance coloring.
+
+        edge_cmap (str, list, or dict): Palette for point edge colors (categorical only).
+
+            - `"default"`: uses internal `get_color()` scheme.
+            - list: list of colors assigned to class labels in sorted order.
+            - dict: `{label: color}` mapping.
+
+        shape_cmap (str, list, or dict): Palette for point shapes (categorical only).
+
+            - `"default"`: uses default marker scheme, in order of: `["o", "s", "^", "D", "v", "P", "X", "<", ">", "h", "*"]`
+            - list: list of shapes assigned to class labels in sorted order.
+            - dict: `{label: shape}` mapping.
+
+        edge_lw (float): Line width for edges when edge_color is used (default: 0.8).
         s (float): Scatter dot size. Default is 20.
         alpha (float): Point opacity. Default is 0.8.
         plot_pc (list of int): Principal components to plot, e.g. `[1, 2]` or `[1, 2, 3]`.
         pca_params (dict, optional): Additional parameters for `sklearn.decomposition.PCA`.
+        subset_mask (array-like or pandas.Series, optional): Boolean mask to subset samples for plotting. If a Series is provided, it will be aligned to `adata.obs.index`.
         force (bool): If True, recompute PCA even if it is already cached.
         basis (str): PCA basis to use. Defaults to `X_pca`, alternatives include `X_pca_harmony` after running pdata.harmony(batch="<key>").
+        text_size (int): Font size for axis labels and legend (default: 10).
         show_labels (bool or list): Whether to label points.
             
             - False: no labels.
             - True: label all samples.
             - list: label only specified samples.
 
-        label_column (str, optional): Column in `.summary` to use as label source.
+        label_column (str, optional): Column in `.summary` to use as label source if `show_labels` is True.
             Overrides sample names if provided.
         add_ellipses (bool): If True, overlay confidence ellipses per class (2D only).
             Ellipses represent a 95% confidence region under a bivariate Gaussian assumption.
@@ -1220,9 +1252,17 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
 
         pca (sklearn.decomposition.PCA): The fitted PCA object.
 
+    Raises:
+        AssertionError: If 3 PCs are requested and `ax` is not 3D.
+        ValueError: If `edge_color` resolves to continuous coloring (use `color` instead).
+        ValueError: If `add_ellipses=True` but no categorical grouping is available.
+    
     Note:
         PCA results are cached in `pdata.uns["pca"]` and reused across plotting calls.
         To force recalculation (e.g., after filtering or normalization), set `force=True`.
+
+        Continuous edge coloring is not supported. If you want abundance-based coloring,
+        use `color=<gene/protein>` on face color instead.
 
     Example:
         Basic usage in grey:
@@ -1243,6 +1283,14 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         Color by protein expression:
             ```python
             plot_pca(ax, pdata, classes="UBE4B")
+            ```
+
+        Plot with custom palette:
+            ```python
+            treatment_palette = {'ctrl': '#CCCCCC', 'treated': '#E41A1C'}
+            cellline_palette = {'wt': '#000000', 'mut': '#377EB8'}
+            
+            plot_pca(ax, pdata, color='cellline', edge_color='treatment', cmap=cellline_palette, edge_cmap=treatment_palette)
             ```
 
         Label all samples:
@@ -1294,6 +1342,13 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
     pc_x, pc_y = plot_pc[0] - 1, plot_pc[1] - 1
     pc_z = plot_pc[2] - 1 if len(plot_pc) == 3 else None
 
+    # check deprecated classes argument
+    if classes is not None and color is None:
+        print(f"{utils.format_log_prefix('warn')} `classes` is deprecated; use `color=` instead.")
+        color = classes
+    elif classes is not None and color is not None:
+        print(f"{utils.format_log_prefix('warn')} Both `classes` and `color` were provided; using `color` and ignoring `classes`.")
+
     adata = utils.get_adata(pdata, on)
 
     default_pca_params = {'n_comps': min(len(adata.obs_names), len(adata.var_names)) - 1, 'random_state': 42}
@@ -1322,53 +1377,153 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
     X_pca = adata.obsm[basis] if basis in adata.obsm else adata.obsm["X_pca"]
     pca = adata.uns["pca"]
 
-    # Get colors
-    color_mapped, cmap_resolved, legend_elements = resolve_plot_colors(adata, classes, cmap, layer=layer)
+    # face colors
+    face_mapped, face_cmap_resolved, face_legend = resolve_plot_colors(adata, color, cmap, layer=layer)
+
+    # edge colors
+    edge_mapped = None
+    edge_legend = None
+
+    if edge_color is not None:
+        edge_mapped, edge_cmap_resolved, edge_legend = resolve_plot_colors(
+            adata, edge_color, edge_cmap, layer=layer
+        )
+
+        # edge cant be abundance
+        if edge_cmap_resolved is not None:
+            raise ValueError(
+                "edge_color does not support continuous (abundance) coloring. "
+                "Use `color=` for abundance-based coloring instead."
+            )
+
+    # marker shape
+    markers_all, shape_legend, _ = resolve_point_shapes(adata, point_shape, shape_cmap=shape_cmap)
+
+    # subset if requesteed
+    mask = _resolve_subset_mask(adata, subset_mask)
+    Xt_plot = X_pca[mask]
+    obs_names_plot = adata.obs_names[mask]
+
+    # Keep colorbar/legend representing FULL dataset:
+    # - use full color_mapped for colorbar norm decisions (your helper already does that)
+    # - but scatter only subset, so pass subset of c=
+    face_plot = None if face_mapped is None else np.asarray(face_mapped)[mask]
+    edge_plot = None if edge_mapped is None else np.asarray(edge_mapped)[mask]
+    markers_plot = None if markers_all is None else np.asarray(markers_all)[mask]
+
+    base_kwargs = dict(s=s, alpha=alpha, **kwargs)
+
+    scatter_kwargs = _build_scatter_kwargs(
+        base_kwargs=base_kwargs,
+        color_key=color,
+        face_plot=face_plot,
+        face_all=face_mapped,
+        face_cmap_resolved=face_cmap_resolved,
+        edge_key=edge_color,
+        edge_plot=edge_plot,
+        edge_all=edge_mapped,
+        edge_lw=edge_lw,
+        n=Xt_plot.shape[0]
+    )
 
     # Plot
     if len(plot_pc) == 2:
-        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
+        if markers_plot is None:
+            ax.scatter(Xt_plot[:, pc_x], Xt_plot[:, pc_y], **scatter_kwargs)
+        else:
+            for mk in np.unique(markers_plot):
+                m = (markers_plot == mk)
+                kw = _slice_scatter_kwargs(scatter_kwargs, m)
+                ax.scatter(Xt_plot[m, pc_x], Xt_plot[m, pc_y], marker=mk, **kw)        
+        
         ax.set_xlabel(f'PC{pc_x+1} ({pca["variance_ratio"][pc_x]*100:.2f}%)')
         ax.set_ylabel(f'PC{pc_y+1} ({pca["variance_ratio"][pc_y]*100:.2f}%)')
 
         # Add colorbar if using continuous color (i.e., abundance coloring)
-        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
-                                classes if isinstance(classes, str) else "Abundance", text_size=9)
-        
-        if add_ellipses and isinstance(classes, (str, list)) and all(c in adata.obs.columns for c in (classes if isinstance(classes, list) else [classes])):
-            ellipse_kwargs = ellipse_kwargs.copy() if ellipse_kwargs else {}
-            y = utils.get_samplenames(adata, classes)
-            df_coords = pd.DataFrame(X_pca[:, [pc_x, pc_y]], columns=["PC1", "PC2"], index=adata.obs_names)
-            df_coords['class'] = y
-            for cls in df_coords['class'].unique():
-                sub = df_coords[df_coords['class'] == cls]
-                color_series = pd.Series(color_mapped, index=adata.obs_names)
-                color = color_series[df_coords['class'] == cls].iloc[0]
-
-                kwargs = ellipse_kwargs.copy() if ellipse_kwargs else {}
-                kwargs["facecolor"] = color
-                kwargs["edgecolor"] = color
-
-                plot_confidence_ellipse(sub['PC1'].values, sub['PC2'].values, ax=ax, **kwargs)
-
+        _add_continuous_colorbar(ax,
+                                np.asarray(face_mapped) if face_mapped is not None else None,
+                                face_cmap_resolved,
+                                label=_legend_title_from_key(color) or "Abundance",
+                                text_size=text_size)
+                
     elif len(plot_pc) == 3:
-        ax.scatter(X_pca[:, pc_x], X_pca[:, pc_y], X_pca[:, pc_z], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
+        if markers_plot is None:
+            ax.scatter(Xt_plot[:, pc_x], Xt_plot[:, pc_y], Xt_plot[:, pc_z], **scatter_kwargs)
+        else:
+            for mk in np.unique(markers_plot):
+                m = (markers_plot == mk)
+                kw = _slice_scatter_kwargs(scatter_kwargs, m)
+                ax.scatter(Xt_plot[m, pc_x], Xt_plot[m, pc_y], Xt_plot[m, pc_z], marker=mk, **kw)
         ax.set_xlabel(f'PC{pc_x+1} ({pca["variance_ratio"][pc_x]*100:.2f}%)')
         ax.set_ylabel(f'PC{pc_y+1} ({pca["variance_ratio"][pc_y]*100:.2f}%)')
         ax.set_zlabel(f'PC{pc_z+1} ({pca["variance_ratio"][pc_z]*100:.2f}%)')
 
         # Add colorbar if using continuous color (i.e., abundance coloring)
-        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
-                                classes if isinstance(classes, str) else "Abundance", text_size=9)
+        _add_continuous_colorbar(ax,
+                                np.asarray(face_mapped) if face_mapped is not None else None,
+                                face_cmap_resolved,
+                                label=_legend_title_from_key(color) or "Abundance",
+                                text_size=text_size)
+
+    # Ellipses
+    if add_ellipses:
+        if len(plot_pc) != 2:
+            print(f"{utils.format_log_prefix('warn')} add_ellipses=True is only supported for 2D PCA.")
+        else:
+            ellipse_key = edge_color if edge_color is not None else color
+            keys = ellipse_key if isinstance(ellipse_key, list) else [ellipse_key]
+
+            if ellipse_key is None or not all(k in adata.obs.columns for k in keys):
+                raise ValueError(
+                    "add_ellipses=True requires `edge_color` (preferred) or `color` to be a categorical `.obs` key "
+                    "(str or list of str)."
+                )
+            
+            y_all = utils.get_samplenames(adata, ellipse_key)
+            y_plot = np.asarray(y_all)[mask]
+
+            df_coords = pd.DataFrame(Xt_plot[:, [pc_x, pc_y]], columns=["PC1", "PC2"], index=obs_names_plot)
+            df_coords['class'] = y_plot
+
+            if ellipse_key == edge_color and edge_mapped is not None:
+                color_series_all = pd.Series(edge_mapped, index=adata.obs_names)
+            else:
+                # Only valid if `color` is categorical (face_cmap_resolved must be None)
+                if face_cmap_resolved is not None:
+                    raise ValueError(
+                        "add_ellipses=True cannot infer categorical ellipse colors when `color` is continuous. "
+                        "Provide a categorical `edge_color` to group ellipses."
+                    )
+                color_series_all = pd.Series(face_mapped, index=adata.obs_names)
+
+            color_series = color_series_all.loc[obs_names_plot]
+            e_kwargs = ellipse_kwargs.copy() if ellipse_kwargs else {}
+
+            for cls in df_coords['class'].unique():
+                sub = df_coords[df_coords['class'] == cls]
+                if sub.shape[0] < 3:
+                    continue  # need at least 3 points to define an ellipse
+
+                c0 = color_series[df_coords["class"] == cls].iloc[0]
+                k = e_kwargs.copy()
+                k.setdefault("facecolor", c0)
+                k.setdefault("edgecolor", c0)
+
+                plot_confidence_ellipse(sub['PC1'].values, sub['PC2'].values, ax=ax, **k)
 
     # Labels
     if show_labels:
         show_set = set(show_labels) if isinstance(show_labels, list) else set(adata.obs_names)
-        label_series = pdata.summary[label_column] if label_column and label_column in pdata.summary.columns else adata.obs_names
-        for i, sample in enumerate(adata.obs_names):
+
+        if label_column and label_column in pdata.summary.columns:
+            label_series = pdata.summary.loc[obs_names_plot,label_column]
+        else:
+            label_series = obs_names_plot
+
+        for i, sample in enumerate(obs_names_plot):
             if sample in show_set:
-                label = label_series[i] if i < len(label_series) else sample
-                pos = X_pca[i, [pc_x, pc_y, pc_z][:len(plot_pc)]]
+                label = label_series.loc[sample] if hasattr(label_series, "loc") else label_series[i]
+                pos = Xt_plot[i, [pc_x, pc_y, pc_z][:len(plot_pc)]]
                 if len(pos) == 2:
                     ax.text(pos[0], pos[1], str(label), fontsize=8, ha='right', va='bottom')
                 elif len(pos) == 3:
@@ -1376,18 +1531,35 @@ def plot_pca(ax, pdata, classes=None, layer="X", on='protein',
         if not label_column and max(len(str(n)) for n in label_series) > 20:
             print("[plot_pca] Warning: Labels are long. Consider using label_column='your_column'.")
 
-    if legend_elements:
-        if classes is None:
-            legend_title = None  # no title if no classes
-        elif isinstance(classes, list):
-            legend_title = "/".join(c.capitalize() for c in classes)
-        else:
-            legend_title = str(classes).capitalize()
+    if face_legend:
+        leg1 = ax.legend(
+            handles=face_legend,
+            title=_legend_title_from_key(color),
+            loc="best",
+            fontsize=text_size,
+            frameon=False,
+        )
+        ax.add_artist(leg1)
 
-        ax.legend(handles=legend_elements,
-                title=legend_title,
-                loc='best',
-                frameon=False)
+    if edge_legend:
+        leg2 = ax.legend(
+            handles=edge_legend,
+            title=_legend_title_from_key(edge_color),
+            loc="upper right",  # layout later
+            fontsize=text_size,
+            frameon=False,
+        )
+        ax.add_artist(leg2)
+
+    if shape_legend:
+        leg3 = ax.legend(
+            handles=shape_legend,
+            title=_legend_title_from_key(point_shape),
+            loc="lower right",
+            fontsize=text_size,
+            frameon=False
+        )
+        ax.add_artist(leg3)
 
     if return_fit:
         return ax, pca
@@ -1425,12 +1597,6 @@ def resolve_plot_colors(adata, classes, cmap, layer="X"):
         legend_elements (list or None): Legend handles for categorical coloring; None if continuous.
 
     """
-
-    import matplotlib.cm as cm
-    import matplotlib.colors as mcolors
-    import matplotlib.patches as mpatches
-    import numpy as np
-
     legend_elements = None
 
     # Case 1: No coloring, all grey
@@ -1507,18 +1673,185 @@ def resolve_plot_colors(adata, classes, cmap, layer="X"):
     else:
         raise ValueError("Invalid input. List input supports only classes ([class1, class2]), and string supports classes or protein accession or gene name. ")
 
+def resolve_point_shapes(adata, point_shape, shape_cmap="default"):
+    """
+    Resolve marker shapes for categorical sample groupings.
+
+    Args:
+        adata (anndata.AnnData): AnnData object.
+        point_shape (str, list of str, or None): `.obs` column(s) used to assign markers.
+            - None: return None (use a single marker).
+            - str: categorical `.obs` key.
+            - list: combine multiple `.obs` columns into a single categorical label.
+        shape_cmap (str, list, or dict): Marker assignment.
+            - "default": uses an internal default marker list.
+            - list: markers assigned to sorted class labels.
+            - dict: {label: marker} mapping.
+
+    Returns:
+        markers (list[str] or None): Marker per observation (len = n_obs), or None.
+        shape_legend (list[Line2D] or None): Legend handles for marker shapes.
+        shape_map (dict or None): Mapping {label: marker}.
+    """
+    if point_shape is None:
+        return None, None, None
+
+    # only allow categorical `.obs`
+    if isinstance(point_shape, str) and point_shape in adata.obs.columns:
+        labels = utils.get_samplenames(adata, point_shape)
+    elif isinstance(point_shape, list) and all(c in adata.obs.columns for c in point_shape):
+        labels = utils.get_samplenames(adata, point_shape)
+    else:
+        raise ValueError("point_shape must be an `.obs` categorical key (str) or list of keys.")
+
+    class_labels = sorted(set(labels))
+
+    if shape_cmap == "default":
+        marker_list = ["o", "s", "^", "D", "v", "P", "X", "<", ">", "h", "*"]
+        shape_map = {c: marker_list[i % len(marker_list)] for i, c in enumerate(class_labels)}
+        if len(class_labels) > len(marker_list):
+            print(f"{utils.format_log_prefix('warn')} point_shape has {len(class_labels)} levels; cycling markers.")
+    elif isinstance(shape_cmap, list):
+        shape_map = {c: shape_cmap[i % len(shape_cmap)] for i, c in enumerate(class_labels)}
+    elif isinstance(shape_cmap, dict):
+        shape_map = dict(shape_cmap)
+    else:
+        raise ValueError("shape_cmap must be 'default', a list of markers, or a dict mapping labels to markers.")
+
+    markers = [shape_map[v] for v in labels]
+
+    shape_legend = [
+        mlines.Line2D(
+            [], [], linestyle="none",
+            marker=shape_map[c],
+            color="black",  # neutral legend handle
+            markerfacecolor="black",
+            markeredgecolor="black",
+            markersize=7,
+            label=str(c),
+        )
+        for c in class_labels
+    ]
+
+    return markers, shape_legend, shape_map
+
+def _build_scatter_kwargs(
+    *,
+    base_kwargs,
+    color_key,
+    face_plot,
+    face_all,
+    face_cmap_resolved,
+    edge_key,
+    edge_plot,
+    edge_all,
+    edge_lw,
+    n
+):
+    """
+    Build kwargs for a single ax.scatter call (already subset-aligned).
+
+    Returns:
+        dict: kwargs for ax.scatter
+    """
+    kw = dict(base_kwargs)
+
+    # Face
+    if color_key is None:
+        kw.setdefault("c", ["grey"] * n)
+        kw.pop("cmap", None)
+    else:
+        kw["c"] = face_plot
+        kw["cmap"] = face_cmap_resolved
+
+    # Edge
+    if edge_key is None:
+        kw["edgecolors"] = "none"
+    else:
+        kw["edgecolors"] = edge_plot
+        kw["linewidths"] = edge_lw
+
+    return kw
+
+def _slice_scatter_kwargs(scatter_kwargs, m):
+    """
+    Slice array-like scatter kwargs for a subset mask m (boolean array).
+
+    Returns:
+        dict: kwargs safe to pass to ax.scatter for that group.
+    """
+    import numpy as np
+
+    m = np.asarray(m, dtype=bool)
+    kw = dict(scatter_kwargs)
+
+    # Slice face colors if array-like
+    if "c" in kw and isinstance(kw["c"], (list, np.ndarray)):
+        c = np.asarray(kw["c"])
+        if c.ndim == 1 and c.shape[0] == m.shape[0]:
+            kw["c"] = c[m]
+
+    # Slice edgecolors if array-like (edgecolors can also be "none")
+    if "edgecolors" in kw and kw["edgecolors"] not in ("none", None):
+        ec = np.asarray(kw["edgecolors"])
+        if ec.ndim == 1 and ec.shape[0] == m.shape[0]:
+            kw["edgecolors"] = ec[m]
+
+    return kw
+
+def _resolve_subset_mask(adata, subset_mask):
+    n = adata.n_obs
+    if subset_mask is None:
+        return np.ones(n, dtype=bool)
+
+    # pandas Series: align by index if possible
+    if isinstance(subset_mask, pd.Series):
+        if subset_mask.dtype != bool:
+            raise TypeError("subset_mask Series must be boolean.")
+        if subset_mask.index.equals(adata.obs.index):
+            m = subset_mask.to_numpy()
+        else:
+            # align by index labels (missing -> False)
+            m = subset_mask.reindex(adata.obs.index, fill_value=False).to_numpy()
+        if m.shape[0] != n:
+            raise ValueError("subset_mask has wrong length after alignment.")
+        return m.astype(bool)
+
+    # numpy / list
+    m = np.asarray(subset_mask)
+    if m.dtype != bool:
+        raise TypeError("subset_mask must be a boolean array/Series aligned to adata.obs.index.")
+    if m.shape[0] != n:
+        raise ValueError(f"subset_mask length {m.shape[0]} does not match n_obs {n}.")
+    return m.astype(bool)
+
 def _add_continuous_colorbar(ax, color_mapped, cmap_resolved, label, text_size=10):
     """Attach a colorbar if using continuous coloring."""
     import matplotlib.cm as cm
     import matplotlib.colors as mcolors
     import numpy as np
 
-    if isinstance(color_mapped, np.ndarray) and cmap_resolved is not None:
-        norm = mcolors.Normalize(vmin=np.min(color_mapped), vmax=np.max(color_mapped))
-        sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
-        sm.set_array([])
-        cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
-        cb.set_label(label, fontsize=text_size)
+    if cmap_resolved is None or color_mapped is None:
+        return
+
+    vals = np.asarray(color_mapped)
+    if vals.size == 0:
+        return
+    if np.issubdtype(vals.dtype, np.number) is False:
+        return
+    
+    norm = mcolors.Normalize(vmin=np.min(vals), vmax=np.max(vals))
+    sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
+    sm.set_array([])
+    cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
+    cb.set_label(label, fontsize=text_size)
+
+def _legend_title_from_key(key):
+    if key is None:
+        return None
+    if isinstance(key, list):
+        return "/".join(str(c).capitalize() for c in key)
+    return str(key).capitalize()
 
 # NOTE: STRING enrichment plots live in enrichment.py, not here.
 # This function is re-documented here for discoverability.
@@ -1542,59 +1875,121 @@ def plot_enrichment_svg(*args, **kwargs):
     from .enrichment import plot_enrichment_svg as actual_plot
     return actual_plot(*args, **kwargs)
 
-def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='default', s=20, alpha=.8, umap_params={}, text_size = 10, force = False, return_fit=False, **kwargs):
+def plot_umap(ax, pdata, color=None, edge_color=None, point_shape=None, classes = None, 
+              layer = "X", on = 'protein', cmap='default', edge_cmap="default", shape_cmap="default", 
+              s=20, alpha=.8, umap_params={}, text_size = 10, edge_lw=0.8,
+              force = False, return_fit=False, subset_mask=None, **kwargs):
     """
     Plot UMAP projection of protein or peptide abundance data.
 
-    This function projects the data using UMAP and colors samples based on
-    metadata or abundance of a specific feature. Supports categorical or
-    continuous coloring, with automatic handling of legends and colormaps.
+    This function computes (or reuses) a UMAP embedding and visualizes samples
+    in 1D/2D/3D, with optional face and edge coloring driven by `.obs` metadata
+    or feature abundance.
 
     Args:
-        ax (matplotlib.axes.Axes): The axis to plot on (must be 3D if n_components=3).
-        pdata (scpviz.pAnnData): The pAnnData object containing .prot, .pep, and .summary.
-        classes (str or list of str or None): 
-            - None: all samples plotted in grey
-            - str: column in `.obs` or a gene/protein to color by
-            - list of str: combine multiple `.obs` columns (e.g., ['cellline', 'day'])
+        ax (matplotlib.axes.Axes): Axis to plot on. Must be 3D if `n_components=3`.
+        pdata (scpviz.pAnnData): The pAnnData object containing `.prot`, `.pep`, and `.summary`.
+        color (str or list of str or None): Face coloring for points.
+
+            - None: all samples are plotted with grey face color.
+            - str: an `.obs` column (categorical or continuous) OR a gene/protein identifier
+              (continuous abundance coloring).
+            - list of str: combine multiple `.obs` columns into a single categorical label
+              (e.g., `["cellline", "treatment"]`).
+
+        edge_color (str or list of str or None): Edge coloring for points (categorical only).
+
+            - None: no edge coloring (edges are disabled by default).
+            - str: an `.obs` column name (categorical).
+            - list of str: combine multiple `.obs` columns into a single categorical label.
+        
+        point_shape (str or list of str or None): Shapes for points (categorical only).
+
+            - None: all points plotted with 'o' shape.
+            - str: an `.obs` column name (categorical).
+            - list of str: combine multiple `.obs` columns into a single categorical label.
+             
+        classes (str or list of str or None): Deprecated alias for `color`. If provided and `color` is None, `classes` is used as `color`.
         layer (str): Data layer to use for UMAP input (default: "X").
         on (str): Whether to use 'protein' or 'peptide' data (default: 'protein').
-        cmap (str, list, or dict): 
-            - 'default': use internal color scheme
-            - list: list of colors, assigned to class labels in sorted order
-            - dict: {label: color} mapping
-            - str: continuous colormap name (e.g., 'viridis') for abundance coloring
+        cmap (str, list, or dict): Palette/colormap for point face colors.
+
+            - `"default"`: uses internal `get_color()` scheme for categorical coloring and
+              defaults to a standard continuous colormap for abundance coloring.
+            - list: list of colors assigned to class labels in sorted order (categorical).
+            - dict: `{label: color}` mapping (categorical).
+            - str / colormap: continuous colormap name/object for abundance coloring.
+
+        edge_cmap (str, list, or dict): Palette for point edge colors (categorical only).
+
+            - `"default"`: uses internal `get_color()` scheme.
+            - list: list of colors assigned to class labels in sorted order.
+            - dict: `{label: color}` mapping.
+
+        shape_cmap (str, list, or dict): Palette for point shapes (categorical only).
+
+            - `"default"`: uses default marker scheme, in order of: `["o", "s", "^", "D", "v", "P", "X", "<", ">", "h", "*"]`
+            - list: list of shapes assigned to class labels in sorted order.
+            - dict: `{label: shape}` mapping.
+
         s (float): Marker size (default: 20).
         alpha (float): Marker opacity (default: 0.8).
-        umap_params (dict): Parameters to pass to UMAP (e.g., 'min_dist', 'metric').
+        umap_params (dict): Parameters to pass to `umap()`, or upstream functions `neighbor()` or `pca()`. See the UMAP documentation for details on each argument. Parameters available:
+
+            - `n_neighbors`: neighbor argument
+            - `min_dist`: umap argument
+            - `metric`: neighbor argument
+            - `spread`: umap argument
+            - `random_state`: umap argument (defaults to 42)
+            - `n_pcs`: neighbor argument (defaults to 2, for 3D projection use 3. See example below.)
+
+        subset_mask (array-like or pandas.Series, optional): Boolean mask to subset samples for plotting. If a Series is provided, it will be aligned to `adata.obs.index`.
         text_size (int): Font size for axis labels and legend (default: 10).
-        force (bool): If True, re-compute UMAP even if results already exist.
+        edge_lw (float): Line width for edges when edge_color is used (default: 0.8).
+        force (bool): If True, re-compute UMAP even if an embedding already exists.
         return_fit (bool): If True, return the fitted UMAP object along with the axis.
         **kwargs: Keyword arguments passed to `ax.scatter()`.
 
     Returns:
         ax (matplotlib.axes.Axes): The axis with the UMAP plot.
-        fit_umap (umap.UMAP): The fitted UMAP object.
+
+        fit_umap (umap.UMAP): The fitted UMAP object (only if `return_fit=True`).
 
     Raises:
-        AssertionError: If 'n_components' is 3 and the axis is not 3D.
+        AssertionError: If `n_components=3` and the axis is not a 3D projection.
+        ValueError: If `edge_color` resolves to continuous coloring (use `color` instead).
+
+    Note:
+        Continuous edge coloring is not supported. If you want abundance-based coloring,
+        use `color=<gene/protein>` on face color instead.
 
     Example:
-        Plot by treatment group with default palette:
+        Plot by treatment group with default palette, using custom UMAP parameters:
             ```python
-            plot_umap(ax, pdata, classes='treatment')
+            umap_params = {'n_neighbors': 10, 'min_dist': 0.1}
+            plot_umap(ax, pdata, color='treatment', umap_params=umap_params)
             ```
 
         Plot by protein abundance (continuous coloring):
             ```python
-            plot_umap(ax, pdata, classes='P12345', cmap='plasma')
+            plot_umap(ax, pdata, color='P12345', cmap='plasma')
             ```
 
         Plot with custom palette:
             ```python
-            custom_palette = {'ctrl': '#CCCCCC', 'treated': '#E41A1C'}
-            plot_umap(ax, pdata, classes='group', cmap=custom_palette)
+            color_palette = {'ctrl': '#CCCCCC', 'treated': '#E41A1C'}
+            edge_palette = {'wt': '#000000', 'mut': '#377EB8'}
+            
+            plot_umap(ax, pdata, color='group', edge_color='treatment', cmap=color_palette, edge_cmap=edge_palette)
             ```
+
+        Plot a 3D plot:
+            ```python
+            umap_params = {'n_components':3}
+            ax = fig.add_subplot(111, projection='3d')
+            plot_umap(ax, pdata, color='treatment', umap_params=umap_params)
+            ```
+            
     """
     default_umap_params = {'n_components': 2, 'random_state': 42}
     umap_param = {**default_umap_params, **(umap_params if umap_params else {})}
@@ -1602,12 +1997,14 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
     if umap_param['n_components'] == 3:
         assert ax.name == '3d', "The ax must be a 3D projection, please define projection='3d'"
 
-    if on == 'protein':
-        adata = pdata.prot
-    elif on == 'peptide':
-        adata = pdata.pep
-    else:
-        raise ValueError("Invalid value for 'on'. Options are 'protein' or 'peptide'.")
+    # check deprecated classes argument
+    if classes is not None and color is None:
+        print(f"{utils.format_log_prefix('warn')} `classes` is deprecated; use `color=` instead.")
+        color = classes
+    elif classes is not None and color is not None:
+        print(f"{utils.format_log_prefix('warn')} Both `classes` and `color` were provided; using `color` and ignoring `classes`.")
+
+    adata = utils.get_adata(pdata, on)
  
     if force == False:
         if 'X_umap' in adata.obsm.keys():
@@ -1621,43 +2018,134 @@ def plot_umap(ax, pdata, classes = None, layer = "X", on = 'protein', cmap='defa
     Xt = adata.obsm['X_umap']
     umap = adata.uns['umap']
 
-    color_mapped, cmap_resolved, legend_elements = resolve_plot_colors(adata, classes, cmap, layer=layer)
+    # face colors
+    face_mapped, face_cmap_resolved, face_legend = resolve_plot_colors(adata, color, cmap, layer=layer)
+
+    # edge colors
+    edge_mapped = None
+    edge_legend = None
+
+    if edge_color is not None:
+        edge_mapped, edge_cmap_resolved, edge_legend = resolve_plot_colors(
+            adata, edge_color, edge_cmap, layer=layer
+        )
+
+        # edge cant be abundance
+        if edge_cmap_resolved is not None:
+            raise ValueError(
+                "edge_color does not support continuous (abundance) coloring. "
+                "Use `color=` for abundance-based coloring instead."
+            )
+
+    # marker shape
+    markers_all, shape_legend, _ = resolve_point_shapes(adata, point_shape, shape_cmap=shape_cmap)
+
+    mask = _resolve_subset_mask(adata, subset_mask)
+    Xt_plot = Xt[mask]
+
+    # Keep colorbar/legend representing FULL dataset:
+    # - use full color_mapped for colorbar norm decisions (your helper already does that)
+    # - but scatter only subset, so pass subset of c=
+    face_plot = None if face_mapped is None else np.asarray(face_mapped)[mask]
+    edge_plot = None if edge_mapped is None else np.asarray(edge_mapped)[mask]
+    markers_plot = None if markers_all is None else np.asarray(markers_all)[mask]
+
+    base_kwargs = dict(s=s, alpha=alpha, **kwargs)
+
+    scatter_kwargs = _build_scatter_kwargs(
+        base_kwargs=base_kwargs,
+        color_key=color,
+        face_plot=face_plot,
+        face_all=face_mapped,
+        face_cmap_resolved=face_cmap_resolved,
+        edge_key=edge_color,
+        edge_plot=edge_plot,
+        edge_all=edge_mapped,
+        edge_lw=edge_lw,
+        n=Xt_plot.shape[0]
+    )
 
     if umap_param['n_components'] == 1:
-        ax.scatter(Xt[:,0], range(len(Xt)), c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
+        y = np.arange(Xt_plot.shape[0])
+        if markers_plot is None:
+            ax.scatter(Xt_plot[:,0], y, **scatter_kwargs)
+        else:
+            for mk in np.unique(markers_plot):
+                m = (markers_plot == mk)
+                kw = _slice_scatter_kwargs(scatter_kwargs, m)
+                ax.scatter(Xt_plot[m,0], y[m], marker=mk, **kw)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
 
-        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
-                                classes if isinstance(classes, str) else "Abundance",
+        _add_continuous_colorbar(ax,
+                                np.asarray(face_mapped) if face_mapped is not None else None,
+                                face_cmap_resolved,
+                                label=_legend_title_from_key(color) or "Abundance",
                                 text_size=text_size)
         
     elif umap_param['n_components'] == 2:
-        ax.scatter(Xt[:,0], Xt[:,1], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
+        if markers_plot is None:
+            ax.scatter(Xt_plot[:,0], Xt_plot[:,1], **scatter_kwargs)
+        else:
+            for mk in np.unique(markers_plot):
+                m = (markers_plot == mk)
+                kw = _slice_scatter_kwargs(scatter_kwargs, m)
+                ax.scatter(Xt_plot[m,0], Xt_plot[m,1], marker=mk, **kw)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
         ax.set_ylabel('UMAP 2', fontsize=text_size)
 
-        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
-                                classes if isinstance(classes, str) else "Abundance",
+        _add_continuous_colorbar(ax,
+                                np.asarray(face_mapped) if face_mapped is not None else None,
+                                face_cmap_resolved,
+                                label=_legend_title_from_key(color) or "Abundance",
                                 text_size=text_size)
         
     elif umap_param['n_components'] == 3:
-        ax.scatter(Xt[:,0], Xt[:,1], Xt[:,2], c=color_mapped, cmap=cmap_resolved, s=s, alpha=alpha, **kwargs)
+        if markers_plot is None:
+            ax.scatter(Xt_plot[:,0], Xt_plot[:,1], Xt_plot[:,2], **scatter_kwargs)
+        else:
+            for mk in np.unique(markers_plot):
+                m = (markers_plot == mk)
+                kw = _slice_scatter_kwargs(scatter_kwargs, m)
+                ax.scatter(Xt_plot[m,0], Xt_plot[m,1], Xt_plot[m,2], marker=mk, **kw)
         ax.set_xlabel('UMAP 1', fontsize=text_size)
         ax.set_ylabel('UMAP 2', fontsize=text_size)
         ax.set_zlabel('UMAP 3', fontsize=text_size)
 
-        _add_continuous_colorbar(ax, color_mapped, cmap_resolved,
-                                classes if isinstance(classes, str) else "Abundance",
+        _add_continuous_colorbar(ax,
+                                np.asarray(face_mapped) if face_mapped is not None else None,
+                                face_cmap_resolved,
+                                label=_legend_title_from_key(color) or "Abundance",
                                 text_size=text_size)
 
-    if legend_elements:
-        if classes is None:
-            legend_title = None
-        elif isinstance(classes, list):
-            legend_title = "/".join(c.capitalize() for c in classes)
-        else:
-            legend_title = str(classes).capitalize()
-        ax.legend(handles=legend_elements, title=legend_title, loc='upper right', bbox_to_anchor=(1.3, 1), fontsize=text_size)
+    if face_legend:
+        leg1 = ax.legend(
+            handles=face_legend,
+            title=_legend_title_from_key(color),
+            loc="best",
+            fontsize=text_size,
+            frameon=False,
+        )
+        ax.add_artist(leg1)
+
+    if edge_legend:
+        leg2 = ax.legend(
+            handles=edge_legend,
+            title=_legend_title_from_key(edge_color),
+            loc="upper right",  # layout later
+            fontsize=text_size,
+            frameon=False,
+        )
+        ax.add_artist(leg2)
+
+    if shape_legend:
+        leg3 = ax.legend(
+            handles=shape_legend,
+            title=_legend_title_from_key(point_shape),
+            loc="lower right",
+            fontsize=text_size,
+            frameon=False
+        )
+        ax.add_artist(leg3)
 
     if return_fit:
         return ax, umap
