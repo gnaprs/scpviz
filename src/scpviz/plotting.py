@@ -2471,7 +2471,8 @@ def plot_clustermap(ax, pdata, on='prot', classes=None, layer="X", x_label='acce
 
 def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='mean', label=5,
                  label_type='Gene', color=None, alpha=0.5, pval=0.05, log2fc=1, linewidth=0.5,
-                 fontsize=8, no_marks=False, classes=None, de_data=None, return_df=False, **kwargs):
+                 fontsize=8, no_marks=False, classes=None, de_data=None, return_df=False, 
+                 group_annot=True, group_annot_kwargs=None, group1_kwargs=None, group2_kwargs=None, up_kwargs=None, down_kwargs=None,**kwargs):
     """
     Plot a volcano plot of differential expression results.
 
@@ -2520,6 +2521,37 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
             `"log2fc"`, `"p_value"`, and `"significance"` columns.
         return_df (bool): If True, return both the axis and the DataFrame used
             for plotting. Default is False.
+        group_annot (bool): If True, annotate group names and differential
+            expression counts (n) at the top of the plot. If False, suppress
+            all group-related annotations. Default is True.
+        group_annot_kwargs (dict, optional): Global configuration for group
+            annotations. Supported keys include:
+
+            - `"pos"`: Dictionary controlling annotation positions in axes
+              fraction coordinates. Expected keys are `"group1_xy"`,
+              `"group2_xy"`, `"up_xy"`, and `"down_xy"`, each mapping to
+              an `(x, y)` tuple.
+            
+            - `"bbox"`: Dictionary of bounding box properties passed to
+              `matplotlib.text.Annotation`, or `None` to disable the bounding
+              box for group labels.
+
+        group1_kwargs (dict, optional): Keyword arguments passed to
+            `ax.annotate()` for the first group label (right-aligned by
+            default). Can be used to override font size, weight, alignment,
+            or other text properties.
+        group2_kwargs (dict, optional): Keyword arguments passed to
+            `ax.annotate()` for the second group label (left-aligned by
+            default). Can be used to override font size, weight, alignment,
+            or other text properties.
+        up_kwargs (dict, optional): Keyword arguments passed to
+            `ax.annotate()` for the upregulated feature count (`n=...`).
+            Useful for adjusting font size, color, or vertical spacing
+            independently of other annotations.
+        down_kwargs (dict, optional): Keyword arguments passed to
+            `ax.annotate()` for the downregulated feature count (`n=...`).
+            Useful for adjusting font size, color, or vertical spacing
+            independently of other annotations.
         **kwargs: Additional keyword arguments passed to `matplotlib.pyplot.scatter`.
 
     Returns:
@@ -2551,6 +2583,29 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
             ax, df = plot_volcano(ax, pdata, classes="cellline", values=["A", "B"], color=color_dict)
             add_volcano_legend(ax)
             ```
+        To tweak styling:
+
+            Move positions up/down and tweak styling:
+            ```python
+            plot_volcano(
+                ax, pdata, values=values, classes=classes,
+                group_annot_kwargs={"pos": {"group1_xy": (0.98, 1.10), "group2_xy": (0.02, 1.10)}},
+                up_kwargs={"fontsize": 9},
+                down_kwargs={"fontsize": 9},
+            )
+            ```
+            Remove the bbox but keep text:
+            ```python
+            plot_volcano(
+                ax, pdata, values=values, classes=classes,
+                group_annot_kwargs={"bbox": None},
+            )
+            ```
+            Turn off all text:
+            ```python
+            plot_volcano(ax, pdata, values=values, classes=classes, group_annot=False)
+            ```
+
 
     """
     import numpy as np
@@ -2653,18 +2708,51 @@ def plot_volcano(ax, pdata=None, values=None, method='ttest', fold_change_mode='
     up_count = (volcano_df['significance'] == 'upregulated').sum()
     down_count = (volcano_df['significance'] == 'downregulated').sum()
 
-    bbox_style = dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='black')
-    
-    ax.annotate(group1, xy=(0.98, 1.07), xycoords='axes fraction',
-                ha='right', va='bottom', fontsize=fontsize, weight='bold', bbox=bbox_style)
-    ax.annotate(f'n={up_count}', xy=(0.98, 1.015), xycoords='axes fraction',
-                ha='right', va='bottom', fontsize=fontsize, color=default_color.get('upregulated', 'red'))
+    # --- Group annotations (configurable) ---
+    if group_annot:
+        def _merge(base, extra):
+            out = dict(base)
+            if extra:
+                out.update(extra)
+            return out
 
-    ax.annotate(group2, xy=(0.02, 1.07), xycoords='axes fraction',
-                ha='left', va='bottom', fontsize=fontsize, weight='bold', bbox=bbox_style)
-    ax.annotate(f'n={down_count}', xy=(0.02, 1.015), xycoords='axes fraction',
-                ha='left', va='bottom', fontsize=fontsize, color=default_color.get('downregulated', 'blue'))
+        group_annot_kwargs = group_annot_kwargs or {}
+        group1_kwargs = group1_kwargs or {}
+        group2_kwargs = group2_kwargs or {}
+        up_kwargs = up_kwargs or {}
+        down_kwargs = down_kwargs or {}
 
+        # Defaults (can be overridden via *_kwargs)
+        bbox_style = dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="black")
+
+        base_text = dict(xycoords="axes fraction", fontsize=fontsize, annotation_clip=False,        )
+        base_group = dict(weight="bold", bbox=bbox_style, va="bottom")
+        base_count = dict(va="bottom")
+
+        # Default positions (can be overridden globally or per-item)
+        default_pos = dict(group1_xy=(0.98, 1.07), up_xy=(0.98, 1.015),  group2_xy=(0.02, 1.07), down_xy=(0.02, 1.015),)
+        pos = _merge(default_pos, group_annot_kwargs.get("pos"))
+
+        # Allow overriding bbox (or disabling it by bbox=None)
+        bbox_override = group_annot_kwargs.get("bbox", bbox_style)
+        if bbox_override is None:
+            base_group = dict(base_group)
+            base_group.pop("bbox", None)
+        else:
+            base_group = dict(base_group, bbox=bbox_override)
+
+        # Group labels
+        ax.annotate(group1, xy=pos["group1_xy"],  ha="right", **_merge(_merge(base_text, base_group), group1_kwargs),
+        )
+        ax.annotate(group2, xy=pos["group2_xy"], ha="left", **_merge(_merge(base_text, base_group), group2_kwargs),
+        )
+
+        # Counts
+        ax.annotate(f"n={up_count}", xy=pos["up_xy"], ha="right",
+            **_merge(_merge(_merge(base_text, base_count), {"color": default_color.get("upregulated", "red")}), up_kwargs))
+        ax.annotate(f"n={down_count}", xy=pos["down_xy"], ha="left",
+            **_merge(_merge(_merge(base_text, base_count), {"color": default_color.get("downregulated", "blue")}), down_kwargs))
+        
     if return_df:
         return ax, df
     else:
