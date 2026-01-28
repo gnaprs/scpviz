@@ -674,6 +674,168 @@ def test_print_versions_runs(capsys):
     assert "scpviz version" in captured
     assert "Dependencies:" in captured
 
+# get_string_mappings() branches
+
+def test_utils_get_string_mappings_empty_input():
+    """Empty / blank identifiers should return an empty mapping table."""
+    df = utils.get_string_mappings([None, "", "   "], debug=False)
+
+    assert isinstance(df, pd.DataFrame)
+    assert list(df.columns) == ["input_identifier", "string_identifier", "ncbi_taxon_id"]
+    assert df.empty
+
+def test_utils_get_string_mappings_string_only(monkeypatch):
+    """use_uniprot=False should not touch UniProt and should not error on pd.NA taxon handling."""
+
+    # UniProt must not be called
+    monkeypatch.setattr(utils, "_uniprot_get_string_ids", lambda *a, **k: (_ for _ in ()).throw(AssertionError("UniProt called")))
+
+    # STRING returns mappings + taxon
+    def fake_string(ids, batch_size=100, caller_identity="scpviz", debug=False):
+        return pd.DataFrame(
+            {
+                "input_identifier": ids,
+                "string_identifier": [f"9606.{i}" for i in range(len(ids))],
+                "ncbi_taxon_id": ["9606"] * len(ids),
+            }
+        )
+
+    monkeypatch.setattr(utils, "_string_get_string_ids", fake_string)
+
+    ids = ["P04406", "P55072", "P48431"]
+    df = utils.get_string_mappings(ids, use_uniprot=False, use_string=True, debug=False)
+
+    assert df.shape[0] == 3
+    assert df["string_identifier"].notna().all()
+    assert (df["ncbi_taxon_id"].astype(str) == "9606").all()
+
+def test_utils_get_string_mappings_uniprot_only(monkeypatch):
+    """use_string=False should only use UniProt and leave unresolved as NA."""
+    # STRING must not be called
+    monkeypatch.setattr(utils, "_string_get_string_ids", lambda *a, **k: (_ for _ in ()).throw(AssertionError("STRING called")))
+
+    def fake_uniprot(ids, batch_size=100, standardize=True, debug=False):
+        uni_df = pd.DataFrame(
+            {
+                "input_identifier": ids[:2],
+                "string_identifier": ["9606.U1", "9606.U2"],
+            }
+        )
+        species_map = {ids[0]: 9606, ids[1]: 9606}
+        return uni_df, species_map
+
+    monkeypatch.setattr(utils, "_uniprot_get_string_ids", fake_uniprot)
+
+    ids = ["P04406", "P55072", "P48431"]
+    df = utils.get_string_mappings(ids, use_uniprot=True, use_string=False, debug=False)
+
+    got = df.set_index("input_identifier")
+    assert got.loc["P04406", "string_identifier"] == "9606.U1"
+    assert got.loc["P55072", "string_identifier"] == "9606.U2"
+    assert pd.isna(got.loc["P48431", "string_identifier"])
+    assert str(got.loc["P04406", "ncbi_taxon_id"]) == "9606"
+
+def test_utils_get_string_mappings_both_disabled(monkeypatch):
+    """If both steps disabled, return rows with NA mapping."""
+
+    # Neither helper should be called
+    monkeypatch.setattr(utils, "_uniprot_get_string_ids", lambda *a, **k: (_ for _ in ()).throw(AssertionError("UniProt called")))
+    monkeypatch.setattr(utils, "_string_get_string_ids", lambda *a, **k: (_ for _ in ()).throw(AssertionError("STRING called")))
+
+    ids = ["P04406", "P55072", "P48431"]
+    df = utils.get_string_mappings(ids, use_uniprot=False, use_string=False, debug=False)
+
+    assert df.shape[0] == 3
+    assert df["string_identifier"].isna().all()
+    assert df["ncbi_taxon_id"].isna().all()
+
+def test_utils_get_string_mappings_uniprot_failure_falls_back_to_string(monkeypatch):
+    """If UniProt fails, should warn and still resolve via STRING when enabled."""
+
+    def fail_uniprot(*args, **kwargs):
+        raise RuntimeError("Simulated UniProt failure")
+
+    monkeypatch.setattr(utils, "_uniprot_get_string_ids", fail_uniprot)
+
+    def fake_string(ids, batch_size=100, caller_identity="scpviz", debug=False):
+        return pd.DataFrame(
+            {
+                "input_identifier": ids,
+                "string_identifier": [f"9606.S{i}" for i in range(len(ids))],
+                "ncbi_taxon_id": ["9606"] * len(ids),
+            }
+        )
+
+    monkeypatch.setattr(utils, "_string_get_string_ids", fake_string)
+
+    ids = ["P04406", "P55072", "P48431"]
+    df = utils.get_string_mappings(ids, use_uniprot=True, use_string=True, debug=False)
+
+    assert df["string_identifier"].notna().all()
+    assert (df["ncbi_taxon_id"].astype(str) == "9606").all()
+
+def test_utils_get_string_mappings_string_failure_returns_uniprot_partial(monkeypatch):
+    """If STRING fails, should still return whatever UniProt resolved."""
+
+    def fake_uniprot(ids, batch_size=100, standardize=True, debug=False):
+        uni_df = pd.DataFrame(
+            {
+                "input_identifier": [ids[0]],
+                "string_identifier": ["9606.U_ONLY"],
+            }
+        )
+        species_map = {ids[0]: 9606}
+        return uni_df, species_map
+
+    monkeypatch.setattr(utils, "_uniprot_get_string_ids", fake_uniprot)
+
+    def fail_string(*args, **kwargs):
+        raise RuntimeError("Simulated STRING failure")
+
+    monkeypatch.setattr(utils, "_string_get_string_ids", fail_string)
+
+    ids = ["P04406", "P55072", "P48431"]
+    df = utils.get_string_mappings(ids, use_uniprot=True, use_string=True, debug=False)
+
+    got = df.set_index("input_identifier")
+    assert got.loc["P04406", "string_identifier"] == "9606.U_ONLY"
+    assert pd.isna(got.loc["P55072", "string_identifier"])
+    assert pd.isna(got.loc["P48431", "string_identifier"])
+    assert str(got.loc["P04406", "ncbi_taxon_id"]) == "9606"
+
+def test_utils_get_string_mappings_taxon_priority_uniprot_over_string(monkeypatch):
+    """Taxon should prefer UniProt organism_id when available, otherwise fall back to STRING ncbi_taxon_id."""
+
+    def fake_uniprot(ids, batch_size=100, standardize=True, debug=False):
+        uni_df = pd.DataFrame(
+            {
+                "input_identifier": [ids[0]],
+                "string_identifier": ["TAX.U"],
+            }
+        )
+        # UniProt says first id is human
+        species_map = {ids[0]: 9606}
+        return uni_df, species_map
+
+    monkeypatch.setattr(utils, "_uniprot_get_string_ids", fake_uniprot)
+
+    def fake_string(ids, batch_size=100, caller_identity="scpviz", debug=False):
+        return pd.DataFrame(
+            {
+                "input_identifier": ids,
+                "string_identifier": [f"TAX.S{i}" for i in range(len(ids))],
+                "ncbi_taxon_id": ["10090"] * len(ids),
+            }
+        )
+    monkeypatch.setattr(utils, "_string_get_string_ids", fake_string)
+
+    ids = ["P04406", "P55072"]
+    df = utils.get_string_mappings(ids, use_uniprot=True, use_string=True, debug=False)
+
+    got = df.set_index("input_identifier")
+    assert str(got.loc["P04406", "ncbi_taxon_id"]) == "9606"   # UniProt wins
+    assert str(got.loc["P55072", "ncbi_taxon_id"]) == "10090"  # STRING fallback
+
 # uniprot API tests
 # -- local
 def test_standardize_uniprot_columns_handles_variants():
