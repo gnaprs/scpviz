@@ -166,6 +166,8 @@
 
 - Update to new joss paper format (46e5048…)
 
+- Added state of field section (18d4a4b…)
+
 
 
 ##### (Plotting)
@@ -229,6 +231,8 @@
 - Update changelogs [skip ci] (48a0c89…)
 
 - Update changelogs [skip ci] (2bc44af…)
+
+- Update changelogs [skip ci] (a9ebeff…)
 
 
 
@@ -333,6 +337,8 @@
 - Update Paper PDF Draft (4644379…)
 
 - Update Paper PDF Draft (c371cd7…)
+
+- Update Paper PDF Draft (d65ce10…)
 
 
 
