@@ -1644,12 +1644,14 @@ def get_string_mappings(identifiers, use_uniprot=True, use_string=True, caller_i
             df
             ```
 
-        Disable the UniProt shortcut and query STRING directly:
-            >>> df = get_string_mappings(proteins, use_uniprot=False)
+        Disable the UniProt shortcut and query STRING directly (takes longer than UniProt):
+            ```python
+            df = get_string_mappings(proteins, use_uniprot=False)
+            ```
 
     Related Functions:
         - get_uniprot_fields: Retrieve UniProt metadata, including STRING cross-references.
-        - string_map_identifiers: Lower-level utility implementing the core STRING-mapping logic without pAnnData dependencies.
+        - pAnnData.EnrichmentMixin (enrichment_functional(), enrichment_ppi())
     """
     ids = [str(x).strip() for x in identifiers if x is not None and str(x).strip()]
     if not ids:
