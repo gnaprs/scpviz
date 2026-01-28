@@ -8,6 +8,7 @@ import tempfile
 import os
 
 from scpviz.utils import format_log_prefix, get_uniprot_fields
+import scpviz.utils as utils
 
 class EnrichmentMixin:
     """
@@ -50,20 +51,24 @@ class EnrichmentMixin:
         Note:
             This is a helper method used primarily by `enrichment_functional()` and `enrichment_ppi()`.
         """
-        print(f"[INFO] Resolving STRING IDs for {len(identifiers)} identifiers...") if debug else None
+
+        identifiers = [str(x).strip() for x in identifiers if x is not None and str(x).strip()]
+        if debug:
+            print(f"{format_log_prefix('info')} Resolving STRING IDs for {len(identifiers)} identifiers...")
 
         prot_var = self.prot.var
         if cache_col not in prot_var.columns:
             prot_var[cache_col] = pd.NA
+        if "ncbi_taxon_id" not in prot_var.columns:
+            prot_var["ncbi_taxon_id"] = pd.NA
         
         # Use cached STRING IDs if available
         valid_ids = [i for i in identifiers if i in prot_var.index]
         existing = prot_var.loc[valid_ids, cache_col]
-        found_ids = {i: sid for i, sid in existing.items() if pd.notna(sid)}
+        found_ids = {i: sid for i, sid in existing.items() if pd.notna(sid) and str(sid).strip()}
         missing = [i for i in identifiers if i not in found_ids]
 
         if overwrite:
-            # If overwriting, treat all valid IDs as missing for fresh pull
             print(f"{format_log_prefix('info_only',2)} Overwriting cached STRING IDs.")
             missing = valid_ids
             found_ids = {}
@@ -71,118 +76,50 @@ class EnrichmentMixin:
         print(f"{format_log_prefix('info_only',2)} Found {len(found_ids)} cached STRING IDs. {len(missing)} need lookup.")
         print(missing) if debug else None
 
-        # -----------------------------
-        # Step 1: UniProt stream (fast)         # Use UniProt xref_string field to fill cache quickly
-        # -----------------------------
-
-        uni_results = [] 
-        species_map = {}
+        # 1. UniProt stream (fast)         # Use UniProt xref_string field to fill cache quickly
+        # 2. STRING API for still-missing ones
 
         if missing:
-            try:
-                dfu = get_uniprot_fields(missing, search_fields=['xref_string', 'organism_id'], batch_size=100, standardize=True, verbose=debug)
-                print(dfu) if debug else None
-
-                if dfu is not None and not dfu.empty:
-                    entry_col = "accession" if "accession" in dfu.columns else None
-                    xref_col  = "xref_string" if "xref_string" in dfu.columns else None
-                    org_col   = "organism_id" if "organism_id" in dfu.columns else None
-
-                    if entry_col and xref_col:
-                        # Parse first STRING ID if multiple are returned
-                        def _first_string(s):
-                            if pd.isna(s):
-                                return np.nan
-                            s = str(s).strip()
-                            if not s:
-                                return np.nan
-                            return s.split(';')[0].strip()
-
-                        dfu['__STRING__'] = dfu[xref_col].apply(_first_string)
-
-                        for _, row in dfu.iterrows():
-                            acc = row[entry_col]
-                            sid = row['__STRING__']
-
-                            # capture organism id if present
-                            if org_col in dfu.columns:
-                                org_val = row[org_col]
-                                if pd.notna(org_val) and str(org_val).strip():
-                                    try:
-                                        species_map[acc] = int(org_val)
-                                    except Exception:
-                                        # keep as raw if not int-castable
-                                        species_map[acc] = org_val
-
-                            if acc in prot_var.index and pd.notna(sid) and str(sid).strip():
-                                if overwrite or pd.isna(prot_var.at[acc, cache_col]) or not str(prot_var.at[acc, cache_col]).strip():
-                                    prot_var.at[acc, cache_col] = sid
-                                    prot_var.at[acc, "ncbi_taxon_id"] = str(species_map.get(acc, np.nan)) if pd.notna(species_map.get(acc, np.nan)) else np.nan
-                                    found_ids[acc] = sid
-                                    uni_results.append({"input_identifier": acc, "string_identifier": sid})
-
-                print(f"{format_log_prefix('info_only',3)} Cached {len(uni_results)} STRING IDs from UniProt API xref_string.")
-            except Exception as e:
-                print(f"[WARN] UniProt stream step failed: {e}")
-
-        # Recompute missing after UniProt step
-        missing = [i for i in identifiers if i not in found_ids]
-
-        # -----------------------------------------
-        # STEP 2: STRING API for still-missing ones
-        # -----------------------------------------
-
-        if not missing:
-            # nothing left to resolve via STRING
-            if debug:
-                print(f"[INFO] All identifiers resolved via UniProt: {found_ids}")
-            all_rows=[]
-
+            map_df = utils.get_string_mappings(
+                missing,
+                use_uniprot=True,
+                use_string=True,
+                caller_identity="scpviz",
+                batch_size=batch_size,
+                debug=debug,
+            )
         else:
-            all_rows = []
-
-            for i in range(0, len(missing), batch_size):
-                batch = missing[i:i + batch_size]
-                print(f"{format_log_prefix('info')} Querying STRING for batch {i // batch_size + 1} ({len(batch)} identifiers)...") if debug else None
-
-                url = "https://string-db.org/api/tsv-no-header/get_string_ids"
-                params = {
-                    "identifiers": "\r".join(batch),
-                    "limit": 1,
-                    "echo_query": 1,
-                    "caller_identity": "scpviz"
-                }
-
-                try:
-                    t0 = time.time()
-                    response = requests.post(url, data=params)
-                    response.raise_for_status()
-                    df = pd.read_csv(StringIO(response.text), sep="\t", header=None)
-                    df.columns = [
-                        "input_identifier", "input_alias", "string_identifier", "ncbi_taxon_id",
-                        "preferred_name", "annotation", "score"
-                    ]
-                    print(f"[INFO] Batch completed in {time.time() - t0:.2f}s") if debug else None
-                    all_rows.append(df)
-                except Exception as e:
-                    print(f"[ERROR] Failed on batch {i // batch_size + 1}: {e}") if debug else None
+            map_df = pd.DataFrame(columns=["input_identifier", "string_identifier", "ncbi_taxon_id"])
 
         # Combine all new mappings
-        if all_rows:
-            new_df = pd.concat(all_rows, ignore_index=True)
-            updated_ids = []
+        if not map_df.empty:
+            updated = 0
+            updated_tax = 0
 
-            for _, row in new_df.iterrows():
+            for _, row in map_df.iterrows():
                 acc = row["input_identifier"]
                 sid = row["string_identifier"]
-                if acc in self.prot.var.index:
+                tax = row.get("ncbi_taxon_id", pd.NA)
+                
+                if acc is None or acc not in prot_var.index:
+                    continue
+
+                if pd.notna(sid) and str(sid).strip():
                     self.prot.var.at[acc, cache_col] = sid
                     found_ids[acc] = sid
-                    updated_ids.append(acc)
+                    updated += 1
                 else:
-                    print(f"[DEBUG] Skipping unknown accession '{acc}'")
+                    print(f"[DEBUG] Skipping unknown accession '{acc}'") if debug else None
 
-            print(f"{format_log_prefix('info_only',3)} Cached {len(updated_ids)} new STRING ID mappings from STRING API.")
+                tax = utils.scalarize_taxon(tax)
+                if tax is not pd.NA and pd.notna(tax):
+                    prot_var.at[acc, "ncbi_taxon_id"] = str(tax)
+                    updated_tax += 1
+
+            print(f"{format_log_prefix('info_only',3)} Cached {updated} STRING ID mappings.")
+            if debug:
+                print(f"{format_log_prefix('info_only',3)} Cached {updated_tax} ncbi_taxon_id values.")
+
         elif missing:
             print(f"{format_log_prefix('warn_only',3)} No STRING mappings returned from STRING API.")
 
@@ -190,45 +127,20 @@ class EnrichmentMixin:
         # ------------------------------------
         # Build and MERGE UniProt results into out_df
         # ------------------------------------
-        out_df = pd.DataFrame.from_dict(found_ids, orient="index", columns=["string_identifier"])
-        out_df.index.name = "input_identifier"
-        out_df = out_df.reset_index()
+        out_df = pd.DataFrame({"input_identifier": identifiers})
 
-        if uni_results:
-            uni_df = pd.DataFrame(uni_results).dropna().drop_duplicates(subset=["input_identifier"])
-            out_df = out_df.merge(uni_df, on="input_identifier", how="left", suffixes=("", "_uni"))
-            out_df["string_identifier"] = out_df["string_identifier"].combine_first(out_df["string_identifier_uni"])
-            out_df = out_df.drop(columns=["string_identifier_uni"])
+        # Prefer found_ids (fresh + cached), else fall back to cache for known indices
+        out_df["string_identifier"] = out_df["input_identifier"].map(
+            lambda acc: found_ids.get(
+                acc,
+                prot_var.at[acc, cache_col] if acc in prot_var.index else pd.NA,
+            )
+        )
 
-        # Use species_map (from UniProt and/or STRING) for ncbi_taxon_id
-        from_map = out_df["input_identifier"].map(lambda acc: species_map.get(acc, np.nan))
-        from_cache = out_df["input_identifier"].map(lambda acc: prot_var.at[acc, "ncbi_taxon_id"] if acc in prot_var.index else np.nan)
-
-        def _scalarize_taxon(x):
-            """
-            Normalize taxon-id values so they never contain lists or arrays.
-            Ensures dtype stability for combine_first().
-            """
-            # treat standard missing types
-            if x is None or (isinstance(x, float) and np.isnan(x)):
-                return pd.NA
-            
-            # empty string or empty container
-            if x == "" or x == []:
-                return pd.NA
-            if isinstance(x, (list, tuple, np.ndarray)):
-                if len(x) == 0:
-                    return pd.NA
-                # pick first element if list/array is non-empty
-                return x[0]
-            
-            # everything else → return scalar string
-            return str(x)
-
-        from_map = from_map.apply(_scalarize_taxon)
-        from_cache = from_cache.apply(_scalarize_taxon)
-
-        out_df["ncbi_taxon_id"] = from_map.combine_first(from_cache)
+        out_df["ncbi_taxon_id"] = out_df["input_identifier"].map(
+            lambda acc: prot_var.at[acc, "ncbi_taxon_id"] if acc in prot_var.index else pd.NA
+        )
+        out_df["ncbi_taxon_id"] = out_df["ncbi_taxon_id"].apply(utils.scalarize_taxon)
 
         return out_df
 
