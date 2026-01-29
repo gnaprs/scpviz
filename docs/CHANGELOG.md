@@ -55,6 +55,14 @@
 
 - Add plot_volcano_adata to support transcriptomics plotting, add mark_volcano_by_significance for more flexibility with marks (e859a97…)
 
+- Add flexible plotting options to plot_pca and plot_umap (dc36d29…)
+
+- Add text adjustments to plot_volcano (4580a12…)
+
+- Text adjustments to mark_volcano and mark_volcano_significance (2c8219a…)
+
+- Add weighted option to plot_venn (4e516a4…)
+
 
 
 ##### (Utils)
@@ -104,6 +112,15 @@
 
 
 
+##### (V0.5.7a)
+
+
+- Update to new patch with plotting overhaul (9bfed9e…)
+
+- Update to new patch with plotting overhaul (c0a92bf…)
+
+
+
 
 #### CI
 
@@ -148,6 +165,13 @@
 
 
 
+##### (Enrichment)
+
+
+- Moved get_string_mappings() to utils to for ease of use for user, refactored enrichment mixin (b8cfc76…)
+
+
+
 ##### (Git LFS)
 
 
@@ -182,6 +206,12 @@
 - Refactor volcano adata (0b2079d…)
 
 - Update docstrings, update references to old uniprot naming (64af394…)
+
+- Reorganize imports (56d478b…)
+
+- Overhaul plot_umap and plot_pca to use common _plot_embedding_scatter, revamp ellipse handling (026ef71…)
+
+- Return ax on plot_venn to match other plot functions, change test (5722d3c…)
 
 
 
@@ -234,6 +264,8 @@
 
 - Update changelogs [skip ci] (a9ebeff…)
 
+- Update changelogs [skip ci] (d9e026b…)
+
 
 
 
@@ -279,6 +311,13 @@
 
 
 
+##### (Io)
+
+
+- Bug fix on _import_proteomeDiscoverer() where peptide has no matching protein (248e03d…)
+
+
+
 ##### (Mkdocstrings)
 
 
@@ -304,6 +343,8 @@
 
 - Allow n_comps or n_components (as per error message) to be passed to pca_params in plot_pca (0005636…)
 
+- Fix return on plot_venn to pass test (6d1709c…)
+
 
 
 ##### (Summary)
@@ -324,6 +365,8 @@
 
 
 - Add warning/hint about source of length mismatch error in format_class_filter (664bfdf…)
+
+- Fix for py3.8 compatibility (8163c5c…)
 
 
 
@@ -415,8 +458,22 @@
 
 
 
+##### (Utils)
+
+
+- Fix formatting on example for get_string_mappings (7f38f7c…)
+
+
+
 
 #### Tests
+
+
+##### (Add files)
+
+
+- Add files for tests (5718f9e…)
+
 
 
 ##### (Analysis)
@@ -499,6 +556,8 @@
 
 - Add mark xfail for known plt version error, add test for violin (c6a3854…)
 
+- Add test for plot_volcano_adata with no data (6791ad6…)
+
 
 
 ##### (Umap)
@@ -516,6 +575,8 @@
 - Add tests to exception and error for parse_filename_index (2446b41…)
 
 - Add test for parse_filename_index (ae713de…)
+
+- Add tests for get_string_mappings() (a31e3cd…)
 
 
 
