@@ -3894,8 +3894,8 @@ def plot_venn(ax, pdata, classes, set_colors = 'default', weighted=False, return
         raise ValueError("Venn diagrams only accept either 2 or 3 sets. For more than 3 sets, use the plot_upset function.")
 
     if return_contents:
-        return (v, c), upset_contents
-    return (v, c)
+        return ax, upset_contents
+    return ax
 
 def plot_upset(pdata, classes, return_contents = False, **kwargs):
     """
