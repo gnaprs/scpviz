@@ -54,7 +54,7 @@ Todo:
     * Add more examples for each function.
 """
 
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Tuple, Union
 from decimal import Decimal
 from operator import index
 from os import access
@@ -1602,6 +1602,273 @@ def standardize_uniprot_columns(df):
             )
 
     return df.rename(columns=rename_map)
+
+## STRING
+def get_string_mappings(identifiers, use_uniprot=True, use_string=True, caller_identity="scpviz", batch_size=100, debug=False):
+    """
+    Resolve STRING identifiers for a list of UniProt accessions.
+
+    This function maps UniProt protein accessions to STRING IDs using a
+    two-step strategy:
+    
+    1. **UniProt lookup** – retrieves STRING cross-references (`xref_string`)
+       and organism IDs via the UniProt API (fast).
+    2. **STRING API lookup** – queries the STRING `get_string_ids` endpoint
+       for any identifiers not resolved via UniProt.
+
+    Args:
+        identifiers (list of str): List of UniProt accession IDs to map.
+        use_uniprot (bool): If True (default), attempt mapping via UniProt
+            `xref_string` and `organism_id` fields.
+        use_string (bool): If True (default), query the STRING API for any
+            identifiers still unresolved after the UniProt step.
+        caller_identity (str): Identifier passed to the STRING API
+            (default: "scpviz").
+        batch_size (int): Number of identifiers per batch when querying
+            external APIs (default=100).
+        debug (bool): If True, print progress and debug information.
+
+    Returns:
+        pandas.DataFrame: Mapping table with one row per input identifier and
+        the following columns:
+        
+        - `input_identifier`: UniProt accession provided as input  
+        - `string_identifier`: Corresponding STRING ID (if resolved)  
+        - `ncbi_taxon_id`: NCBI taxonomy ID inferred from UniProt or STRING  
+
+    Example:
+        Map a small set of UniProt accessions to STRING IDs:
+            ```python
+            proteins = ["P40925", "P40926"]
+            df = get_string_mappings(proteins)
+            df
+            ```
+
+        Disable the UniProt shortcut and query STRING directly (takes longer than UniProt):
+            ```python
+            df = get_string_mappings(proteins, use_uniprot=False)
+            ```
+
+    Related Functions:
+        - get_uniprot_fields: Retrieve UniProt metadata, including STRING cross-references.
+        - pAnnData.EnrichmentMixin (enrichment_functional(), enrichment_ppi())
+    """
+    ids = [str(x).strip() for x in identifiers if x is not None and str(x).strip()]
+    if not ids:
+        return pd.DataFrame(columns=["input_identifier", "string_identifier", "ncbi_taxon_id"])
+
+    found: Dict[str, str] = {}
+    species_map: Dict[str, object] = {}
+
+    # Step 1: UniProt xref_string
+    uni_df = pd.DataFrame(columns=["input_identifier", "string_identifier"])
+    if use_uniprot:
+        try:
+            uni_df, uni_species = _uniprot_get_string_ids(
+                ids, batch_size=batch_size, standardize=True, debug=debug
+            )
+            if not uni_df.empty:
+                found.update(dict(zip(uni_df["input_identifier"], uni_df["string_identifier"])))
+            species_map.update(uni_species)
+
+            print(f"{format_log_prefix('api',2)} UniProt mapped: {len(uni_df)} / {len(ids)}")
+        except Exception as e:
+            print(f"{format_log_prefix('error')} UniProt stream step failed: {e}") 
+
+    # Missing after UniProt
+    missing = [i for i in ids if i not in found]
+
+    # Step 2: STRING get_string_ids
+    string_df = pd.DataFrame(columns=["input_identifier", "string_identifier", "ncbi_taxon_id"])
+    if use_string and missing:
+        try:
+            string_df = _string_get_string_ids(
+                missing, batch_size=batch_size, caller_identity=caller_identity, debug=debug
+            )
+            if not string_df.empty:
+                found.update(dict(zip(string_df["input_identifier"], string_df["string_identifier"])))
+
+            print(f"{format_log_prefix('api',2)} STRING mapped: {len(string_df)} / {len(missing)} (missing after UniProt)")
+        except Exception as e:
+            print(f"{format_log_prefix('error')} STRING stream step failed: {e}") 
+
+    # Build output table
+    out_df = pd.DataFrame({"input_identifier": ids})
+    out_df["string_identifier"] = out_df["input_identifier"].map(found)
+
+    # Taxon: prefer UniProt organism_id, then STRING ncbi_taxon_id
+    tax_from_uniprot = out_df["input_identifier"].map(lambda a: species_map.get(a, pd.NA))
+    tax_from_uniprot = tax_from_uniprot.apply(scalarize_taxon)
+
+    if not string_df.empty and "ncbi_taxon_id" in string_df.columns:
+        string_tax_map = dict(zip(string_df["input_identifier"], string_df["ncbi_taxon_id"]))
+        tax_from_string = out_df["input_identifier"].map(lambda a: string_tax_map.get(a, pd.NA))
+        tax_from_string = tax_from_string.apply(scalarize_taxon)
+    else:
+        tax_from_string = pd.Series([pd.NA] * len(out_df), index=out_df.index)
+
+    out_df["ncbi_taxon_id"] = tax_from_uniprot.combine_first(tax_from_string)
+
+    return out_df
+
+def _first_string_xref(x: object) -> Union[str, float]:
+    """Parse the first STRING xref from UniProt `xref_string` (may be ';' delimited)."""
+    if pd.isna(x):
+        return np.nan
+    s = str(x).strip()
+    if not s:
+        return np.nan
+    return s.split(";")[0].strip()
+
+def scalarize_taxon(x: object) -> object:
+    """
+    Normalize taxon-id values so they never contain lists or arrays.
+
+    Returns:
+        Scalar string-like taxon id, or pd.NA.
+    """
+    # Handle pandas missing scalar explicitly first
+    if x is pd.NA:
+        return pd.NA
+
+    # Handle standard missing
+    if x is None:
+        return pd.NA
+    if isinstance(x, float) and np.isnan(x):
+        return pd.NA
+
+    # Empty string
+    if isinstance(x, str):
+        s = x.strip()
+        return pd.NA if s == "" else s
+
+    # Empty container / container → first element
+    if isinstance(x, (list, tuple, np.ndarray)):
+        if len(x) == 0:
+            return pd.NA
+        return scalarize_taxon(x[0])
+
+    # Everything else → string
+    return str(x)
+
+def _string_get_string_ids(identifiers: List[str], *, batch_size: int = 100, caller_identity: str = "scpviz", debug: bool = False,) -> pd.DataFrame:
+    """
+    Query STRING get_string_ids for identifiers.
+
+    Returns:
+        DataFrame with columns:
+            input_identifier, string_identifier, ncbi_taxon_id
+        (may be empty if nothing returned)
+    """
+    if not identifiers:
+        return pd.DataFrame(columns=["input_identifier", "string_identifier", "ncbi_taxon_id"])
+
+    url = "https://string-db.org/api/tsv-no-header/get_string_ids"
+    all_rows = []
+
+    for i in range(0, len(identifiers), batch_size):
+        batch = identifiers[i : i + batch_size]
+        params = {
+            "identifiers": "\r".join(batch),
+            "limit": 1,
+            "echo_query": 1,
+            "caller_identity": caller_identity,
+        }
+
+        try:
+            t0 = time.time()
+            r = requests.post(url, data=params, timeout=60)
+            r.raise_for_status()
+            df = pd.read_csv(io.StringIO(r.text), sep="\t", header=None)
+            if df.empty:
+                continue
+
+            df.columns = [
+                "input_identifier",
+                "input_alias",
+                "string_identifier",
+                "ncbi_taxon_id",
+                "preferred_name",
+                "annotation",
+                "score",
+            ]
+            df = df[["input_identifier", "string_identifier", "ncbi_taxon_id"]]
+            all_rows.append(df)
+
+            if debug:
+                dt = time.time() - t0
+                print(f"{'✅'} STRING batch {i // batch_size + 1}: {len(batch)} ids in {dt:.2f}s")
+        except Exception as e:
+            if debug:
+                print(f"{'⚠️'} STRING batch {i // batch_size + 1} failed: {e}")
+
+    if not all_rows:
+        return pd.DataFrame(columns=["input_identifier", "string_identifier", "ncbi_taxon_id"])
+
+    out = pd.concat(all_rows, ignore_index=True)
+    out = out.dropna(subset=["input_identifier"]).drop_duplicates(subset=["input_identifier"], keep="first")
+    return out
+
+def _uniprot_get_string_ids(identifiers: List[str], *, batch_size: int = 100, standardize: bool = True, debug: bool = False,) -> Tuple[pd.DataFrame, Dict[str, object]]:
+    """
+    Query UniProt for xref_string + organism_id and return mapping rows.
+
+    Returns:
+        (df_map, species_map)
+        df_map columns: input_identifier, string_identifier
+        species_map: input_identifier -> organism_id
+    """
+    if not identifiers:
+        return (
+            pd.DataFrame(columns=["input_identifier", "string_identifier"]),
+            {},
+        )
+
+    dfu = get_uniprot_fields(
+        identifiers,
+        search_fields=["xref_string", "organism_id"],
+        batch_size=batch_size,
+        standardize=standardize,
+        verbose=debug,
+    )
+    if dfu is None or dfu.empty:
+        return (
+            pd.DataFrame(columns=["input_identifier", "string_identifier"]),
+            {},
+        )
+
+    entry_col = "accession" if "accession" in dfu.columns else None
+    xref_col = "xref_string" if "xref_string" in dfu.columns else None
+    org_col = "organism_id" if "organism_id" in dfu.columns else None
+    if entry_col is None or xref_col is None:
+        return (
+            pd.DataFrame(columns=["input_identifier", "string_identifier"]),
+            {},
+        )
+
+    tmp = dfu[[entry_col, xref_col] + ([org_col] if org_col else [])].copy()
+    tmp["string_identifier"] = tmp[xref_col].apply(_first_string_xref)
+    tmp = tmp.rename(columns={entry_col: "input_identifier"})
+    tmp = tmp.dropna(subset=["input_identifier", "string_identifier"])
+    tmp = tmp.drop_duplicates(subset=["input_identifier"], keep="first")
+    df_map = tmp[["input_identifier", "string_identifier"]].copy()
+
+    species_map: Dict[str, object] = {}
+    if org_col and org_col in tmp.columns:
+        for _, row in tmp.iterrows():
+            acc = row["input_identifier"]
+            org_val = row[org_col]
+            if pd.isna(org_val):
+                continue
+            s = str(org_val).strip()
+            if not s:
+                continue
+            try:
+                species_map[acc] = int(s)
+            except Exception:
+                species_map[acc] = s
+
+    return df_map, species_map
 
 # ----------------
 # STATISTICAL TEST FUNCTIONS

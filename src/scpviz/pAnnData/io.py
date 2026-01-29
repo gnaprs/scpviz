@@ -229,6 +229,19 @@ def _import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Option
         elif pep_file.endswith('.xlsx'):
             print(f"{format_log_prefix('warn')} The read_excel function is slower compared to reading .tsv or .txt files. For improved performance, consider converting your data to .tsv or .txt format.")
             pep_all = pd.read_excel(pep_file)
+
+        # Filter out any peptides that are not matched to a protein
+        col = "Master Protein Accessions"
+        if col in pep_all.columns:
+            # treat NaN and empty/whitespace-only strings as missing
+            mask_has_master = pep_all[col].notna() & pep_all[col].astype(str).str.strip().ne("")
+            n_drop = (~mask_has_master).sum()
+            if n_drop:
+                print(f"{format_log_prefix('warn')} Dropping {n_drop} peptide rows with missing '{col}'.")
+                pep_all = pep_all.loc[mask_has_master].copy()
+        else:
+            print(f"{format_log_prefix('warn')} Column '{col}' not found in peptide file; cannot filter missing master accessions.")
+
         # pep_X: sparse data matrix
         pep_X = sparse.csr_matrix(pep_all.filter(regex='Abundance: F', axis=1).values).transpose()
         # pep_layers['mbr']: peptide MBR identification

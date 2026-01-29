@@ -720,6 +720,11 @@ def test_plot_volcano_adata_with_de_data():
     assert hasattr(result, "scatter"), "❌ Should return a matplotlib Axes"
     plt.close(fig)
 
+def test_plot_volcano_adata_no_data():
+    fix, ax = plt.subplots()
+    with pytest.raises(ValueError, match="must supply adata"):
+        scplt.plot_volcano_adata(ax, None)
+
 def test_plot_volcano_adata_returns_df():
     df = mock_volcano_df()
     fig, ax = plt.subplots()
@@ -860,7 +865,9 @@ def test_plot_venn_runs_and_returns_contents(monkeypatch):
     # 2-set Venn with default colors
     ax_out, contents = scplt.plot_venn(ax, pdata, classes=["GroupA", "GroupB"], return_contents=True)
 
-    assert isinstance(ax_out, tuple), "Expected tuple of (venn_obj, circles_obj)"
+    from matplotlib.axes import Axes
+
+    assert isinstance(ax_out, Axes), "Expected Ax"
     assert isinstance(contents, dict)
     assert set(contents.keys()) == {"GroupA", "GroupB"}
 

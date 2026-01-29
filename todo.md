@@ -13,8 +13,12 @@
 ### new modules
 8. implement peptide sequence characteristics (hydrophobicity, etc.) [peptide_param module]
 9. implement correlation visualization [protein corr module]
+10. omics module for comparing adata?
+## REFACTOR
+1. sync the de for adata and pdata into a combined workflow, as well as volcano code?
 ### others
 10. consider QC metrics beyond what we already have?
+11. Decide whether to standardize internal terminology to `classes` or `class_types` for sample-level grouping.
 
 ## ENHANCEMENTS
 1. when updating .summary/obs, move prot/pep details to the right (prioritize metadata)
@@ -26,13 +30,12 @@
 
 # TESTS
 ## KNOWN FIX/BUGS
-1. housekeeping csvs not installed with package - find a way to fix this
 2. add modification print for diann import
 3. clustermap bug when linkage
 4. plot_abundnace_housekeeping throws error when no housekeeping gene is found
 5. check that we're syncing rs and filtering rs matrix for every filter opration (currently, only for filter sample by condition?)
-6. When filtering by samples, need to clean up empty proteins?
-7. when impute throws error because wrong obs column given, pretty format the error so that people understand better
+6. when impute throws error because wrong obs column given, pretty format the error so that people understand better
+7. double check that for parquet file import, we are splicing the peptide data correctly to each protein? check if the peptide to protein mapping is correct with the ProtA; ProtB peptides
 
 ## MAINTENANCE
 1. Check out scprep repo for possible utility functions
@@ -41,3 +44,8 @@
 1. Tutorial to show how to integrate with scanpy features
 2. QC tutorial
 3. search_annotation tutorial
+
+### DOCUMENTATION EXAMPLES
+```
+region_filter = "region in ['mp_axon', 'mp_cellbody']"
+```

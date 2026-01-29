@@ -59,6 +59,19 @@ def test_import_pd_noQ():
     assert pdata.pep is None
     assert pdata.rs is None
 
+def test_import_pd_excel():
+    test_dir = Path(__file__).parent
+    prot_file = str(test_dir / 'test_pd_prot.xlsx')
+
+    obs_columns = ['sample', 'cellline', 'treatment']    
+    pdata = pAnnData.import_data(source_type='pd', prot_file=prot_file, obs_columns=obs_columns)
+
+    # Object should still be valid
+    assert pdata is not None
+    assert pdata.prot is not None
+    assert pdata.pep is None
+    assert pdata.rs is None
+
 def test_import_pd32():
     test_dir = Path(__file__).parent
     prot_file = str(test_dir / 'test_pd32_Proteins.txt')
@@ -81,6 +94,45 @@ def test_import_pd32_with_pep():
     assert pdata.prot is not None
     assert pdata.pep is not None
     assert pdata.rs is not None
+
+def test_import_pd_drops_peptides_missing_master_accessions():
+    """
+    Peptides with empty / NaN Master Protein Accessions should be dropped.
+    """
+    test_dir = Path(__file__).parent
+    prot_file = str(test_dir / "test_pd_prot.txt")
+    pep_file = str(test_dir / "test_pd_pep-missingMaster.txt")
+
+    pdata = pAnnData.import_data(
+        source_type="pd",
+        prot_file=prot_file,
+        pep_file=pep_file,
+        obs_columns=['sample', 'cellline', 'treatment'],
+    )
+
+    assert pdata.pep is not None
+
+    col = "Master Protein Accessions"
+    assert col in pdata.pep.var.columns
+
+    # Only rows with valid master accessions should remain
+    s = pdata.pep.var[col].astype(str).str.strip()
+    assert pdata.pep.var[col].notna().all()
+    assert (s != "").all()
+
+def test_import_pd_peptide_file_missing_master_accession_column_raises():
+    test_dir = Path(__file__).parent
+    prot_file = str(test_dir / "test_pd_prot.txt")
+    pep_file = str(test_dir / "test_pd_pep-missingMasterCol.txt")
+
+    with pytest.raises(KeyError, match="Master Protein Accessions"):
+        pAnnData.import_data(
+            source_type="pd",
+            prot_file=prot_file,
+            pep_file=pep_file,
+            obs_columns=["sample", "cellline", "treatment"],
+        )
+
 
 def test_import_diann_old():
     # pre diann v1.8.1

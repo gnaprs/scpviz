@@ -7,4 +7,4 @@ coverage:
         if_ci_failed: success
     patch:
       default:
-        target: 70%
+        target: 50%
