@@ -476,6 +476,10 @@ def _get_abundance_from_adata(adata, namelist=None, layer='X', log=True,
     Abundance extraction for plain AnnData, including gene/accession support.
     """
 
+    if namelist is not None:
+        if isinstance(namelist, str):
+            namelist = [namelist]
+
     # Resolve gene names → accessions
     if namelist:
         resolved = resolve_accessions(adata, namelist, gene_col=gene_col)
@@ -576,7 +580,7 @@ def resolve_accessions(adata, namelist, gene_col="Genes", gene_map=None):
         )
 
     if unmatched:
-        print(f"{format_log_prefix('warn')}resolve_accessions: Unmatched names:")
+        print(f"{format_log_prefix('warn')} A match was not found for the following:")
         for u in unmatched:
             print(f"  - {u}")
 
