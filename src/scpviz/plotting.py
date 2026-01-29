@@ -744,17 +744,18 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
     return _plot_bar(df) if kind == 'bar' else _plot_violin(df)
 
 def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein', classes=None, return_df=False,
-    box=True, fig_width=1.0, fig_height=2.0, palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
-    global_legend=True, boxplot_kwargs=None, hline_kwargs=None, text_kwargs=None,):
+    order=None, plot_type="box", log_scale=False, fig_width=1.0, fig_height=2.0, palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
+    global_legend=True, box_kwargs=None, hline_kwargs=None, bar_kwargs=None, bar_error='sd', violin_kwargs=None, text_kwargs=None, strip_kwargs=None):
     """
-    Plot log-scale abundance values in a one-row panel of boxplots or mean-lines.
+    Plot abundance values in a one-row panel of boxplots, mean-lines, bars, or violins.
 
     This function generates a clean horizontal panel, with one subplot per gene,
-    using either boxplots (default) or colored mean-lines. Abundance values are
-    visualized on a log10-transformed y-axis, with zero or negative values clipped
-    to 0 before transformation. The layout is optimized for compact manuscript
-    figure panels and supports custom global legends, count annotations, colored
-    mean-lines, and flexible formatting via keyword dictionaries.
+    using ``plot_type`` to select boxplots (default), mean-lines, bar plots, or
+    violin plots. If ``log_scale=True``, abundance values are visualized in
+    log10 units (with zero or negative values clipped to 0 before transformation).
+    The layout is optimized for compact manuscript figure panels and supports
+    custom global legends, count annotations, and flexible formatting via keyword
+    dictionaries.
 
     Args:
         pdata (pAnnData): Input pAnnData object.
@@ -764,21 +765,40 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
         layer (str): Data layer to use for abundance values. Default is `'X'`.
         on (str): Data level to plot, either `'protein'` or `'peptide'`.
         return_df (bool): If True, returns the DataFrame of replicate and summary values.
-        classes (str): Column in ``df`` to use for grouping samples (default: None).
-        box (bool): If True, draw boxplots. If False, draw colored mean-lines.
+        order (list of str): Ordered list to plot by. If None, plots by given dataframe order.
+        classes (str): Column in `.obs` to use for grouping samples (default: None).
+        plot_type (str): Type of plot, select from one of {"box", "line", "bar", "violin"}.
+            Defaults to "box".
+        log_scale (bool): If True, plot log10-transformed abundances on a linear axis.
+            If False (default), plot raw abundance values on a linear axis.
         fig_width (float): Width per subplot, in inches.
         fig_height (float): Height of the entire figure, in inches.
-        palette (dict or list, optional): Color palette for grouping categories. 
-            Defaults to ``scplt.get_color('colors', n_classes)``.
-        y_min (float or None): Lower y-axis limit in log10 units (e.g., 2 → 10²). If None, inferred.
-        y_max (float or None): Upper y-axis limit in log10 units (e.g., 6 → 10⁶). If None, inferred.
+        palette (dict or list, optional): Color palette for grouping categories.
+            Defaults to ``scplt.get_color("colors", n_classes)``.
+        y_min (float or None): Lower y-axis limit in plotting units. If ``log_scale=True``,
+            this is in log10 units (e.g., 2 → 10²). If ``log_scale=False``, this is in
+            raw abundance units. If None, inferred.
+        y_max (float or None): Upper y-axis limit in plotting units. If ``log_scale=True``,
+            this is in log10 units (e.g., 6 → 10⁶). If ``log_scale=False``, this is in
+            raw abundance units. If None, inferred.
         label_x (bool): Whether to display x tick labels inside each subplot.
         show_n (bool): Whether to annotate each subplot with sample counts.
         global_legend (bool): Whether to display a single global legend.
-        boxplot_kwargs (dict, optional): Additional arguments passed to ``sns.boxplot``.
-        hline_kwargs (dict, optional): Keyword arguments for mean-lines (e.g., color, linewidth).
-        text_kwargs (dict, optional): Keyword arguments for count labels (e.g., fontsize, offset).
-
+        box_kwargs (dict, optional): Additional arguments passed to ``sns.boxplot``
+            (used when ``plot_type="box"``).
+        hline_kwargs (dict, optional): Keyword arguments for mean-lines
+            (used when ``plot_type="line"``).
+        bar_kwargs (dict, optional): Additional arguments passed to bar plotting
+            (used when ``plot_type="bar"``).
+        bar_error (str, optional): Error bar for bar plot. Select from one of
+            {"sd", "sem", None, <callable>}, where callable takes a 1D array and returns
+            a scalar error. Defaults to "sd".
+        violin_kwargs (dict, optional): Additional arguments passed to ``sns.violinplot``
+            (used when ``plot_type="violin"``).
+        text_kwargs (dict, optional): Keyword arguments for count labels
+            (e.g., fontsize, offset).
+        strip_kwargs (dict, optional): Keyword arguments for strip (raw points),
+            e.g. ``{"darken_factor": 0.65}``.
 
     Returns:
         fig (matplotlib.figure.Figure): The generated figure.
@@ -788,74 +808,156 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
     !!! note
         Default customizations for keyword dictionaries:
 
-        Boxplot styling:
+        Boxplot styling (used when ``plot_type="box"``):
         ```python
-        boxplot_kwargs = {
-            "showcaps"=False,
-            "whiskerprops"={"visible": False},
-            "showfliers"=False,
-            "boxprops"=dict(alpha=0.6, linewidth=1),
-            "linewidth"=1,
-            "dodge"=True,
+        box_kwargs = {
+            "showcaps": False,
+            "whiskerprops": {"visible": False},
+            "showfliers": False,
+            "boxprops": {"alpha": 0.6, "linewidth": 1},
+            "linewidth": 1,
+            "dodge": True,
         }
         ```
 
-        Mean-line styling (used when ``box=False``):
+        Mean-line styling (used when ``plot_type="line"``):
         ```python
         hline_kwargs = {
-            "color"="k",
-            "linewidth"=2.0,
-            "zorder"=5,
-            "half_width"=0.15,
+            "color": "k",
+            "linewidth": 2.0,
+            "zorder": 5,
+            "half_width": 0.15,
+        }
+        ```
+        Note: ``half_width`` sets the half-length of the mean line.
+
+        Bar styling (used when ``plot_type="bar"``):
+        ```python
+        bar_kwargs = {
+            "alpha": 0.8,
+            "edgecolor": "black",
+            "linewidth": 0.6,
+            "width": 0.3,
+            "capsize": 2,
+            "zorder": 3,
+        }
+        ```
+
+        Violin styling (used when ``plot_type="violin"``):
+        ```python
+        violin_kwargs = {
+            "inner": "quartile",
+            "dodge": True,
+            "zorder": 5,
+        }
+        ```
+
+        Strip styling (raw points; used for all plot types):
+        ```python
+        strip_kwargs = {
+            "jitter": True,
+            "alpha": 0.4,
+            "size": 3,
+            "zorder": 7,
+            "darken_factor": 0.65,
         }
         ```
 
         Text annotation styling (used when ``show_n=True``):
         ```python
         text_kwargs = {
-            "fontsize"=7,
-            "color"="black",
-            "ha"="center",
-            "va"="bottom",
-            "zorder"=10,
-            "offset"=0.1,
+            "fontsize": 7,
+            "color": "black",
+            "ha": "center",
+            "va": "bottom",
+            "zorder": 10,
+            "offset": 0.1,
         }
         ```
 
     !!! example
-        Basic usage:
+        Basic usage (grouped boxplots):
         ```python
-        df = pdata.get_abundance(
-            namelist=["Slc17a7", "Camk2a", "Nrgn", "Homer1"],
-            classes="group"
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["Gapdh", "Vcp", "Ahnak"],
+            classes="condition",
+            plot_type="box",
+            fig_width=2,
+            fig_height=2.5,
         )
-        fig, axes = plot_abundance_boxgrid(df, classes="group")
+        plt.show()
         ```
 
-        Using colored mean-lines with count annotations:
+        Bar plots with error bars:
         ```python
-        fig, axes = plot_abundance_boxgrid(
-            df,
-            classes="group",
-            box=False,
-            show_n=True,
-            fig_width=1,
-            fig_height=2
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["Gapdh", "Vcp", "Ahnak"],
+            classes="condition",
+            plot_type="bar",
+            bar_error="sd",  # "sd", "sem", None, or callable
+            fig_width=2,
+            fig_height=2.5,
         )
+        plt.show()
         ```
 
-        Customizing appearance:
+        Mean-lines with count annotations:
         ```python
-        fig, axes = plot_abundance_boxgrid(
-            df,
-            classes="group",
-            box=False,
-            global_legend=True,
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["Gapdh", "Vcp", "Ahnak"],
+            classes="condition",
+            plot_type="line",
             show_n=True,
-            y_max=8,
-            hline_kwargs={"color": "red", "linewidth": 2},
-            text_kwargs={"fontsize": 9, "color": "blue", "offset": 1}
+            fig_width=2,
+            fig_height=2.5,
         )
+        plt.show()
+        ```
+
+        Violin plots (distribution-focused):
+        ```python
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["Gapdh", "Vcp", "Ahnak"],
+            classes="condition",
+            plot_type="violin",
+            fig_width=2,
+            fig_height=2.5,
+        )
+        plt.show()
+        ```
+
+        Customizing appearance (palette, order, and styling):
+        ```python
+        palette = {"Control": "#4C72B0", "Treatment": "#DD8452"}
+
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["Gapdh", "Vcp", "Ahnak"],
+            classes="condition",
+            order=["Control", "Treatment"],
+            palette=palette,
+            plot_type="box",
+            box_kwargs={"boxprops": {"alpha": 0.45}, "linewidth": 1.2},
+            strip_kwargs={"size": 4, "alpha": 0.6},
+            y_min=2,
+            y_max=10,
+            log_scale=True,
+            fig_width=2,
+            fig_height=2.5,
+        )
+        plt.show()
+        ```
+
+        Return the plotting DataFrame for downstream checks:
+        ```python
+        fig, axes, df = pdata.plot_abundance_boxgrid(
+            namelist=["Gapdh", "Vcp"],
+            classes="condition",
+            plot_type="box",
+            return_df=True,
+        )
+
+        display(df.head())
+        plt.show()
         ```
     """
     from matplotlib.colors import to_rgba
@@ -879,11 +981,16 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
 
     df = df.copy()
 
-    # Create log10-transformed abundance, preserving zeros as 0
-    df["log_abundance"] = np.nan
-    pos = df["abundance"] > 0
-    df.loc[pos,  "log_abundance"] = np.log10(df.loc[pos, "abundance"])
-    df.loc[~pos, "log_abundance"] = 0.0
+    if log_scale: # Create log10-transformed abundance, preserving zeros as 0
+        df["plot_abundance"] = np.nan
+        pos = df["abundance"] > 0
+        df.loc[pos, "plot_abundance"] = np.log10(df.loc[pos, "abundance"])
+        df.loc[~pos, "plot_abundance"] = 0.0
+    else:
+        df["plot_abundance"] = np.nan
+        pos = df["abundance"] > 0
+        df.loc[pos, "plot_abundance"] = df.loc[pos, "abundance"]
+        df.loc[~pos, "plot_abundance"] = 0.0
 
     # Get gene list
     genes = df["gene"].unique()
@@ -906,39 +1013,62 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
         if palette is None:
             palette = get_color("colors", 1)  # or any default single color
 
+    # ---------- plot defaults ----------
     # setup kwargs defaults
-    boxplot_defaults = dict(
-        showcaps=False,
-        whiskerprops={"visible": False},
-        showfliers=False,
-        boxprops=dict(alpha=0.6, linewidth=1),
-        linewidth=1,
-        dodge=True,
-    )
-    if boxplot_kwargs is not None:
-        boxplot_defaults.update(boxplot_kwargs)
+    boxplot_defaults = dict(showcaps=False, whiskerprops={"visible": False}, showfliers=False, boxprops=dict(alpha=0.6, linewidth=1), linewidth=1, dodge=True)
+    if box_kwargs is not None:
+        boxplot_defaults.update(box_kwargs)
     if classes is None:
         boxplot_defaults["dodge"] = False
 
-    hline_defaults = dict(
-        color="k",
-        linewidth=2.0,
-        zorder=5,
-        half_width=0.15,
-    )
+    hline_defaults = dict(color="k", linewidth=2.0, zorder=5, half_width=0.15)
     if hline_kwargs is not None:
         hline_defaults.update(hline_kwargs)
 
-    text_defaults = dict(
-        fontsize=7,
-        color="black",
-        ha="center",
-        va="bottom",
-        zorder=10,
+    bar_defaults = dict(alpha=0.8, edgecolor="black", linewidth=0.6, width=0.3, capsize=2, zorder=3)
+    if bar_kwargs is not None:
+        bar_defaults.update(bar_kwargs)
+
+    violin_defaults = dict(inner="quartile", dodge = True, zorder=5)
+    if violin_kwargs is not None:
+        violin_defaults.update(violin_kwargs)
+    if classes is None:
+        violin_defaults["dodge"] = False
+
+    text_defaults = dict(fontsize=7, color="black", ha="center", va="bottom", zorder=10,
         offset=0.1,             # vertical offset from anchor
     )
     if text_kwargs is not None:
         text_defaults.update(text_kwargs)
+
+    strip_defaults = dict(x="gene", y="plot_abundance", jitter=True, alpha=0.4, size=3, legend=False, ax=ax, zorder=7, darken_factor=0.65)
+    if plot_type in ("bar","violin"):
+        strip_defaults["alpha"] = 0.6
+    if strip_kwargs is not None:
+        strip_defaults.update(strip_kwargs)
+
+    def _get_err(vals, mode):
+        vals = np.asarray(vals, dtype=float)
+        vals = vals[~np.isnan(vals)]
+        if vals.size == 0:
+            return np.nan
+        if mode is None:
+            return 0.0
+        if callable(mode):
+            return float(mode(vals))
+        if mode == "sd":
+            return float(np.std(vals, ddof=1)) if vals.size > 1 else 0.0
+        if mode == "sem":
+            return float(np.std(vals, ddof=1) / np.sqrt(vals.size)) if vals.size > 1 else 0.0
+        raise ValueError("bar_error must be 'sd', 'sem', None, or a callable")
+
+    def _darken_color(color, factor=0.7):
+        """
+        Darken an RGB/hex color by multiplying RGB channels.
+        factor < 1 darkens, factor > 1 lightens.
+        """
+        r, g, b, a = to_rgba(color)
+        return (r * factor, g * factor, b * factor, a)
 
     # Create subplots
     if ax is None:
@@ -953,38 +1083,48 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
         sub = df[df["gene"] == gene]
 
         if classes is not None:
-            unique_classes = list(sub[classes].unique())  # keep order, see next section
+            if order is not None:
+                # Use user-specified hue order, but only keep those present in this subset
+                # unique_classes = [c for c in order if c in sub[classes].unique()]
+                unique_classes = order
+            else:
+                unique_classes = list(sub[classes].unique())
         else:
-            unique_classes = [None]  # placeholder        
+            unique_classes = [None]     
 
-        # Stripplot (raw points) on log_abundance
+        # Stripplot (raw points) on plot_abundance
         before_n = len(ax.collections)
 
-        strip_kwargs = dict(
-            data=sub,
-            x="gene",
-            y="log_abundance",
-            jitter=True,
-            alpha=0.4,
-            size=3,
-            legend=False,
-            ax=ax,
-        )
+        # Make per-panel strip kwargs (avoid cross-panel mutation)
+        strip_kws = dict(strip_defaults)
+        strip_kws["data"] = sub
+        strip_kws["ax"] = ax 
+
+        # pull darken_factor without deleting it from the shared defaults
+        darken_factor = strip_kws.pop("darken_factor", 1)
+        # Clear any prior hue/color/palette that may be present
+        strip_kws.pop("hue", None)
+        strip_kws.pop("hue_order", None)
+        strip_kws.pop("palette", None)
+        strip_kws.pop("color", None)
 
         if classes is None:
             # no hue, everything in one group
-            strip_kwargs["color"] = "black"
-            strip_kwargs["dodge"] = False
+            strip_kws["color"] = "black"
+            strip_kws["dodge"] = False
         else:
-            strip_kwargs["hue"] = classes
-            strip_kwargs["dodge"] = True
-            strip_kwargs["hue_order"] = unique_classes
-            if box:
-                strip_kwargs["color"] = "black"
+            strip_kws["hue"] = classes
+            strip_kws["dodge"] = True
+            strip_kws["hue_order"] = unique_classes
+            if plot_type == "box":
+                strip_kws["palette"] = ["black"] * len(unique_classes)  # keep hue/dodge, but all dots black
             else:
-                strip_kwargs["palette"] = palette
+                if isinstance(palette, dict):
+                    strip_kws["palette"] = {k: _darken_color(v, factor=darken_factor) for k, v in palette.items()}
+                else:
+                    strip_kws["palette"] = [_darken_color(c, factor=darken_factor) for c in palette]
 
-        sns.stripplot(**strip_kwargs)
+        sns.stripplot(**strip_kws)
 
         after_n = len(ax.collections)
         strip_collections = ax.collections[before_n:after_n]
@@ -996,55 +1136,44 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
                 offs = coll.get_offsets()
                 x_centers.append(np.nanmean(offs[:, 0]) if offs.size > 0 else np.nan)
         else:
-            # no grouping; we only need x_center in the box=False case
-            if not box and len(strip_collections) > 0:
+            # ungrouped: there should be one collection
+            if len(strip_collections) > 0:
                 offs = strip_collections[0].get_offsets()
                 x_centers = [np.nanmean(offs[:, 0]) if offs.size > 0 else np.nan]
             else:
                 x_centers = []
 
-        if box:
-            # boxplot on log abundance
+        if plot_type == "box":
+            # boxplot on plot abundance
             if classes is None:
-                ax_bp = sns.boxplot(
-                    data=sub,
-                    x="gene",
-                    y="log_abundance",
-                    color=palette[0],
-                    ax=ax,
-                    **boxplot_defaults,
+                sns.boxplot(
+                    data=sub, x="gene", y="plot_abundance",
+                    color=palette[0], ax=ax, **boxplot_defaults,
                 )
             else:
-                ax_bp = sns.boxplot(
-                    data=sub,
-                    x="gene",
-                    y="log_abundance",
-                    hue=classes,
-                    hue_order=unique_classes,
-                    palette=palette,
-                    ax=ax,
-                    **boxplot_defaults,
+                sns.boxplot(
+                    data=sub, x="gene", y="plot_abundance",
+                    hue=classes, hue_order=unique_classes, palette=palette,
+                    ax=ax, **boxplot_defaults,
                 )
-        else:
+
+        elif plot_type == "line":
             if classes is None:
                 # one mean over all non-zero abundances
                 sub_pos = sub[sub["abundance"] > 0]
-                mean_val = sub_pos["log_abundance"].mean()
+                mean_val = sub_pos["plot_abundance"].mean()
                 x_center = x_centers[0]
                 half_width = hline_defaults["half_width"]
                 ax.hlines(
                     y=mean_val,
-                    xmin=x_center - half_width,
-                    xmax=x_center + half_width,
-                    color=hline_defaults["color"],
-                    linewidth=hline_defaults["linewidth"],
-                    zorder=hline_defaults["zorder"],
+                    xmin=x_center - half_width, xmax=x_center + half_width,
+                    color=hline_defaults["color"], linewidth=hline_defaults["linewidth"], zorder=hline_defaults["zorder"],
                 )
             else:
                 # compute means excluding zeros
                 sub_pos = sub[sub["abundance"] > 0]
                 group_means = (
-                    sub_pos.groupby(classes)["log_abundance"]
+                    sub_pos.groupby(classes)["plot_abundance"]
                     .mean()
                     .reindex(unique_classes)
                 )
@@ -1056,12 +1185,53 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
                     half_width = hline_defaults["half_width"]
                     ax.hlines(
                         y=mean_val,
-                        xmin=x_center - half_width,
-                        xmax=x_center + half_width,
-                        color=hline_defaults["color"],
-                        linewidth=hline_defaults["linewidth"],
-                        zorder=hline_defaults["zorder"],
+                        xmin=x_center - half_width, xmax=x_center + half_width,
+                        color=hline_defaults["color"], linewidth=hline_defaults["linewidth"], zorder=hline_defaults["zorder"],
                     )
+        elif plot_type == "violin":
+            if classes is None:
+                sns.violinplot(
+                    data=sub, x="gene", y="plot_abundance",
+                    color=palette[0], ax=ax, **violin_defaults
+                )
+            else:
+                sns.violinplot(
+                    data=sub, x="gene", y="plot_abundance",
+                    hue=classes, hue_order=unique_classes, palette=palette,
+                    ax=ax, **violin_defaults
+                )
+
+        elif plot_type == "bar":
+            if classes is None:
+                sub_pos = sub # include 0s in calculation?
+                vals = sub_pos["plot_abundance"].to_numpy()
+                mean_val = np.nanmean(vals)
+                err = _get_err(vals, bar_error)
+                x_center = x_centers[0] if len(x_centers) else 0.0
+                ax.bar(
+                    [x_center], [mean_val],
+                    color=palette[0], **bar_defaults
+                )
+
+                if bar_error is not None:
+                    ax.errorbar([x_center],[mean_val],yerr=[err], fmt="none",ecolor='k', zorder=10, capsize=2)
+            else:
+                sub_pos = sub # include 0s in calculation?
+                grp = sub_pos.groupby(classes)["plot_abundance"]
+                means = grp.mean().reindex(unique_classes)
+                errs = grp.apply(lambda v: _get_err(v.to_numpy(), bar_error)).reindex(unique_classes)
+
+                colors = [palette[c] for c in unique_classes] if isinstance(palette, dict) else palette
+                ax.bar(
+                    x_centers, means.to_numpy(),
+                    color=colors, **bar_defaults
+                )
+
+                if bar_error is not None:
+                    ax.errorbar(x_centers, means.to_numpy(), yerr=errs.to_numpy(), fmt="none", ecolor='k',zorder=10, capsize=2)
+
+        else:
+            raise ValueError("plot_type must be one of: 'box', 'line', 'bar', 'violin'")
 
         # n = x annotation
         if show_n and classes is not None:
@@ -1075,9 +1245,9 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
 
             for cls, x_center in zip(unique_classes, x_centers):
                 # choose y position
-                if box:
+                if plot_type != "line":
                     # Q3 for this class
-                    dat = sub.loc[sub[classes] == cls, "log_abundance"]
+                    dat = sub.loc[sub[classes] == cls, "plot_abundance"]
                     anchor = np.nanpercentile(dat, 75)
                 else:
                     # use mean line position
@@ -1102,9 +1272,13 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
             ymax = y_max if y_max is not None else cur_ymax
             ax.set_ylim(ymin, ymax)
 
-        ymin, ymax = ax.get_ylim()
-        ticks = np.arange(min(int(np.floor(ymin)), 0), int(np.ceil(ymax)) + 1)
-        ax.set_yticks(ticks)
+        if log_scale:
+            ymin, ymax = ax.get_ylim()
+            ticks = np.arange(min(int(np.floor(ymin)), 0), int(np.ceil(ymax)) + 1)
+            ax.set_yticks(ticks)
+            ylabel = "log10(Abundance)"
+        else:
+            ylabel = "Abundance"
 
         if len(x_centers) == 0:
             # No dodge positions were created (e.g., only one class had data)
@@ -1125,7 +1299,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
                 ax.tick_params(axis="x", bottom=False)
 
         ax.set_xlabel("") 
-        ax.set_ylabel("log10(Abundance)" if ax == axes[0] else "")
+        ax.set_ylabel(ylabel if ax == axes[0] else "")
 
         # Remove subplot legends
         leg = ax.get_legend()
