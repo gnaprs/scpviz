@@ -1711,7 +1711,7 @@ def get_string_mappings(identifiers, use_uniprot=True, use_string=True, caller_i
 
     return out_df
 
-def _first_string_xref(x: object) -> str | float:
+def _first_string_xref(x: object) -> Union[str, float]:
     """Parse the first STRING xref from UniProt `xref_string` (may be ';' delimited)."""
     if pd.isna(x):
         return np.nan
@@ -1764,7 +1764,7 @@ def _string_get_string_ids(identifiers: List[str], *, batch_size: int = 100, cal
         return pd.DataFrame(columns=["input_identifier", "string_identifier", "ncbi_taxon_id"])
 
     url = "https://string-db.org/api/tsv-no-header/get_string_ids"
-    all_rows: list[pd.DataFrame] = []
+    all_rows = []
 
     for i in range(0, len(identifiers), batch_size):
         batch = identifiers[i : i + batch_size]
