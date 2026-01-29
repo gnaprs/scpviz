@@ -221,7 +221,7 @@ def test_get_string_mappings_uniprot_failure(monkeypatch, pdata):
 def test_get_string_mappings_all_cached(pdata):
     """If all identifiers already cached, skip STRING step."""
     pdata.prot.var["STRING_id"] = ["S1"] * pdata.prot.shape[1]
-    df = pdata.get_string_mappings(pdata.prot.var_names[:3].tolist())
+    df = pdata.get_string_mappings(pdata.prot.var_names[:3].tolist(), overwrite=True, debug=True)
     assert "string_identifier" in df.columns
 
 def test_get_string_mappings_scalarize_taxon_from_cache_only(monkeypatch, pdata):
