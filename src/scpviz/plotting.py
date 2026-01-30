@@ -299,8 +299,36 @@ def plot_significance(ax, y, h, x1=0, x2=1, col='k', pval='n.s.', fontsize=12):
     Returns:
         None
 
-    !!! todo "Examples Pending"
-        Add usage examples here.
+    Example:
+        Annotate a swarm + bar plot with a t-test p-value:
+            ```python
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            from scipy.stats import ttest_ind
+            
+            fig, ax = plt.subplots(figsize=(1.74, 2.13))
+            sns.swarmplot(data=summary_df, x="treatment", y="protein_count", ax=ax, color="k")
+            sns.barplot(
+                data=summary_df,
+                x="treatment",
+                y="protein_count",
+                ax=ax,
+                errorbar="ci",
+                alpha=1,
+                palette=color_dict,
+            )
+
+            control = summary_df[summary_df["treatment"] == "Control"]["protein_count"]
+            treated = summary_df[summary_df["treatment"] == "Treated"]["protein_count"]
+
+            scplt.plot_significance(
+                ax,
+                y=2630,
+                h=30,
+                pval=ttest_ind(control, treated).pvalue,
+                fontsize=8,
+            )
+            ```
     """
 
     # check variable type of pval
@@ -341,8 +369,30 @@ def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palett
         ax (matplotlib.axes.Axes): The axis with the plotted CV distribution.
         cv_df (pandas.DataFrame): Optional, returned if `return_df=True`.
 
-    !!! todo "Examples Pending"
-        Add usage examples here.
+    Example:
+        Retrieve CV values and customize the violin plot:
+            ```python
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+
+            classes = "size"
+            fig, ax = plt.subplots(figsize=(2.795, 3))
+            cv_df = scplt.plot_cv(ax, pdata, classes=classes, return_df=True)
+
+            cv_df = cv_df.reset_index()
+            sns.violinplot(
+                data=cv_df,
+                y="Class",
+                x="CV",
+                orient="h",
+                order=order,
+                palette=colors,
+                linewidth=1,
+                inner="quartile",
+                saturation=1,
+                ax=ax,
+            )
+            ```
     """
     # Compute CVs for the selected layer
     pdata.cv(classes = classes, on = on, layer = layer)
@@ -421,8 +471,14 @@ def plot_summary(ax, pdata, value='protein_count', classes=None, plot_mean=True,
         ValueError: If `plot_mean=True` but `classes` is not specified.
         ValueError: If `classes` is invalid (not None, str, or non-empty list).
 
-    !!! todo "Examples Pending"
-        Add usage examples here.
+    Example:
+        Quick QC summary without mean bars:
+            ```python
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+            scplt.plot_summary(ax, pdata, classes=["amount"], plot_mean=False)
+            ```
     """
 
     if pdata.summary is None:
@@ -2621,8 +2677,57 @@ def plot_clustermap(ax, pdata, on='prot', classes=None, layer="X", x_label='acce
             }
             ```
 
-    !!! todo "Examples Pending"
-        Add usage examples here.
+    Example:
+        Cluster a subset of features with custom annotations:
+            ```python
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots(figsize=(6, 4))
+            scplt.plot_clustermap(
+                ax,
+                pdata,
+                classes=["cell_line", "condition", "treatment", "duration"],
+                impute="row_min",
+                z_score=0,
+                center=0,
+                linewidth=0,
+                figsize=(10, 6),
+                colors_ratio=0.04,
+                x_label="gene",
+                force=True,
+            )
+            ```
+
+        Provide a custom LUT for annotation colors:
+            ```python
+            import seaborn as sns
+
+            paired = sns.color_palette("Paired", 6)
+
+            lut = {
+                "timepoint": {
+                    "1mo": paired[1],
+                    "3mo": paired[3],
+                    "6mo": paired[5],
+                },
+                "aggregate": {
+                    "aggN": "#4d4d4d",
+                    "aggY": "#bdbdbd",
+                },
+            }
+
+            fig, ax = plt.subplots(figsize=(6, 4))
+            scplt.plot_clustermap(
+                ax,
+                pdata,
+                classes=["timepoint", "aggregate"],
+                force=True,
+                impute="zero",
+                z_score=0,
+                center=0,
+                lut=lut,
+            )
+            ```
     """
     # --- Step 1: Extract data ---
     if on not in ("prot", "pep"):
