@@ -80,4 +80,4 @@ H .-> I
 
 ---
 
-*For in-depth details, see the [API Reference](../reference/index.md).*
+*For in-depth details and examples, see the examples in the relevant function's docstring in [API Reference](../reference/index.md).*
