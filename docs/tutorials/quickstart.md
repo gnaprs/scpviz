@@ -109,6 +109,7 @@ pdata.summary
 ---
 
 ## Pre-processing
+The following steps work with our PD imported `pdata` object, but similar steps can be applied to the DIA-NN imported `pdata_diann` object.
 
 ### Filtering
 
@@ -120,7 +121,7 @@ Two filtering approaches can be used to achieve the same result:
 === "Filter by protein count"
 
     ``` py title="Filter by minimum protein count"
-    pdata = pdata.filter_sample(min_prot=8000)
+    pdata_filtered = pdata.filter_sample(min_prot=8000)
     ```
 
     <div class="result" markdown>
@@ -139,7 +140,7 @@ Two filtering approaches can be used to achieve the same result:
 === "Exclude by filename"
 
     ``` py title="Filter by excluding specific file"
-    pdata = pdata.filter_sample(exclude_file_list=['F23'])
+    pdata_filtered = pdata.filter_sample(exclude_file_list=['F23'])
     ```
 
     <div class="result" markdown>
@@ -169,7 +170,7 @@ Visualize proteins of interest across samples:
 import matplotlib.pyplot as plt
 
 fig, ax = plt.subplots(figsize=(4,4))
-pdata.plot_abundance(ax, namelist=["GAPDH", "VCP", "AHNAK"], classes=["cellline","condition"])
+pdata_filtered.plot_abundance(ax, namelist=["GAPDH", "VCP", "AHNAK"], classes=["cellline","condition"])
 plt.show()
 ```
 
@@ -181,14 +182,107 @@ plt.show()
 
 </div>
 
+Alternatively, for a more styled visualization, you can use the [`plot_abundance_boxgrid`](https://gnaprs.github.io/scpviz/reference/plotting/#src.scpviz.plotting.plot_abundance_boxgrid) function. This helper supports **box**, **bar**, **violin** and **line** plots, and is designed for publication-ready panels. Extensive customization options are available; see the [function docstring](https://gnaprs.github.io/scpviz/reference/plotting/#src.scpviz.plotting.plot_abundance_boxgrid) for details.
+
+=== "Box plot"
+
+    ```py title="Abundance box plots"
+    figsize = (2, 2.5)
+
+    pdata_filtered.plot_abundance_boxgrid(
+        namelist=["GAPDH", "VCP", "AHNAK"],
+        classes=["cellline", "condition"],
+        plot_type="box",
+        figsize=figsize,
+    )
+    plt.show()
+    ```
+
+    <div class="result" markdown>
+    <figure markdown="span">
+    ![Protein abundance plot](../assets/quickstart_box.png)
+    <figcaption>Protein abundance boxplot visualization.</figcaption>
+    </figure>
+
+    </div>
+
+=== "Bar plot"
+
+    ```py title="Abundance bar plots"
+    figsize = (2, 2.5)
+    bar_kwargs = {"width": 0.15}
+
+    pdata_filtered.plot_abundance_boxgrid(
+        namelist=["GAPDH", "VCP", "AHNAK"],
+        classes=["cellline", "condition"],
+        plot_type="bar",
+        figsize=figsize,
+        bar_kwargs=bar_kwargs,
+    )
+    plt.show()
+    ```
+
+    <div class="result" markdown>
+    <figure markdown="span">
+    ![Protein abundance plot](../assets/quickstart_bar.png)
+    <figcaption>Protein abundance barplot visualization.</figcaption>
+    </figure>
+
+    </div>
+
+=== "Violin plot"
+
+    ```py title="Abundance violin plots"
+    figsize = (2, 2.5)
+
+    pdata_filtered.plot_abundance_boxgrid(
+        namelist=["GAPDH", "VCP", "AHNAK"],
+        classes=["cellline", "condition"],
+        plot_type="violin",
+        figsize=figsize,
+    )
+    plt.show()
+    ```
+
+    <div class="result" markdown>
+    <figure markdown="span">
+    ![Protein abundance plot](../assets/quickstart_violin.png)
+    <figcaption>Protein abundance violinplot visualization.</figcaption>
+    </figure>
+
+    </div>
+
+=== "Line plot"
+
+    ```py title="Abundance line plots"
+    figsize = (2, 2.5)
+
+    pdata_filtered.plot_abundance_boxgrid(
+        namelist=["GAPDH", "VCP", "AHNAK"],
+        classes=["cellline", "condition"],
+        plot_type="line",
+        figsize=figsize,
+        show_n=True,
+    )
+    plt.show()
+    ```
+
+    <div class="result" markdown>
+    <figure markdown="span">
+    ![Protein abundance plot](../assets/quickstart_line.png)
+    <figcaption>Protein abundance lineplot visualization.</figcaption>
+    </figure>
+
+    </div>
+
+
 ---
 
-Alternatively, we can explore the PCA embeddings to get an overview of sample clustering.
-Other dimensionality reduction methods such as UMAP and t-SNE can also be used.
+We can examine the PCA embeddings to obtain an overview of sample clustering. Other dimensionality reduction methods, such as UMAP and t-SNE, are also supported (see the [single cell tutorial](single_cell.md)). 
 
 ```py title="Plot PCA embeddings"
 fig, ax = plt.subplots(figsize = (4,4))
-ax = scplt.plot_pca(ax, pdata, classes=["cellline","condition"], add_ellipses=True)
+ax = scplt.plot_pca(ax, pdata_filtered, classes=["cellline","condition"], add_ellipses=True)
 ```
 
 <div class="result" markdown>
@@ -199,7 +293,7 @@ ax = scplt.plot_pca(ax, pdata, classes=["cellline","condition"], add_ellipses=Tr
 
 </div>
 
-The samples appear well-clustered by both cell line and condition, suggesting good reproducibility and biological separation.
+In this dataset, samples cluster by both cell line and condition, indicating good reproducibility and clear biological separation.
 
 ---
 
@@ -208,7 +302,7 @@ Here, the samples show overall low variability (median ~0.1), with slightly high
 
 ```py title="Plot sample CVs"
 fig, ax = plt.subplots(figsize = (4,4))
-ax = scplt.plot_cv(ax, pdata, classes=["cellline","condition"])
+ax = scplt.plot_cv(ax, pdata_filtered, classes=["cellline","condition"])
 ```
 
 <div class="result" markdown>
@@ -226,12 +320,13 @@ ax = scplt.plot_cv(ax, pdata, classes=["cellline","condition"])
 
 ### Normalization and Imputation
 
-Biological and technical variation across samples (e.g., in the AS_sc group) can arise from sample processing or data acquisition. Normalize your data to reduce variation between samples — for example, using median scaling.  
+Biological and technical variation across samples (e.g., in the AS_sc group) can arise from sample processing or data acquisition. We can normalize data to reduce variation between samples. `scpviz` provides a variety of normalization methods, for example, using median scaling.
 
 
 ``` py title="Normalization and imputation"
-pdata.normalize(method="median")
-pdata.impute(method="min")
+pdata_norm = pdata_filtered.copy()
+pdata_norm.normalize(method="median")
+pdata_norm.impute(method="min")
 ```
 
 <div class="result" markdown>
@@ -252,7 +347,7 @@ After normalization, CVs for the **AS_sc** group improve compared to pre-normali
 
 ```py title="Plot sample CVs after normalization"
 fig, ax = plt.subplots(figsize = (4,4))
-ax = scplt.plot_cv(ax, pdata, classes=["cellline","condition"])
+ax = scplt.plot_cv(ax, pdata_norm, classes=["cellline","condition"])
 ```
 
 <div class="result" markdown>
@@ -277,7 +372,7 @@ Run a **differential expression (DE)** analysis, commonly visualized with volcan
 ```py title="Differentiatial expression with volcano plots"
 fig, ax = plt.subplots(figsize=(4,4))
 comparison_values=[{'cellline':'BE', 'condition':'kd'},{'cellline':'BE', 'condition':'sc'}]
-ax = scplt.plot_volcano(ax, pdata, values=comparison_values)
+ax = scplt.plot_volcano(ax, pdata_norm, values=comparison_values)
 ```
 
 <div class="result" markdown>
@@ -307,7 +402,7 @@ ax = scplt.plot_volcano(ax, pdata, values=comparison_values)
 Access the DE results stored in `.stats` under the key shown in the output.
 
 ```py title="Access DE results"
-pdata.stats["[{'cellline': 'BE', 'condition': 'kd'}] vs [{'cellline': 'BE', 'condition': 'sc'}]"].head(8)
+pdata_norm.stats["[{'cellline': 'BE', 'condition': 'kd'}] vs [{'cellline': 'BE', 'condition': 'sc'}]"].head(8)
 ```
 
 <div class="result" markdown>
@@ -334,7 +429,7 @@ The table above shows the top DE results (`df.head(8)`) including **log₂ fold 
 We can perform **STRING enrichment** on the sets of up- and downregulated proteins from our DE analysis. First, list the available enrichment keys:
 
 ```py title="List enrichment keys"
-pdata.list_enrichments()
+pdata_norm.list_enrichments()
 ```
 
 <div class="result" markdown>
@@ -360,7 +455,7 @@ pdata.list_enrichments()
 Since we just ran a DE analysis, the key **`BE_kd vs BE_sc`** is available. We can run STRING **functional enrichment** on both up- and downregulated proteins.
 
 ```py title="STRING functional enrichment"
-pdata.enrichment_functional(from_de=True, de_key="BE_kd vs BE_sc")
+pdata_norm.enrichment_functional(from_de=True, de_key="BE_kd vs BE_sc")
 ```
 
 <div class="result" markdown>
@@ -394,10 +489,10 @@ pdata.enrichment_functional(from_de=True, de_key="BE_kd vs BE_sc")
 
 </div>
 
-Once enrichment is complete, you can visualize the **Gene Ontology (Biological Process)** results:
+Once enrichment is complete, you can visualize the results (defaults shows **Gene Ontology (Biological Process)** terms). We can check what is enriched in the downregulated proteins:
 
 ```py title="Plot sample CVs"
-pdata.plot_enrichment_svg("BE_kd vs BE_sc", direction="down")
+pdata_norm.plot_enrichment_svg("BE_kd vs BE_sc", direction="down")
 ```
 
 <div class="result" markdown>
