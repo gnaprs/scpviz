@@ -800,7 +800,7 @@ def plot_abundance(ax, pdata, namelist=None, layer='X', on='protein',
     return _plot_bar(df) if kind == 'bar' else _plot_violin(df)
 
 def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein', classes=None, return_df=False,
-    order=None, plot_type="box", log_scale=False, fig_width=1.0, fig_height=2.0, palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
+    order=None, plot_type="box", log_scale=False, figsize=(2,2), palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
     global_legend=True, box_kwargs=None, hline_kwargs=None, bar_kwargs=None, bar_error='sd', violin_kwargs=None, text_kwargs=None, strip_kwargs=None):
     """
     Plot abundance values in a one-row panel of boxplots, mean-lines, bars, or violins.
@@ -827,8 +827,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
             Defaults to "box".
         log_scale (bool): If True, plot log10-transformed abundances on a linear axis.
             If False (default), plot raw abundance values on a linear axis.
-        fig_width (float): Width per subplot, in inches.
-        fig_height (float): Height of the entire figure, in inches.
+        figsize (tuple): Figure size as (width, height) in inches.
         palette (dict or list, optional): Color palette for grouping categories.
             Defaults to ``scplt.get_color("colors", n_classes)``.
         y_min (float or None): Lower y-axis limit in plotting units. If ``log_scale=True``,
@@ -938,8 +937,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
             namelist=["Gapdh", "Vcp", "Ahnak"],
             classes="condition",
             plot_type="box",
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
@@ -951,8 +949,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
             classes="condition",
             plot_type="bar",
             bar_error="sd",  # "sd", "sem", None, or callable
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
@@ -964,8 +961,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
             classes="condition",
             plot_type="line",
             show_n=True,
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
@@ -976,8 +972,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
             namelist=["Gapdh", "Vcp", "Ahnak"],
             classes="condition",
             plot_type="violin",
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
@@ -997,8 +992,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
             y_min=2,
             y_max=10,
             log_scale=True,
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
@@ -1025,18 +1019,31 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
             layer=layer,
         )
     else:
-        try:
-            df = pdata.get_abundance(
-                namelist=namelist,
-                classes=classes,
-                on=on,
-                layer=layer,
-            )
-        except KeyError:
-            raise ValueError(f"Column '{classes}' not found in DataFrame.")  # safety check
+        df = pdata.get_abundance(
+            namelist=namelist,
+            classes=classes,
+            on=on,
+            layer=layer,
+        )
 
     df = df.copy()
 
+    # --- normalize classes (list/tuple -> df["class"]) ---
+    classes_label = classes  # keep original for legend title
+    if isinstance(classes, (list, tuple)):
+        if "class" not in df.columns:
+            raise ValueError(
+                "classes was a list/tuple, but get_abundance did not return a 'class' column."
+            )
+        classes = "class"
+        classes_label = ", ".join(list(classes_label))
+    elif isinstance(classes, str):
+        if classes not in df.columns:
+            raise ValueError(f"Column '{classes}' not found in abundance DataFrame.")
+    elif classes is not None:
+        raise TypeError("classes must be None, a string, or a list/tuple of strings.")
+
+    # --- abundance transform ---
     if log_scale: # Create log10-transformed abundance, preserving zeros as 0
         df["plot_abundance"] = np.nan
         pos = df["abundance"] > 0
@@ -1127,6 +1134,9 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
         return (r * factor, g * factor, b * factor, a)
 
     # Create subplots
+    fig_width = figsize[0]
+    fig_height = figsize[1]
+
     if ax is None:
         fig, axes = plt.subplots(1, n, figsize=(fig_width * n, fig_height), sharey=True)
         if n == 1:
@@ -1383,7 +1393,7 @@ def plot_abundance_boxgrid(pdata, namelist=None, ax=None, layer='X', on='protein
         fig.legend(
             handles,
             legend_classes,
-            title=classes,
+            title=classes_label,
             frameon=True,
             loc='center left',
             bbox_to_anchor=(1.02, 0.5),

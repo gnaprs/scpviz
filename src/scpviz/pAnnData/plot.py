@@ -7,7 +7,7 @@ class PlotMixin:
 
         df = self.summary # type: ignore #, in base
         if classes is None:
-            df.reset_index()
+            df=df.reset_index()
             classes = 'index'
         sns.violinplot(data=df, x=classes, y=y, **kwargs)
 
@@ -118,7 +118,7 @@ class PlotMixin:
         )
     
     def plot_abundance_boxgrid(self, namelist=None, ax=None, layer="X", on="protein", classes="Grouping", return_df=False, 
-        order=None, plot_type="box", log_scale=False, fig_width=1.0, fig_height=2.0, palette=None, y_min=None, y_max=None,
+        order=None, plot_type="box", log_scale=False, figsize=(2,2), palette=None, y_min=None, y_max=None,
         label_x=True, show_n=False, global_legend=True, box_kwargs=None, hline_kwargs=None, bar_kwargs=None, bar_error="sd", violin_kwargs=None,
         text_kwargs=None, strip_kwargs=None,):
         """
@@ -148,8 +148,7 @@ class PlotMixin:
             Defaults to ``"box"``.
         log_scale (bool): If True, plot log10-transformed abundances on a linear axis.
             If False (default), plot raw abundance values on a linear axis.
-        fig_width (float): Width per subplot, in inches.
-        fig_height (float): Height of the entire figure, in inches.
+        figsize (tuple): Figure size as (width, height) in inches.
         palette (dict or list, optional): Color palette for grouping categories.
             Defaults to ``scplt.get_color("colors", n_classes)``.
         y_min (float or None): Lower y-axis limit in plotting units. If ``log_scale=True``,
@@ -259,8 +258,7 @@ class PlotMixin:
             namelist=["Gapdh", "Vcp", "Ahnak"],
             classes="condition",
             plot_type="box",
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2,2.5),
         )
         plt.show()
         ```
@@ -272,8 +270,7 @@ class PlotMixin:
             classes="condition",
             plot_type="bar",
             bar_error="sd",  # "sd", "sem", None, or callable
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2,2.5),
         )
         plt.show()
         ```
@@ -285,8 +282,7 @@ class PlotMixin:
             classes="condition",
             plot_type="line",
             show_n=True,
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2,2.5),
         )
         plt.show()
         ```
@@ -297,8 +293,7 @@ class PlotMixin:
             namelist=["Gapdh", "Vcp", "Ahnak"],
             classes="condition",
             plot_type="violin",
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2,2.5),
         )
         plt.show()
         ```
@@ -318,8 +313,7 @@ class PlotMixin:
             y_min=2,
             y_max=10,
             log_scale=True,
-            fig_width=2,
-            fig_height=2.5,
+            figsize=(2,2.5),
         )
         plt.show()
         ```
@@ -339,7 +333,7 @@ class PlotMixin:
     """
         return plotting.plot_abundance_boxgrid(pdata=self, namelist=namelist, ax=ax, layer=layer, on=on,
             classes=classes, return_df=return_df, order=order, plot_type=plot_type, log_scale=log_scale,
-            fig_width=fig_width, fig_height=fig_height, palette=palette, y_min=y_min, y_max=y_max,
+            figsize=figsize, palette=palette, y_min=y_min, y_max=y_max,
             label_x=label_x, show_n=show_n, global_legend=global_legend,
             box_kwargs=box_kwargs, hline_kwargs=hline_kwargs, bar_kwargs=bar_kwargs, bar_error=bar_error,
             violin_kwargs=violin_kwargs, text_kwargs=text_kwargs, strip_kwargs=strip_kwargs,
