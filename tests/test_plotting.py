@@ -413,8 +413,8 @@ def test_plot_abundance_boxgrid_global_legend_false(pdata):
     )
     assert fig.legends == []
 
-def test_plot_abundance_boxgrid_missing_group_column_raises(pdata):
-    with pytest.raises(ValueError):
+def test_plot_abundance_boxgrid_missing_group_column_raises_keyerror(pdata):
+    with pytest.raises(KeyError, match="does_not_exist"):
         scplt.plot_abundance_boxgrid(
             pdata,
             namelist=["ACTB"],

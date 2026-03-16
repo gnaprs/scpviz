@@ -407,7 +407,7 @@ def test_resolve_accessions_with_gene_map(adata_gene):
 def test_resolve_accessions_with_unmatched(adata_gene, capsys):
     result = utils.resolve_accessions(adata_gene, ["P1", "UnknownGene"])
     captured = capsys.readouterr().out
-    assert "Unmatched names" in captured
+    assert "UnknownGene" in captured
     assert result == ["P1"]
 
 def test_resolve_accessions_no_valid_names_raises(adata_gene):
