@@ -1,7 +1,7 @@
 All notable changes to this project are documented here.
 
 <details open>
-<summary><b>Unreleased</b></summary>
+<summary><b>0.5.8-alpha</b> – 2026-03-16</summary>
 
 
 #### Added
@@ -16,11 +16,23 @@ All notable changes to this project are documented here.
 
 
 
+#### Build System
+
+
+##### (V0.5.8a)
+
+
+- Update to new patch with additional tutorials (42ac903…)
+
+
+
 #### Chores
 
 
 
 - Update changelogs [skip ci] (787c652…)
+
+- Update changelogs [skip ci] (f33ed77…)
 
 
 
@@ -47,6 +59,8 @@ All notable changes to this project are documented here.
 - Add wget downloads to importing ipynb (f9d34fa…)
 
 - Update single cell and quickstart tutorial (1a04522…)
+
+- Update single_cell.ipynb (b5eb1fb…)
 
 
 

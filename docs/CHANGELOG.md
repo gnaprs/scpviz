@@ -3,7 +3,7 @@
 ## scpviz
 
 
-### Unreleased <small>Unreleased</small> { id="Unreleased" }
+### 0.5.8-alpha <small>March 16, 2026</small> { id="0.5.8-alpha" }
 
 
 #### Added
@@ -19,11 +19,24 @@
 
 
 
+#### Build System
+
+
+##### (V0.5.8a)
+
+
+- Update to new patch with additional tutorials (42ac903…)
+
+
+
+
 #### Chores
 
 
 
 - Update changelogs [skip ci] (787c652…)
+
+- Update changelogs [skip ci] (f33ed77…)
 
 
 
@@ -51,6 +64,8 @@
 - Add wget downloads to importing ipynb (f9d34fa…)
 
 - Update single cell and quickstart tutorial (1a04522…)
+
+- Update single_cell.ipynb (b5eb1fb…)
 
 
 
