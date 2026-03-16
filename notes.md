@@ -26,12 +26,19 @@ Use format:
 * style: Code style, formatting, or linting only [`style(core): apply black autoformatter`]
 * test: Add, update, or fix tests [`test(filtering): add test for duplicate gene handling`]
 
-# for tag (in git bash)
+# version release
+## Things to update
+1. pyproject.toml -> version
+2. readme.md -> documentation version
+3. tag commit for new version
+
+## Add tag (open repo in git bash)
 Final tag commit message: "Release candidate for 0.8.0"
 
-Make sure to tag from main!
-git tag "v$(grep -m1 version pyproject.toml | cut -d'"' -f2)" -m "Release v$(grep -m1 version pyproject.toml | cut -d'"' -f2)"
-git push origin "v$(grep -m1 version pyproject.toml | cut -d'"' -f2)"
+git fetch origin
+VERSION=$(grep -m1 version pyproject.toml | cut -d'"' -f2)
+git tag -a "v$VERSION" origin/main -m "Release v$VERSION"
+git push origin "v$VERSION"
 
 ## delete
 git tag -d v0.4.2-alpha v0.4.1-alpha

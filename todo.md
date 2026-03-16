@@ -14,6 +14,7 @@
 8. implement peptide sequence characteristics (hydrophobicity, etc.) [peptide_param module]
 9. implement correlation visualization [protein corr module]
 10. omics module for comparing adata?
+11. alphamap peptide mapping visualization
 ## REFACTOR
 1. sync the de for adata and pdata into a combined workflow, as well as volcano code?
 ### others
