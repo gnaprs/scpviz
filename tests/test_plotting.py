@@ -261,7 +261,7 @@ def test_plot_abundance_custom_order(pdata):
     plt.close("all")
 
 # Tests for scplt.plot_abundance_boxgrid
-def test_boxgrid_noclass(pdata):
+def test_plot_abundance_boxgrid_noclass(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -269,7 +269,7 @@ def test_boxgrid_noclass(pdata):
     )
     assert isinstance(fig, plt.Figure)
 
-def test_boxgrid_smoke(pdata):
+def test_plot_abundance_boxgrid_smoke(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -280,7 +280,15 @@ def test_boxgrid_smoke(pdata):
     assert len(axes) == 1
     assert _count_artists(axes) > 0
 
-def test_boxgrid_return_df(pdata):
+def test_plot_abundance_boxgrid_multiclass(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes=['treatment', 'cellline']
+    )
+    assert isinstance(fig, plt.Figure)
+
+def test_plot_abundance_boxgrid_return_df(pdata):
     fig, axes, df = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -294,7 +302,7 @@ def test_boxgrid_return_df(pdata):
     assert not df.empty
 
 @pytest.mark.parametrize("plot_type", ['box', 'line', 'bar', 'violin'])
-def test_boxgrid_modes(pdata, plot_type):
+def test_plot_abundance_boxgrid_modes(pdata, plot_type):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -306,7 +314,7 @@ def test_boxgrid_modes(pdata, plot_type):
     assert _count_artists(axes) > 0
 
 @pytest.mark.parametrize("bar_error", ["sd", "sem", None])
-def test_boxgrid_bar_mode(pdata, bar_error):
+def test_plot_abundance_boxgrid_bar_mode(pdata, bar_error):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -319,7 +327,7 @@ def test_boxgrid_bar_mode(pdata, bar_error):
     assert len(axes) == 1
     assert _count_artists(axes[0]) > 0
 
-def test_boxgrid_multiple_genes(pdata):
+def test_plot_abundance_boxgrid_multiple_genes(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB", "VCL"],
@@ -329,7 +337,7 @@ def test_boxgrid_multiple_genes(pdata):
     assert all(isinstance(ax, plt.Axes) for ax in axes)
 
 @pytest.mark.parametrize("plot_type", ['box', 'line', 'bar', 'violin'])
-def test_boxgrid_show_n(pdata, plot_type):
+def test_plot_abundance_boxgrid_show_n(pdata, plot_type):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -341,7 +349,7 @@ def test_boxgrid_show_n(pdata, plot_type):
     texts = [t for ax in axes for t in ax.texts]
     assert isinstance(fig, plt.Figure)
 
-def test_boxgrid_custom_box_kwargs(pdata):
+def test_plot_abundance_boxgrid_custom_box_kwargs(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -350,7 +358,7 @@ def test_boxgrid_custom_box_kwargs(pdata):
     )
     assert isinstance(fig, plt.Figure)
 
-def test_boxgrid_custom_hline_kwargs(pdata):
+def test_plot_abundance_boxgrid_custom_hline_kwargs(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -360,7 +368,7 @@ def test_boxgrid_custom_hline_kwargs(pdata):
     )
     assert isinstance(fig, plt.Figure)
 
-def test_boxgrid_custom_text_kwargs(pdata):
+def test_plot_abundance_boxgrid_custom_text_kwargs(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -371,7 +379,7 @@ def test_boxgrid_custom_text_kwargs(pdata):
     )
     assert isinstance(fig, plt.Figure)
 
-def test_boxgrid_label_x_false(pdata):
+def test_plot_abundance_boxgrid_label_x_false(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -381,7 +389,7 @@ def test_boxgrid_label_x_false(pdata):
     )
     assert isinstance(fig, plt.Figure)
 
-def test_boxgrid_set_y_limits_logscale(pdata):
+def test_plot_abundance_boxgrid_set_y_limits_logscale(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -395,7 +403,7 @@ def test_boxgrid_set_y_limits_logscale(pdata):
     assert ymin == 0
     assert ymax == 4
 
-def test_boxgrid_global_legend_false(pdata):
+def test_plot_abundance_boxgrid_global_legend_false(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB"],
@@ -405,7 +413,7 @@ def test_boxgrid_global_legend_false(pdata):
     )
     assert fig.legends == []
 
-def test_boxgrid_missing_group_column_raises(pdata):
+def test_plot_abundance_boxgrid_missing_group_column_raises(pdata):
     with pytest.raises(ValueError):
         scplt.plot_abundance_boxgrid(
             pdata,
@@ -413,7 +421,7 @@ def test_boxgrid_missing_group_column_raises(pdata):
             classes="does_not_exist",
         )
 
-def test_boxgrid_multi_gene_axes_independent(pdata):
+def test_plot_abundance_boxgrid_multi_gene_axes_independent(pdata):
     fig, axes = scplt.plot_abundance_boxgrid(
         pdata,
         namelist=["ACTB", "VCL"],
