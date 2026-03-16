@@ -39,11 +39,11 @@ install the package using pip:
 
     conda create -n scpviz python=3.8 numpy pandas pip
     conda activate scpviz
-    pip install git+https://github.com/gnaprs/scpviz.git@development
+    pip install git+https://github.com/gnaprs/scpviz.git@main --upgrade
 
 ### Quickstart
 
-Check out the [quickstart](https://gnaprs.github.io/scpviz/tutorials/quickstart/) guide for a run through import, basic preprocessing and quick visualization
+Check out the [quickstart](https://gnaprs.github.io/scpviz/tutorials/quickstart/) guide for a run through import, basic preprocessing and quick visualization.
 
 ### In-depth Tutorials
 For more in-depth guides on importing, filtering, plotting, and running enrichment, see the [tutorials](https://gnaprs.github.io/scpviz/tutorials/).

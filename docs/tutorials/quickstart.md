@@ -3,7 +3,32 @@
 [![Download Notebook](https://img.shields.io/badge/download-quickstart__notebook-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/tutorials/quickstart.ipynb)
 [![Open In Colab](https://img.shields.io/badge/open%20in-colab-yellow?logo=googlecolab&style=flat-square)](https://colab.research.google.com/github/gnaprs/scpviz/blob/main/docs/tutorials/quickstart.ipynb)
 
-This quickstart tutorial demonstrates a minimal end-to-end workflow using **scpviz**.
+!!! tip "Working with single-cell proteomics data?"
+
+    If you are analyzing **single-cell proteomics datasets**, we recommend starting with the dedicated  
+    [Single-cell tutorial](single_cell.md) instead of this quickstart.
+
+    Single-cell datasets typically contain **higher sparsity and missing values** than bulk proteomics data and often require different preprocessing strategies, such as:
+
+    - filtering proteins by detection frequency across cells
+    - normalization and imputation methods suited for sparse data
+    - dimensionality reduction workflows tailored for single-cell analysis
+
+    The [Single-cell tutorial](single_cell.md) walks through these steps using a real dataset and demonstrates common workflows including **PCA, UMAP, differential expression, and Scanpy integration**.
+
+This quickstart demonstrates a minimal **bulk proteomics workflow** using `scpviz`.
+
+The tutorial covers the following steps:
+
+1. **Import proteomics data** from Proteome Discoverer or DIA-NN reports  
+2. **Filter low-quality samples** and inspect dataset summaries  
+3. **Visualize protein abundances** across conditions  
+4. **Explore sample relationships** using PCA  
+5. **Normalize and impute missing values**  
+6. **Perform differential expression analysis** and visualize results with volcano plots  
+7. **Run functional enrichment analysis** using STRING
+
+Each section introduces the core `scpviz` functions needed to perform these steps.
 
 First, install `scpviz` and import the modules:
 
@@ -22,7 +47,9 @@ from scpviz import utils as scutils
 
 ## Import
 
-Proteomics data is stored in a `pAnnData` object. `scpviz` currently supports two data formats: **Proteome Discoverer** (Thermo Fisher) and **DIA-NN** reports. We’ve provided sample test files below so you can follow along:
+Proteomics data in **scpviz** is stored in a `pAnnData` object, which extends the `AnnData` structure commonly used in single-cell analysis while adding proteomics-specific metadata, statistics, and helper methods.
+
+`scpviz` currently supports two data formats: **Proteome Discoverer** (Thermo Fisher) and **DIA-NN** reports. We’ve provided sample test files below so you can follow along:
 
 [![Download PD3.2 Proteins File](https://img.shields.io/badge/download-pd32__Proteins.txt-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/pd32_Proteins.txt)
 [![Download PD3.2 Peptides File](https://img.shields.io/badge/download-pd32__PeptideSequenceGroups.txt-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/pd32_PeptideSequenceGroups.txt)
@@ -278,7 +305,7 @@ Alternatively, for a more styled visualization, you can use the [`plot_abundance
 
 ---
 
-We can examine the PCA embeddings to obtain an overview of sample clustering. Other dimensionality reduction methods, such as UMAP and t-SNE, are also supported (see the [single cell tutorial](single_cell.md)). 
+We can examine the PCA embeddings to obtain an overview of sample clustering. Other dimensionality reduction methods, such as UMAP and t-SNE, are also supported (see the [single cell tutorial](single_cell.md) for examples using sparse single-cell datasets).
 
 ```py title="Plot PCA embeddings"
 fig, ax = plt.subplots(figsize = (4,4))
@@ -369,7 +396,7 @@ Other imputation methods are also available, including KNN, median, and minimum 
 
 Run a **differential expression (DE)** analysis, commonly visualized with volcano plots. To start, we define a *comparison ratio*: for instance, comparing cell line BE under the kd condition against cell line BE under sc.
 
-```py title="Differentiatial expression with volcano plots"
+```py title="differential expression with volcano plots"
 fig, ax = plt.subplots(figsize=(4,4))
 comparison_values=[{'cellline':'BE', 'condition':'kd'},{'cellline':'BE', 'condition':'sc'}]
 ax = scplt.plot_volcano(ax, pdata_norm, values=comparison_values)
