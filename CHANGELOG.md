@@ -7,6 +7,100 @@ All notable changes to this project are documented here.
 #### Added
 
 
+##### (Plotting)
+
+
+- Update plot_abundance_boxgrid to more flexible plotting style, bug fixes (4276636…)
+
+- Update plot_abundance_boxgrid and add tests (2c1b0cd…)
+
+
+
+#### Documentation
+
+
+##### (Plotting)
+
+
+- Update examples for various plotting functions (cc43b62…)
+
+
+
+##### (Quickstart)
+
+
+- Update quickstart to include new plotting functions (d4f1d48…)
+
+
+
+##### (Tutorial)
+
+
+- Add wget downloads to importing ipynb (f9d34fa…)
+
+
+
+##### (Tutorials)
+
+
+- Complete importing tutorial (3534a19…)
+
+
+
+##### (Upload)
+
+
+- Upload test_input.csv (94ca178…)
+
+
+
+#### Fixed
+
+
+##### (Get_abundance)
+
+
+- Bug fix on get_abundance throwing error when passing in string instead of list (9b70b75…)
+
+
+
+##### (Tests)
+
+
+- Typos on errortype and assertion match (f0b9674…)
+
+
+
+#### Other
+
+
+#### Tests
+
+
+##### (Import)
+
+
+- Add test for pep xlsx import (6d67ccb…)
+
+
+
+##### (Plotting)
+
+
+- Update test names for plot_abundance_boxgrid (21933a5…)
+
+
+
+
+</details>
+
+<details open>
+<summary><b>0.5.7-alpha</b> – 2026-01-29</summary>
+
+
+#### Added
+
+
 ##### (Analysis)
 
 
@@ -259,6 +353,8 @@ All notable changes to this project are documented here.
 - Update changelogs [skip ci] (a9ebeff…)
 
 - Update changelogs [skip ci] (d9e026b…)
+
+- Update changelogs [skip ci] (f3bb302…)
 
 
 
