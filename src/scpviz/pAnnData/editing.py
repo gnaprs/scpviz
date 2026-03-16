@@ -107,6 +107,9 @@ class EditingMixin:
         on_user = on.lower()
         gene_to_acc, _ = self.get_gene_maps(on='protein' if on_user in ('peptide', 'pep') else on_user) # type: ignore[attr-defined]
 
+        if namelist is not None:
+            if isinstance(namelist, str):
+                namelist = [namelist]
 
         if on == 'peptide' and namelist:
             pep_names = self.pep.var_names.astype(str) # type: ignore[attr-defined]

@@ -62,15 +62,16 @@ def test_import_pd_noQ():
 def test_import_pd_excel():
     test_dir = Path(__file__).parent
     prot_file = str(test_dir / 'test_pd_prot.xlsx')
+    pep_file = str(test_dir / 'test_pd_pep.xlsx')
 
     obs_columns = ['sample', 'cellline', 'treatment']    
-    pdata = pAnnData.import_data(source_type='pd', prot_file=prot_file, obs_columns=obs_columns)
+    pdata = pAnnData.import_data(source_type='pd', prot_file=prot_file, pep_file=pep_file, obs_columns=obs_columns)
 
     # Object should still be valid
     assert pdata is not None
     assert pdata.prot is not None
-    assert pdata.pep is None
-    assert pdata.rs is None
+    assert pdata.pep is not None
+    assert pdata.rs is not None
 
 def test_import_pd32():
     test_dir = Path(__file__).parent

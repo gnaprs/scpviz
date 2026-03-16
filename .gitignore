@@ -152,3 +152,8 @@ peptide_matrix.aq_reformat.tsv.run_config.tsv
 docs/assets/diann_report.parquet
 src/scpviz/pAnnData/enrichment.py
 dev/SWI-report.parquet
+tests/test_diann_delimiter-hyphen.parquet
+dev/model_params_CF.json
+dev/recorder_dae.pkl
+dev/collab_training.pdf
+dev/dae_training.pdf

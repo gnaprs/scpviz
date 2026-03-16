@@ -1,80 +1,253 @@
-*This tutorial is still under construction*
-
 # Tutorial 1: Importing Data
+[![Download Notebook](https://img.shields.io/badge/download-quickstart__notebook-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/tutorials/importing.ipynb)
+[![Open In Colab](https://img.shields.io/badge/open%20in-colab-yellow?logo=googlecolab&style=flat-square)](https://colab.research.google.com/github/gnaprs/scpviz/blob/main/docs/tutorials/importing.ipynb)
 
-This tutorial shows how to import DIA-NN or Proteome Discoverer (PD) outputs into a `pAnnData` object.
+This tutorial shows how to import **DIA-NN** or **Proteome Discoverer (PD)** outputs into a `pAnnData` object.
 
-`scpviz` currently allows import from Proteome Discoverer (tested on Versions 2.5, 3.2) and DIA-NN (tested on versions 1.8.1, 2.0 and 2.1)
+`scpviz` currently supports:
 
-`pAnnData` objects are designed with the integration of both protein and peptide level data. 
-* For DIA-NN inputs, the report contains all the information required. 
-* For Proteome Discoverer files, peptide level data is optional, but recommended for enabling the peptide-level filtering and analysis functions.
+- **Proteome Discoverer** (tested on versions 2.5 and 3.2)
+- **DIA-NN** (tested on versions 1.8.1, 2.0, and 2.1)
 
-## Encoding metadata
+`pAnnData` objects integrate **protein** and **peptide** level data:
 
-It is important to encode metadata about our samples to enable classification - e.g. knockdown vs a scrambled control, or treatment vs a control group.
-
-(do one of those tab things here, to show how diff softwares encode the metadata)
-*** DIA-NN Encoding
-In DIA-NN, data is split by file name, so this  should encoded in raw file names. For example, a typical name could be:
-`20251106_Caltech-Marion_Astral_25min_Aur25cm_KD-01.raw`
-which when split by '_' consists of 
-date - <20251106>
-user - <Caltech-Marion>
-mass spectrometer - <Astral>
-gradient length - <25min>
-column - <Aur25cm>
-sample condition, replicate - <KD-01>
-(The .raw is automatically dropped from metadata)
-
-!!! note
-    `scpviz` automatically detects and assisgns a delimiter based on the character that occurs most often. You can also specify your own delimiter during import, if this detection fails.
-
-*** PD encoding
-In PD, the sample type has to be set up in the study. Typically this involves creating a 'categorical variable' (e.g. `sample_condition`) in the study page, adding possible values to the varialbe (e.g. `control`, `kd`), and then assigning samples to the respective variables in the 'Samples' tab. 
-TODO:show image here!!
-
-
-
-## Loading DIA-NN Reports
-
-For DIA-NN, the `report.parquet` file is all we need, since this file contains peptide level detail (per row) per file, and we can assemble the protein-peptide matrix as is. We can import it directly:
-
-```python
-from scpviz import pAnnData as pAnnData
-
-# Load DIA-NN report
-pdata = scv.pAnnData.from_file("example_diann_report.txt", source="diann")
-
-pdata.describe()
-```
+- **DIA-NN** reports contain everything required.
+- **PD** protein exports are required; peptide exports are optional but recommended for peptide-level filtering and analysis.
 
 ---
 
-## Loading Proteome Discoverer (PD) Reports
+## Encoding metadata
 
-For Proteome Discoverer, we recommend making changes to the default layout to include the sample abundances (typically called "Abundances"), since default layout is scaled abundnance, not raw abundance. For ease of use, here is a download link to a pd layout file that you can just apply under - Layout -> open and select -> apply
+It’s important to encode metadata about samples (e.g., knockdown vs scrambled control) for downstream grouping, filtering, and visualization.
 
+=== "DIA-NN encoding"
 
-Proteome Discoverer allows export of data tabs. We recommend exporting as text (a tab delimited file) - excel is supported, but will be much much slower as file opening is not optimized for excel format.
-(image here for what to export)[docs/assets/pd_export_1.png]
+    In DIA-NN, sample metadata should be encoded in the raw filenames. For example:
 
-Make sure to export AT MINIMUM the "protein" and "peptide sequence groups" tabs - select the check boxes as so:
-(image for what to select)[docs/assets/pd_export_2.png]
+    ```text title="Example DIA-NN filename"
+    20251106_Caltech-Marion_Astral_25min_Aur25cm_KD-01.raw
+    ```
 
-Now we can import - we need to set the `prot_file` parameter at minimum. If `pep_file` is also given, then the protein-peptide matrix will be made, and this enables downstream peptide-based filtering or analysis on the protein level.
+    Split by `_`, the tokens become:
 
-```python
+    - date: `20251106`
+    - user: `Caltech-Marion`
+    - mass spectrometer: `Astral`
+    - gradient length: `25min`
+    - column: `Aur25cm`
+    - sample condition + replicate: `KD-01`
+
+    The `.raw` extension is automatically dropped during metadata parsing.
+
+=== "PD encoding"
+
+    In Proteome Discoverer, metadata is encoded via **categorical variables** in the study design.
+    Typical steps:
+
+    1. Create a categorical variable (e.g. `sample_condition`) on the study page.
+    2. Add possible values (e.g. `control`, `kd`).
+    3. Assign values in the **Samples** tab.
+
+    <div class="result" markdown>
+    <figure markdown="span">
+    ![PD categorical variable setup](../assets/import_pd_categorical.png)
+    <figcaption>Example PD study setup with categorical variables.</figcaption>
+    </figure>
+    </div>
+
+!!! note
+    `scpviz` automatically detects and assigns a delimiter based on the most frequent character. If that fails, specify your own via the `delimiter` argument during import.
+
+    During import, `scpviz` checks filename token lengths and suggests `.obs` column names if they are uniform. If filenames contain multiple token lengths, they are grouped as `parsingType = "10-tokens"`, `"6-tokens"`, etc.
+
+---
+
+## Loading DIA-NN reports
+[![Download DIA-NN Report File](https://img.shields.io/badge/download-diann__report.parquet-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/releases/download/v0.5.2-alpha/diann_report.parquet)
+
+For DIA-NN, the `report.parquet` file is all you need. It includes peptide-level detail for each file, allowing `scpviz` to build the protein–peptide matrices.
+
+```py title="Import DIA-NN data"
 from scpviz import pAnnData as pAnnData
 
-prot_file_path = '../assets/pd32_Proteins.txt'
-pep_file_path = '../assets/pd32_PeptideSequenceGroups.txt'
-
-# Load PD report
-pdata = pAnnData.import_data(source_type='pd', prot_file=prot_file_path , pep_file=pep_file_path)
+obs_columns = ["user", "date", "ms", "acquisition", "faims", "column", "gradient", "amount", "region", "rep"]
+pdata = pAnnData.import_data(
+    source_type="diann",
+    report_file="diann_report.parquet",
+    obs_columns=obs_columns,
+)
 ```
-result is (need to format nicely in result markdown)
-```text
+
+<div class="result" markdown>
+
+```text title="output"
+🧭 [USER] Importing data of type [diann]
+--------------------------
+Starting import [DIA-NN]
+
+Source file: diann_report.parquet
+Number of files: 12
+Proteins: 12652
+Peptides: 251047
+    ...
+    ✅ [OK] pAnnData object is valid.
+    ✅ [OK] Import complete. Use `print(pdata)` to view the object.
+--------------------------
+```
+
+</div>
+
+---
+
+## Loading Proteome Discoverer (PD) reports
+[![Download PD3.2 Proteins File](https://img.shields.io/badge/download-pd32__Proteins.txt-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/pd32_Proteins.txt)
+[![Download PD3.2 Peptides File](https://img.shields.io/badge/download-pd32__PeptideSequenceGroups.txt-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/pd32_PeptideSequenceGroups.txt)
+
+[![Download PD2.5 Proteins File](https://img.shields.io/badge/download-pd25__Proteins.txt-red?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/pd25_Proteins.txt)
+[![Download PD2.5 Peptides File](https://img.shields.io/badge/download-pd25__PeptideGroups.txt-red?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/pd25_PeptideGroups.txt)
+
+### Export requirements
+
+For PD, we recommend modifying the export layout to include **raw abundances** (typically `Abundances`). The default layout is usually **scaled abundance**, which is not ideal for quantitative workflows. For convenience, here is a custom layout file that you can load into PD: [pd_scpviz_layout.pdLayout](../assets/pd_scpviz_layout.pdLayout)
+
+Proteome Discoverer allows export of specific tabs. We recommend exporting as **tab-delimited text** (Excel is supported but much larger in file size and thus slower to load).
+
+<div class="result" markdown>
+<figure markdown="span">
+![PD export settings](../assets/import_pd_export_1.png)
+<figcaption>Recommended PD export tabs and layout.</figcaption>
+</figure>
+</div>
+
+Make sure to export **at minimum** the following tabs:
+
+- **Protein**
+- (optional, but recommended) **Peptide Groups** (PD2.5) or **Peptide Sequence Groups** (PD3.2)
+
+<div class="result" markdown>
+<figure markdown="span">
+![PD export selection](../assets/import_pd_export_2.png)
+<figcaption>Required PD export selections.</figcaption>
+</figure>
+</div>
+
+### Import
+
+=== "PD 3.2"
+
+    ```py title="Import Proteome Discoverer 3.2 data"
+    from scpviz import pAnnData as pAnnData
+
+    prot_file_path = "pd32_Proteins.txt"
+    pep_file_path = "pd32_PeptideSequenceGroups.txt"
+    obs_columns = ['sample', 'cellline', 'treatment', 'condition', 'day']
+
+    pdata = pAnnData.import_data(
+        source_type="pd",
+        prot_file=prot_file_path,
+        pep_file=pep_file_path,
+        obs_columns=obs_columns,
+    )
+    ```
+
+    <div class="result" markdown>
+
+    ```text title="output"
+    🧭 [USER] Importing data of type [pd]
+    --------------------------
+    Starting import [Proteome Discoverer]
+
+    Source file: pd32_Proteins.txt / pd32_PeptideSequenceGroups.txt
+    Number of files: 12
+    Proteins: 10393
+    Peptides: 167114
+        ...
+        ✅ [OK] pAnnData object is valid.
+        ✅ [OK] Import complete. Use `print(pdata)` to view the object.
+    --------------------------
+    ```
+
+    </div>
+
+=== "PD 2.5"
+
+    ```py title="Import Proteome Discoverer 2.5 data"
+    from scpviz import pAnnData as pAnnData
+
+    prot_file_path = "pd25_Proteins.txt"
+    pep_file_path = "pd25_PeptideGroups.txt"
+    obs_columns = ['sample', 'cellline', 'condition']
+
+    pdata = pAnnData.import_data(
+        source_type="pd",
+        prot_file=prot_file_path,
+        pep_file=pep_file_path,
+        obs_columns=obs_columns,
+    )
+    ```
+
+    <div class="result" markdown>
+
+    ```text title="output"
+    🧭 [USER] Importing data of type [pd]
+    --------------------------
+    Starting import [Proteome Discoverer]
+
+    Source file: pd25_Proteins.txt / pd25_PeptideGroups.txt
+    Number of files: 12
+    Proteins: 4988
+    Peptides: 30920
+        ...
+        ✅ [OK] pAnnData object is valid.
+        ✅ [OK] Import complete. Use `print(pdata)` to view the object.
+    --------------------------
+    ```
+
+    </div>
+
+!!! note
+    PD uses **global FDR** (unlike DIA-NN, which provides per-precursor / per-protein FDR). This does not affect import but may influence downstream filtering decisions.
+
+### Gene name recovery
+
+During import, `scpviz` automatically checks for proteins with missing gene names and queries **UniProt** to recover them.
+
+<div class="result" markdown>
+
+```text title="Example UniProt gene name recovery"
+ℹ️ 25 proteins with missing gene names.
+     🌐 [API] Querying UniProt for batch 1/1 (25 proteins) [fields: accession, gene_primary]
+     ✅ Retrieved UniProt metadata for 25 entries.
+     ✅ [OK] Recovered 24 gene name(s) from UniProt. Genes found:
+         TUFM, HDLBP, AMPD2, MYG1, HSD17B11, PCM1, NEFH, OXA1L, TRMT5, SLC4A1AP...
+     ⚠️ [WARN] 1 gene name(s) still missing. Assigned as 'UNKNOWN_<accession>' for:
+         Q6ZSR9
+     💡 Tip: You can update these using `pdata.update_identifier_maps({'GENE': 'ACCESSION'}, on='protein', direction='reverse', overwrite=True)`
+```
+
+</div>
+
+Proteins without gene names after UniProt lookup are assigned as `UNKNOWN_<accession>` and can be manually updated later if needed using `pdata.update_identifier_maps()`.
+
+---
+
+## Metadata parsing
+
+Sample metadata (columns in `.obs`) can be inferred directly from filenames:
+
+```py title="Inspect inferred metadata"
+pdata.summary
+```
+
+Updates to `.summary` are automatically pushed to `.prot.obs` and `.pep.obs` (if available). If `scpviz` can’t infer whether a change is intentional, you’ll be prompted to run `pdata.update_summary()`.
+
+### When filenames follow a single format
+
+If all filenames share the same number of tokens, `scpviz` will suggest `obs_columns` from the first filename and ask you to confirm or edit them. This is common for PD exports when filenames encode basic sample info.
+
+<div class="result" markdown>
+
+```text title="output"
 🧭 [USER] Importing data of type [pd]
       Auto-detecting ',' as delimiter from first filename.
 ℹ️ Filenames are uniform. Using `suggest_obs_columns()` to recommend obs_columns...
@@ -95,79 +268,47 @@ obs_columns = ['<Sample?>', '<AS?>', '<RA?>', 'condition', '<d7?>']
    → If acceptable, rerun `import_data(..., obs_columns=...)` with this list.
 ```
 
-note that for PD, there is only global FDR data unlike for DIA-NN
+</div>
 
-### before version 3.2 i.e. PD 2.5
-can also import, using the same format
----
+In this case, you should fill in `obs_columns` with meaningful labels and rerun the import. For example:
 
-## Metadata Parsing
-— extract `.obs` columns from filenames or reports.  
-Sample metadata (columns in `.obs`) can be inferred directly from filenames:
-
-```python
-pdata.obs.head()
+```py title="Provide obs_columns for uniform filenames"
+obs_columns = ["sample", "cellline", "treatment", "condition", "day"]
+pdata = pAnnData.import_data(
+        source_type="pd",
+        prot_file=prot_file_path,
+        pep_file=pep_file_path,
+        obs_columns=obs_columns,
+)
 ```
 
-- any updates to .summary will be automatically pushed to `.prot.obs` and `.pep.obs` (if available). User will be prompted when necessary to run `pdata.update_summary()`, typically if I (author of package) can't tell if its intentional/
+If filenames follow multiple formats, use `parse_filename_index` to handle different token lengths.
 
-*If filenames follow different formats, scpviz will suggest possible `.obs` columns or default to generic labels.*
+=== "Parse by token length"
 
-In this case, I recommend making a parsing function - e.g. 
-`parse_filenames` and reassigning to `.summary`. 
+    ```py title="Parse 10-token and 6-token filename groups"
+    pdata.summary = scutils.parse_filename_index(
+        pdata.summary,
+        obs_columns=["date", "acquisition", "sample_id", "size", "confirmation", "thickness", "type", "organism", "region", "well_position"],
+        condition='parsingType == "10-tokens"',
+    )
 
-```py
-def parse_filename_index(df):
-    """
-    Parses the index of a DataFrame assumed to be filenames into structured metadata columns.
+    pdata.summary = scutils.parse_filename_index(
+        pdata.summary,
+        obs_columns=["date", "sample_id", "size", "thickness", "organism", "region"],
+        condition='parsingType == "6-tokens"',
+    )
+    ```
 
-    Expected filename format (delimited by "_"):
-        [0] date
-        [1] gradient
-        [2] sample_id
-        [3] size
-        [4] confirmation
-        [5] thickness
-        [6] sample
-        [7] organism
-        [8] region
-        [9] well_position
+=== "Parse all filenames"
 
-    Args:
-        df (pd.DataFrame): DataFrame with index containing delimited filenames.
-
-    Returns:
-        pd.DataFrame: Original DataFrame with added metadata columns.
-    """
-    colnames = [
-        'date',
-        'gradient',
-        'sample_id',
-        'size',
-        'confirmation',
-        'thickness',
-        'sample',
-        'organism',
-        'region',
-        'well_position'
-    ]
-
-    parts = df.index.to_series().str.split('_', expand=True)
-    if parts.shape[1] != len(colnames):
-        raise ValueError(f"Expected {len(colnames)} parts after splitting index, got {parts.shape[1]}")
-
-    df_parsed = df.copy()
-    for i, col in enumerate(colnames):
-        df_parsed[col] = parts.iloc[:, i]
-    return df_parsed
-
-```
+    ```py title="Parse all filenames with a single schema"
+    pdata.summary = scutils.parse_filename_index(
+        pdata.summary,
+        obs_columns=["date", "acquisition", "size", "buffer", "well_position"],
+    )
+    ```
 
 ---
 
-## Export results
-— save processed datasets, DE tables, or plots.
-
-...
----
 ➡️ Next: [Filtering and Normalization](filtering.md)

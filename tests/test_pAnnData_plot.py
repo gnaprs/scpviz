@@ -62,3 +62,22 @@ def test_plot_abundance_smoke(pdata):
             or len(out.lines) > 0
         ), "plot_abundance created an empty axis"
     plt.close('all')
+
+def test_plot_abundance_boxgrid_smoke(pdata):
+    plt.close('all')
+
+    fig, axes = pdata.plot_abundance_boxgrid(namelist=["ACTB"], classes="treatment")
+
+    assert isinstance(fig, matplotlib.figure.Figure)
+    assert isinstance(axes, (list, tuple))
+    assert len(axes) == 1
+    assert isinstance(axes[0], matplotlib.axes.Axes)
+
+    ax = axes[0]
+    assert (
+        len(ax.collections) > 0
+        or len(ax.patches) > 0
+        or len(ax.lines) > 0
+    ), "plot_abundance_boxgrid created an empty axis"
+
+    plt.close("all")
