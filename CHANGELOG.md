@@ -16,6 +16,14 @@ All notable changes to this project are documented here.
 
 
 
+#### Chores
+
+
+
+- Update changelogs [skip ci] (787c652…)
+
+
+
 #### Documentation
 
 
@@ -37,6 +45,8 @@ All notable changes to this project are documented here.
 
 
 - Add wget downloads to importing ipynb (f9d34fa…)
+
+- Update single cell and quickstart tutorial (1a04522…)
 
 
 
