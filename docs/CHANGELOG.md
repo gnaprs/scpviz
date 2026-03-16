@@ -19,6 +19,15 @@
 
 
 
+#### Chores
+
+
+
+- Update changelogs [skip ci] (787c652…)
+
+
+
+
 #### Documentation
 
 
@@ -40,6 +49,8 @@
 
 
 - Add wget downloads to importing ipynb (f9d34fa…)
+
+- Update single cell and quickstart tutorial (1a04522…)
 
 
 
