@@ -1,0 +1,69 @@
+name: Generate Full and Docs Changelog
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history needed for git-cliff
+
+      - name: Wait to avoid conflict with ongoing workflow
+        run: sleep 120
+
+      - name: Ensure branch is up-to-date
+        run: |
+          git switch -C main
+          git pull --rebase origin main     # <-- IMPORTANT (pull BEFORE cliffs)
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - name: Generate full changelog (including unreleased)
+        id: git-cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: .git-cliff.toml
+          args: --verbose -o CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTPUT: CHANGELOG.md
+
+      - name: Generate docs changelog
+        id: docs
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: .git-cliff-docs.toml
+          args: --verbose -o docs/CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTPUT: docs/CHANGELOG.md
+
+      - name: Add MkDocs header
+        run: |
+          {
+            echo "# Changelog"
+            echo
+            cat docs/CHANGELOG.md
+          } > docs/CHANGELOG.tmp && mv docs/CHANGELOG.tmp docs/CHANGELOG.md
+
+      - name: Commit and push changelogs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C main
+
+          if ! git diff --quiet CHANGELOG.md docs/CHANGELOG.md; then
+            echo "📜 Changes detected, committing..."
+            git add CHANGELOG.md docs/CHANGELOG.md
+            git commit -m "chore: update changelogs [skip ci]" || echo "No new commit needed."
+            git push origin main
+          else
+            echo "✅ No changes detected in changelogs"
+          fi

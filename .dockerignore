@@ -1,0 +1,16 @@
+.git
+.github
+.cursor
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+dev/
+docs/
+paper/
+tests/
+agent-transcripts/
+terminals/

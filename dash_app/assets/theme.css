@@ -1,0 +1,84 @@
+/* Dark styling for Dash dropdowns and radio controls */
+
+.dark-dropdown .Select-control,
+.dark-dropdown .Select-menu-outer,
+.dark-dropdown .Select-menu,
+.dark-dropdown .Select-value,
+.dark-dropdown .Select-value-label,
+.dark-dropdown .Select-placeholder,
+.dark-dropdown .Select-input > input,
+.dark-dropdown .Select-option,
+.dark-dropdown .VirtualizedSelectOption,
+.dark-dropdown .VirtualizedSelectFocusedOption,
+.dark-dropdown .Select__control,
+.dark-dropdown .Select__menu,
+.dark-dropdown .Select__menu-list,
+.dark-dropdown .Select__single-value,
+.dark-dropdown .Select__placeholder,
+.dark-dropdown .Select__input-container,
+.dark-dropdown .Select__input-container input,
+.dark-dropdown .Select__option {
+  background-color: #0b1325 !important;
+  color: #e5e7eb !important;
+  border-color: #24324c !important;
+}
+
+.dark-dropdown .Select-control,
+.dark-dropdown .Select__control {
+  min-height: 38px !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.dark-dropdown .Select.is-focused > .Select-control,
+.dark-dropdown .is-focused:not(.is-open) > .Select-control,
+.dark-dropdown .Select__control--is-focused {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 1px #60a5fa !important;
+}
+
+.dark-dropdown .Select-arrow {
+  border-top-color: #94a3b8 !important;
+}
+
+.dark-dropdown .Select-option.is-focused,
+.dark-dropdown .VirtualizedSelectFocusedOption,
+.dark-dropdown .Select__option--is-focused {
+  background-color: #172848 !important;
+  color: #e5e7eb !important;
+}
+
+.dark-dropdown .Select-option.is-selected,
+.dark-dropdown .Select__option--is-selected {
+  background-color: #1d4ed8 !important;
+  color: #eff6ff !important;
+}
+
+input[type="radio"] {
+  accent-color: #60a5fa;
+}
+
+.source-type-radio-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.source-type-radio-group .source-type-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid #24324c;
+  border-radius: 10px;
+  background: #0b1325;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.source-type-radio-group .source-type-radio-input {
+  margin: 0;
+}

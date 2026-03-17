@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+
+  web:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - PORT=8050
+      - REDIS_URL=redis://redis:6379/0
+      - SCPVIZ_SESSION_TTL_SECONDS=21600
+    ports:
+      - "8050:8050"

@@ -1,0 +1,180 @@
+site_name: scpviz
+site_description: "Automatic documentation from sources, for MkDocs."
+site_url: https://gnaprs.github.io/scpviz/
+repo_url: "https://github.com/gnaprs/scpviz"
+repo_name: "gnaprs/scpviz"
+theme:
+  name: material
+  font:
+    text: Inter
+    code: Roboto Mono
+  logo: assets/300ppi/logo_no_text@300x.png
+  favicon: assets/300ppi/logo_no_text@300x.png
+  features:
+    - navigation.footer
+    - content.footnote.tooltips
+    - content.code.copy
+    - content.code.select
+    - content.code.annotate
+    - search.highlight
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.path
+    - navigation.indexes
+    - navigation.top
+  palette:
+    # Palette toggle for automatic mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default 
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+      primary: blue
+      accent: deep orange
+
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+      primary: black
+      accent: deep orange
+
+markdown_extensions:
+  - attr_list
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+      default_lang: python
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true     
+  - admonition
+  - pymdownx.details
+  - footnotes
+  - md_in_html
+  - tables
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/gnaprs
+    - icon: fontawesome/brands/linkedin
+      link: https://linkedin.com/in/marionpang
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/scpviz/
+plugins:
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: false
+  - search
+
+extra_javascript:
+  - https://unpkg.com/tablesort@5.3.0/dist/tablesort.min.js
+  - javascripts/tablesort.js
+# extra_css:
+#   - stylesheets/extra.css
+
+copyright: Copyright &copy; 2025 Marion Pang
+
+nav:
+  - Home:
+      - Overview: index.md
+      - Changelog: CHANGELOG.md
+      # - Credits: credits.md
+      # - License: license.md
+  - Getting started:
+      - Installation: tutorials/installation.md
+      - Quickstart: tutorials/quickstart.md
+      - Single-cell Example: tutorials/single_cell.md
+      - In-depth Tutorials:
+          - Overview: tutorials/index.md
+          - 1. Importing Data: tutorials/importing.md
+          - 2. Filtering: tutorials/filtering.md
+          - 3. Imputation + Normalization: tutorials/imputation.md
+          - 4. Plotting: tutorials/plotting.md
+          - 5. Differential Expression: tutorials/de.md
+          - 6. Enrichment + Networks: tutorials/enrichment.md
+  - API reference:
+      - reference/index.md
+      - pAnnData:
+          - Overview: reference/pAnnData/pAnnData.md
+          - .analysis: reference/pAnnData/analysis_mixin.md
+          - .base: reference/pAnnData/base_mixin.md
+          - .editing: reference/pAnnData/editing_mixin.md
+          - .enrichment: reference/pAnnData/enrichment_mixin.md
+          - .filtering: reference/pAnnData/filtering_mixin.md
+          - .history: reference/pAnnData/history_mixin.md
+          - .identifier: reference/pAnnData/identifier_mixin.md
+          - .import: reference/pAnnData/import_mixin.md
+          - .metrics: reference/pAnnData/metrics_mixin.md
+          - .plot: reference/pAnnData/plot_mixin.md
+          - .summary: reference/pAnnData/summary_mixin.md
+          - .validation: reference/pAnnData/validation_mixin.md
+      - Modules:
+        - scpviz.utils: reference/utils.md
+        - scpviz.plotting: reference/plotting.md
+      - Developer Utilities:
+          - TrackedDataFrame: reference/TrackedDataFrame.md
+          - Hidden Functions: reference/pAnnData/hidden_function.md
+  - Development:
+    - Contributing: dev/contributing.md
+    - Code of Conduct: dev/CODE_OF_CONDUCT.md
+  # - Others:
+  #     - Admonitions: admonitions.md
+  #     - Content-Tabs: content-tabs.md
+  #     - Diagram: diagram.md
+
+  - Author's website: https://gnaprs.github.io/
+# nav:
+# - Home:
+#   - Overview: index.md
+#   - Changelog: changelog.md
+#   - Credits: credits.md
+#   - License: license.md
+# - Usage:
+#   - usage/index.md
+#   - Theming: usage/theming.md
+#   - Handlers: usage/handlers.md
+#   - All handlers:
+#     - C: https://mkdocstrings.github.io/c/
+#     - Crystal: https://mkdocstrings.github.io/crystal/
+#     - Python: https://mkdocstrings.github.io/python/
+#     - Python (Legacy): https://mkdocstrings.github.io/python-legacy/
+#     - Shell: https://mkdocstrings.github.io/shell/
+#     - TypeScript: https://mkdocstrings.github.io/typescript/
+#     - VBA: https://pypi.org/project/mkdocstrings-vba
+#   - Guides:
+#     - Recipes: recipes.md
+#     - Troubleshooting: troubleshooting.md
+# - API reference: reference/mkdocstrings.md
+# - Development:
+#   - Contributing: contributing.md
+#   - Code of Conduct: code_of_conduct.md
+#   - Coverage report: coverage.md
+# - Insiders:
+#   - insiders/index.md
+#   - Getting started:
+#     - Installation: insiders/installation.md
+#     - Changelog: insiders/changelog.md
+# - Author's website: https://pawamoy.github.io/

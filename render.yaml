@@ -1,0 +1,26 @@
+services:
+  - type: redis
+    name: scpviz-redis
+    plan: starter
+    ipAllowList: []
+
+  - type: web
+    name: scpviz-dash
+    env: python
+    plan: starter
+    autoDeploy: true
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -e .
+      pip install gunicorn
+    startCommand: gunicorn dash_app.app:server --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: scpviz-redis
+          property: connectionString

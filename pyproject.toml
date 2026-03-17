@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scpviz"
+version = "0.5.7-alpha"
+authors = [
+  {name="Marion Pang", email="sr_pang@hotmail.com"},
+]
+description = "A package to visualize single cell proteomics (and more to come!) data"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 3 - Alpha",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "numpy",
+  "pandas", 
+  "dash",
+  "plotly",
+  "matplotlib", 
+  "seaborn",
+  "upsetplot", 
+  "scikit-learn", 
+  "scipy",
+  "umap-learn", 
+  "adjustText", 
+  "anndata",
+  "requests",
+  "redis",
+  "matplotlib_venn",
+  "pyarrow",
+  "scanpy",
+  "IPython",
+  "igraph",
+  "harmonypy",
+  "leidenalg",
+  "scikit-misc",
+  "directlfq",
+]
+
+[project.urls]
+Homepage = "https://github.com/gnaprs/scpviz"
+Issues = "https://github.com/gnaprs/scpviz/issues"
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:jupyter_client.connect",
+    "ignore::DeprecationWarning:upsetplot.plotting"
+]
+
+[project.optional-dependencies]
+dev = ["pytest","coverage","flake8","openpyxl","pytest-cov"]
+external = ["pimms-learn"]
