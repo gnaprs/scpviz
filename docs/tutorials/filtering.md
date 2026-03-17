@@ -1,6 +1,7 @@
 # Tutorial 2: Filtering and Normalization
 
 [![Download Notebook](https://img.shields.io/badge/download-filtering__tutorial-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/tutorials/filtering.ipynb)
+[![Open In Colab](https://img.shields.io/badge/open%20in-colab-yellow?logo=googlecolab&style=flat-square)](https://colab.research.google.com/github/gnaprs/scpviz/blob/main/docs/tutorials/filtering.ipynb)
 
 Learn how to filter proteins and peptides in your dataset.
 
@@ -30,12 +31,20 @@ Filter protein data based on metadata conditions or accession lists (protein or 
 
 ### Condition-based filtering
 A condition string to filter protein metadata. Supports:
-* Standard comparisons, e.g. `"Protein FDR Confidence: Combined == 'High'"`
-* Substring queries using `includes`, e.g. `"Description includes 'p97'"`
-``` py title="Filter by metadata condition"
+- Standard comparisons, e.g. `"Protein FDR Confidence: Combined == 'High'"`
+- Substring queries using `includes`, e.g. `"Description includes 'p97'"`
+
+``` py title="Filter by matching condition metadata"
 condition = "Protein FDR Confidence: Combined == 'High'"
 pdata_filtered = pdata.filter_prot(condition=condition)
 ```
+
+``` py title="Filter by numerical condition on metadata"
+pdata_filtered = pdata.filter_prot(condition="unique_peptides >= 2")
+```
+
+> **Note:** For `condition`, the first variable must match a column name in `prot.var`. Otherwise, an error will be raised.
+
 
 ``` py title="Substring match on protein description"
 condition = "Description includes 'VCP'"
@@ -56,13 +65,6 @@ pdata_filtered.prot.var
 | **Q9H867** |...| Protein N-lysine methyltransferase METTL21D OS=Homo sapiens OX=9606 GN=**VCP**KMT PE=1 SV=2 |...| VCPKMT |
 
 </div>
-
-
-``` py title="Numerical condition on metadata"
-pdata_filtered = pdata.filter_prot(condition="unique_peptides >= 2")
-```
-
-> **Note:** For `condition`, the first variable must match a column name in `prot.var`. Otherwise, an error will be raised.
 
 ---
 
@@ -109,7 +111,7 @@ Removes rows with duplicate abundance profiles across samples (typically for iso
 pdata_filtered = pdata.filter_prot(unique_profiles=True)
 ```
 
-*For more information, see the API documentation for [filter_prot()](https://gnaprs.github.io/scpviz/reference/pAnnData/editing_mixins/#src.scpviz.pAnnData.filtering.FilterMixin.filter_prot)*
+*For more information, see the API documentation for [filter_prot()](https://gnaprs.github.io/scpviz/reference/pAnnData/filtering_mixin/#src.scpviz.pAnnData.filtering.FilterMixin.filter_prot)*
 
 ---
 
