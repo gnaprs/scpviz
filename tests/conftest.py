@@ -1,6 +1,14 @@
+import sys
+from pathlib import Path
+
+# Ensure repository root is importable in CI jobs that execute pytest
+# from a different working directory (needed for `dash_app` imports).
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import pytest
 from scpviz.pAnnData import pAnnData
-from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
