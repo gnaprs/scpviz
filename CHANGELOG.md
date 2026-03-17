@@ -10,6 +10,18 @@ All notable changes to this project are documented here.
 
 - Update changelogs [skip ci] (7a6cced…)
 
+- Update changelogs [skip ci] (ba29e77…)
+
+
+
+#### Documentation
+
+
+##### (Tutorial)
+
+
+- Update single cell tutorial to push deployment again (285510f…)
+
 
 
 #### Fixed
