@@ -3,6 +3,31 @@
 ## scpviz
 
 
+### Unreleased <small>Unreleased</small> { id="Unreleased" }
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (7a6cced…)
+
+
+
+
+#### Fixed
+
+
+##### (Docs)
+
+
+- Update deployment workflow to run only on push to docs on main branch (830bbb3…)
+
+
+
+
+
+
 ### 0.5.8-alpha <small>March 16, 2026</small> { id="0.5.8-alpha" }
 
 

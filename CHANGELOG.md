@@ -1,6 +1,31 @@
 All notable changes to this project are documented here.
 
 <details open>
+<summary><b>Unreleased</b></summary>
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (7a6cced…)
+
+
+
+#### Fixed
+
+
+##### (Docs)
+
+
+- Update deployment workflow to run only on push to docs on main branch (830bbb3…)
+
+
+
+
+</details>
+
+<details open>
 <summary><b>0.5.8-alpha</b> – 2026-03-16</summary>
 
 
