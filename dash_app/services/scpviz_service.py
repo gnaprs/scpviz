@@ -65,9 +65,16 @@ def save_upload_contents(session_id: str, upload_key: str, contents: str, filena
         raise ValueError("Missing upload contents.")
     if not filename:
         raise ValueError("Missing upload filename.")
+    if "," not in contents:
+        raise ValueError("Malformed upload contents: expected data URI with comma separator.")
 
     _, encoded = contents.split(",", 1)
-    decoded = base64.b64decode(encoded)
+    if not encoded:
+        raise ValueError("Malformed upload contents: missing encoded payload.")
+    try:
+        decoded = base64.b64decode(encoded)
+    except Exception as exc:
+        raise ValueError(f"Malformed upload contents: invalid base64 payload ({exc}).") from exc
     path = _session_tmp_dir(session_id) / filename
     path.write_bytes(decoded)
     set_upload_path(session_id, upload_key, str(path))

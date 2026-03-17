@@ -150,5 +150,4 @@ peptide_matrix.aq_reformat.tsv.ion_intensities.tsv
 peptide_matrix.aq_reformat.tsv.protein_intensities.tsv
 peptide_matrix.aq_reformat.tsv.run_config.tsv
 docs/assets/diann_report.parquet
-src/scpviz/pAnnData/enrichment.py
 dev/SWI-report.parquet

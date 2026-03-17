@@ -206,8 +206,11 @@ def sync_obs_helper_text_from_table(rename_rows):
 def on_upload_prot(contents, filename, session_id):
     if not contents or not session_id:
         return no_update
-    path = save_upload_contents(session_id, "prot_file", contents, filename)
-    return f"Saved: {path}"
+    try:
+        path = save_upload_contents(session_id, "prot_file", contents, filename)
+        return f"Saved: {path}"
+    except Exception as exc:
+        return f"Upload failed: {exc}"
 
 
 @callback(
@@ -220,8 +223,11 @@ def on_upload_prot(contents, filename, session_id):
 def on_upload_pep(contents, filename, session_id):
     if not contents or not session_id:
         return no_update
-    path = save_upload_contents(session_id, "pep_file", contents, filename)
-    return f"Saved: {path}"
+    try:
+        path = save_upload_contents(session_id, "pep_file", contents, filename)
+        return f"Saved: {path}"
+    except Exception as exc:
+        return f"Upload failed: {exc}"
 
 
 @callback(
@@ -234,8 +240,11 @@ def on_upload_pep(contents, filename, session_id):
 def on_upload_diann(contents, filename, session_id):
     if not contents or not session_id:
         return no_update
-    path = save_upload_contents(session_id, "report_file", contents, filename)
-    return f"Saved: {path}"
+    try:
+        path = save_upload_contents(session_id, "report_file", contents, filename)
+        return f"Saved: {path}"
+    except Exception as exc:
+        return f"Upload failed: {exc}"
 
 
 @callback(
