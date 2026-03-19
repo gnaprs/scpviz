@@ -1,52 +1,109 @@
-# TODO 
-## FEATURES
-### base
-1. allow users to input "obs" for their own metadata, own transformer for pdata.neighbor
-2. Add sharedPeptides function on get_CV()
-3. concating multiple datasets? - see ad.concat, maybe use adata.obs_names_make_unique()
-4. Make wildcard '*' for plotting volcano plots - pair w search annotation?
-### statistics/data viz
-5. Implement dot plot: expression of the indicated genes in the three clusters (dot size is percentage of cells per cluster; color is cluster average normalized expression)
-6. Add tools for comparing two comparisons - plot of log(fc) vs log (fc), with coloring for significance? | then we also need to control hypothesis testing - ANOVA with Tukey and BH-algorithm for correction [see tidyproteomics maybe]
-### enrichment
-7. string db values rank api ([text](https://string-db.org/cgi/help?subpage=api%23valuesranks-enrichment-api)) - also check about string API key; maybe can generate one per user instead? (store local copy in package if that's possible)
-### new modules
-8. implement peptide sequence characteristics (hydrophobicity, etc.) [peptide_param module]
-9. implement correlation visualization [protein corr module]
-10. omics module for comparing adata?
-11. alphamap peptide mapping visualization
-## REFACTOR
-1. sync the de for adata and pdata into a combined workflow, as well as volcano code?
-### others
-10. consider QC metrics beyond what we already have?
-11. Decide whether to standardize internal terminology to `classes` or `class_types` for sample-level grouping.
+# TODO
 
-## ENHANCEMENTS
-1. when updating .summary/obs, move prot/pep details to the right (prioritize metadata)
-2. get_pca_importance just needs to accept pdata input (and prot/pep) - can get uns['pca'] and var_names from it.
-3. Double-check peptide export format: (i) Gene Name (ii) Peptide name (iii) Peptide amino acid sequence start and end in the protein (iv) Charge, etc. if any (v) and then columns with the sample names where the intensities are reported
-4. check for DIA/DDA - and suggest preprocessing methods for these?
-5. fuzzy match for get_abundance matches
-7. Move Found In and Significant In columns from var/obs...? Too many columns... Or more concisely express these
+**Priority key:** H = high | M = medium | L = backlog  
+**Status key:** [ ] = todo | [~] = in progress | [x] = done
 
-# TESTS
-## KNOWN FIX/BUGS
-2. add modification print for diann import
-3. clustermap bug when linkage
-4. plot_abundnace_housekeeping throws error when no housekeeping gene is found
-5. check that we're syncing rs and filtering rs matrix for every filter opration (currently, only for filter sample by condition?)
-6. when impute throws error because wrong obs column given, pretty format the error so that people understand better
-7. double check that for parquet file import, we are splicing the peptide data correctly to each protein? check if the peptide to protein mapping is correct with the ProtA; ProtB peptides
 
-## MAINTENANCE
-1. Check out scprep repo for possible utility functions
+---
 
-## DOCUMENTATION
-1. Tutorial to show how to integrate with scanpy features
-2. QC tutorial
-3. search_annotation tutorial
+## High priority (H)
 
-### DOCUMENTATION EXAMPLES
-```
-region_filter = "region in ['mp_axon', 'mp_cellbody']"
-```
+Quick view of what to work on. Full tables below.
+*Regenerate the H table from sections below when priorities change.*
+
+| Priority | Status | ID | Description |
+|----------|--------|----|-------------|
+| H | [x] | base-1 | Allow users to input "obs" for their own metadata, own transformer for pdata.neighbor |
+| H | [ ] | base-4 | Make wildcard '*' for plotting volcano plots — pair w search annotation? |
+| H | [~] | viz-3 | Add gsea — one for PCA, one for ssGSEA |
+| H | [ ] | ref-4 | Docstring hover: hovering over functions doesn't show docstring all the time (pdata class inherits mixin; .plotting/.utils are fine) — fix ASAP |
+| H | [ ] | bug-6 | Parquet import: verify peptide-to-protein splicing (ProtA; ProtB). Maybe apply directlfq fix to import? |
+| H | [x] | doc-1 | Tutorial: integrate with scanpy features |
+| H | [~] | mod-5 | Web app for other users — check out dash-webapp branch by Baiyi |
+
+---
+
+## Features
+
+| Priority | Status | ID | Description |
+|----------|--------|----|-------------|
+| H | [x] | base-1 | Allow users to input "obs" for their own metadata, own transformer for pdata.neighbor |
+| L | [ ] | base-2 | Add sharedPeptides function on get_CV() |
+| L | [ ] | base-3 | Concating multiple datasets? — see ad.concat, maybe use adata.obs_names_make_unique() |
+| H | [ ] | base-4 | Make wildcard '*' for plotting volcano plots — pair w search annotation? |
+| L | [ ] | viz-1 | Dot plot: expression of indicated genes in three clusters (dot size = % cells per cluster; color = cluster average normalized expression). Partially doable w scanpy. |
+| M | [ ] | viz-2 | Compare two comparisons: log(fc) vs log(fc) with significance coloring; hypothesis testing — ANOVA with Tukey and BH correction [see tidyproteomics] |
+| H | [~] | viz-3 | Add gsea — one for PCA, one for ssGSEA |
+| M | [ ] | enr-1 | String DB values rank API — check API key; per-user or local copy in package? [API help](https://string-db.org/cgi/help?subpage=api%23valuesranks-enrichment-api) |
+| L | [ ] | feat-qc-1 | Consider QC metrics beyond what we already have |
+
+---
+
+## Enhancements
+
+| Priority | Status | ID | Description |
+|----------|--------|----|-------------|
+| M | [ ] | enh-1 | When updating .summary/obs, move prot/pep details to the right (prioritize metadata). Affects users, fix soon. |
+| L | [ ] | enh-2 | get_pca_importance: accept pdata input (and prot/pep) — get uns['pca'] and var_names from it. Pair with PCA GSEA? |
+| L | [ ] | enh-3 | Double-check peptide export format: Gene Name, Peptide name, peptide AA start/end in protein, Charge, sample-name columns for intensities |
+| L | [ ] | enh-4 | Check for DIA/DDA and suggest preprocessing methods? |
+| M | [ ] | enh-5 | Fuzzy match for get_abundance matches |
+| M | [ ] | enh-6 | Move Found In and Significant In from var/obs? Too many columns — or express more concisely (e.g. .obsm/.varm) |
+| L | [ ] | enh-7 | Add modification print for diann import |
+| L | [ ] | enh-8 | When impute errors on wrong obs column, pretty-format the error message. Easy fix. |
+
+---
+
+## Refactor & code quality
+
+| Priority | Status | ID | Description |
+|----------|--------|----|-------------|
+| M | [~] | ref-1 | Sync DE for adata and pdata into a combined workflow, and volcano code |
+| L | [ ] | ref-2 | Standardize internal terminology: `classes` vs `class_types` for sample-level grouping |
+| L | [ ] | ref-3 | Add typing to variables — low priority, should be easy |
+| H | [ ] | ref-4 | Docstring hover: hovering over functions doesn't show docstring all the time (pdata class inherits mixin; .plotting/.utils are fine) — fix ASAP |
+
+---
+
+## Bugs & known fixes
+
+| Priority | Status | ID | Description |
+|----------|--------|----|-------------|
+| L | [ ] | bug-1 | Clustermap bug when linkage |
+| M | [ ] | bug-2 | plot_abundnace_housekeeping throws error when no housekeeping gene is found |
+| L | [ ] | bug-3 | Verify we sync rs and filter rs matrix for every filter operation (not only filter sample by condition?) |
+| H | [ ] | bug-4 | Parquet import: verify peptide-to-protein splicing (ProtA; ProtB). Maybe apply directlfq fix to import? |
+
+
+
+---
+
+## Documentation
+
+| Priority | Status | ID | Description |
+|----------|--------|----|-------------|
+| H | [x] | doc-1 | Tutorial: integrate with scanpy features |
+| L | [ ] | doc-2 | QC tutorial |
+| L | [ ] | doc-3 | search_annotation tutorial |
+
+
+
+---
+
+## Maintenance
+
+| Priority | Status | ID | Description |
+|----------|--------|----|-------------|
+|  | [ ] | maint-1 | Todo for maintenance goes here |
+
+---
+
+## New modules
+
+| Priority | Status | ID | Description |
+|----------|--------|----|-------------|
+| L | [ ] | mod-1 | Peptide sequence characteristics (hydrophobicity, etc.) [peptide_param module]. Can work with Baiyi. |
+| L | [ ] | mod-2 | Correlation visualization [protein corr module] |
+| M | [ ] | mod-3 | Omics module for comparing adata? — build on existing transcriptomics x proteomics functions |
+| L | [ ] | mod-4 | Alphamap peptide mapping visualization |
+| H | [~] | mod-5 | Web app for other users — check out dash-webapp branch by Baiyi |
