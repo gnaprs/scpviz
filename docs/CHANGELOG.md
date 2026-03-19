@@ -9,12 +9,21 @@
 #### Chores
 
 
+##### (Todo)
+
+
+- Refactor todo list w priority and better oganization (e6d3c4b…)
+
+
+
 
 - Update changelogs [skip ci] (7a6cced…)
 
 - Update changelogs [skip ci] (ba29e77…)
 
 - Update changelogs [skip ci] (85a5de7…)
+
+- Update changelogs [skip ci] (4eb539a…)
 
 
 
