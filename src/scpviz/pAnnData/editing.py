@@ -267,13 +267,30 @@ class EditingMixin:
             layer_name (str): Name of the layer to export (e.g., "X_raw"). If "X" is provided, exports `pdata.X`
             filename (str, optional): Output file name. Defaults to "<layer_name>.csv".
             on (str): One of 'protein' or 'peptide' to specify which data to use.
-            obs_names (str or None): If a string, the column name in .obs to use for row labels.
-            var_names (str or None): If a string, the column name in .var to use for column labels.
+            obs_names (str, list of str, or None): Column name(s) in ``.obs`` for row labels.
+                A single string uses that column; a list uses multiple columns, written as
+                multiple index columns in the CSV (``MultiIndex``).
+            var_names (str, list of str, or None): Column name(s) in ``.var`` for column labels.
+                Same behavior as ``obs_names`` for the header (multiple header rows when a list).
             transpose: If True, then export as proteins/peptides (rows) by samples (columns)
 
         Returns:
             None
         """
+
+        def _export_axis_labels(axis_df: pd.DataFrame, names, fallback):
+            """Row or column labels for ``export_layer`` from ``.obs`` or ``.var`` columns."""
+            if names is None:
+                return fallback
+            if isinstance(names, str):
+                return axis_df[names]
+            sub = axis_df[names]
+            if isinstance(sub, pd.DataFrame) and sub.shape[1] > 1:
+                return pd.MultiIndex.from_frame(sub)
+            if isinstance(sub, pd.DataFrame) and sub.shape[1] == 1:
+                return sub.iloc[:, 0]
+            return sub
+
         # Select the appropriate AnnData object
         adata = self.prot if on == 'protein' else self.pep
         if layer_name == "X":
@@ -286,8 +303,8 @@ class EditingMixin:
             layer = layer.toarray() if hasattr(layer, 'toarray') else layer
 
         # Get row (obs) and column (var) labels
-        row_labels = adata.obs[obs_names] if obs_names else adata.obs_names
-        col_labels = adata.var[var_names] if var_names else adata.var_names
+        row_labels = _export_axis_labels(adata.obs, obs_names, adata.obs_names)
+        col_labels = _export_axis_labels(adata.var, var_names, adata.var_names)
 
         # Build the DataFrame
         if transpose:
@@ -299,7 +316,6 @@ class EditingMixin:
         if filename is None:
             filename = f"{layer_name}.csv"
         df.to_csv(filename)
-
 
     def export_morpheus(self, filename='pdata', on='protein'):
         if not self._check_data(on):  # type: ignore[attr-defined], ValidationMixin
