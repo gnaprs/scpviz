@@ -983,3 +983,161 @@ def test_clean_X_layer_argument(pdata):
 
     assert not np.isnan(data).any()
     assert np.any(data == 777)
+
+class DummyPrerankResult:
+    def __init__(self):
+        self.res2d = pd.DataFrame({
+            "Term": ["GO_Biological_Process_2025__PATHWAY_A", "KEGG_2026__PATHWAY_B"],
+            "NES": [1.5, -1.2],
+            "FDR q-val": [0.01, 0.05],
+        })
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_default_storage(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    # Ensure PCA exists
+    pdata.pca(on=on)
+
+    # Ensure gene column exists
+    adata.var["Genes"] = [f"GENE{i}" for i in range(adata.n_vars)]
+
+    def mock_prerank(*args, **kwargs):
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    pdata.pca_gsea(on=on)
+
+    assert "pca_gsea" in adata.uns
+    assert "params" in adata.uns["pca_gsea"]
+    assert "results" in adata.uns["pca_gsea"]
+    assert "rankings" in adata.uns["pca_gsea"]
+
+    r1 = adata.uns["pca_gsea"]["results"]["PC1"]
+    assert "library" in r1.columns
+    assert "pathway" in r1.columns
+    assert r1["library"].tolist() == ["GO_Biological_Process_2025", "KEGG_2026"]
+    assert r1["pathway"].tolist() == ["PATHWAY_A", "PATHWAY_B"]
+
+    assert "PC1" in adata.uns["pca_gsea"]["results"]
+    assert "PC2" in adata.uns["pca_gsea"]["results"]
+    assert "PC1" in adata.uns["pca_gsea"]["rankings"]
+    assert "PC2" in adata.uns["pca_gsea"]["rankings"]
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_selected_pcs(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    pdata.pca(on=on)
+    adata.var["Genes"] = [f"GENE{i}" for i in range(adata.n_vars)]
+
+    def mock_prerank(*args, **kwargs):
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    pdata.pca_gsea(on=on, pcs=[1])
+
+    assert "pca_gsea" in adata.uns
+    assert list(adata.uns["pca_gsea"]["results"].keys()) == ["PC1"]
+    assert list(adata.uns["pca_gsea"]["rankings"].keys()) == ["PC1"]
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_pcs_none_runs_all(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    pdata.pca(on=on)
+    adata.var["Genes"] = [f"GENE{i}" for i in range(adata.n_vars)]
+
+    def mock_prerank(*args, **kwargs):
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    n_pcs = adata.uns["pca"]["PCs"].shape[0]
+    pdata.pca_gsea(on=on, pcs=None)
+
+    expected_keys = [f"PC{i}" for i in range(1, n_pcs + 1)]
+    assert list(adata.uns["pca_gsea"]["results"].keys()) == expected_keys
+    assert list(adata.uns["pca_gsea"]["rankings"].keys()) == expected_keys
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_missing_gene_column_hard_stop(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    pdata.pca(on=on)
+    adata.var.drop(columns=["Genes"], errors="ignore", inplace=True)
+    adata.uns.pop("pca_gsea", None)
+
+    called = {"prerank": False}
+
+    def mock_prerank(*args, **kwargs):
+        called["prerank"] = True
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    pdata.pca_gsea(on=on)
+
+    assert "pca_gsea" not in adata.uns
+    assert called["prerank"] is False
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_duplicate_genes_collapsed_by_max(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    pdata.pca(on=on)
+
+    # Force duplicate genes
+    genes = [f"GENE{i}" for i in range(adata.n_vars)]
+    if adata.n_vars >= 3:
+        genes[0] = "DUP"
+        genes[1] = "DUP"
+    adata.var["Genes"] = genes
+
+    # Force known PC1 loadings
+    pcs = adata.uns["pca"]["PCs"].copy()
+    pcs[0, 0] = 0.2
+    pcs[0, 1] = 0.9
+    adata.uns["pca"]["PCs"] = pcs
+
+    captured = {}
+
+    def mock_prerank(*args, **kwargs):
+        rnk = kwargs["rnk"]
+        captured["rnk"] = rnk.copy()
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    pdata.pca_gsea(on=on, pcs=[1])
+
+    assert "DUP" in captured["rnk"].index
+    assert captured["rnk"]["DUP"] == 0.9
+    assert captured["rnk"].index.tolist().count("DUP") == 1

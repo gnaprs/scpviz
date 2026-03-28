@@ -7,6 +7,7 @@ from scpviz import utils
 from scpviz.utils import format_log_prefix
 import warnings
 from scipy import sparse
+import gseapy as gp
 
 
 class AnalysisMixin:
@@ -983,7 +984,7 @@ class AnalysisMixin:
         
         subpdata = "prot" if on == 'protein' else "pep"
 
-        self._append_history(f'{on}: PCA fitted on {layer}, stored in obsm["X_pca"] and varm["PCs"]') # type: ignore[attr-defined], HistoryMixin
+        self._append_history(f'{on}: PCA fitted on {layer}, stored in obsm["X_pca"] and uns["pca"]["PCs"]') # type: ignore[attr-defined], HistoryMixin
         print(f"{format_log_prefix('result_only',indent=2)} PCA complete, fitted on {layer}. Results stored in:")
         print(f"       • .{subpdata}.obsm['X_pca']")
         print(f"       • .{subpdata}.uns['pca'] (includes PCs, variance, variance ratio)")
@@ -1049,6 +1050,239 @@ class AnalysisMixin:
         self._append_history(f'{on}: Harmony batch correction applied on key {key}, stored in obsm["X_pca_harmony"] and uns["umap"]') # type: ignore[attr-defined], HistoryMixin
         print(f"{format_log_prefix('result_only', indent=2)} Harmony batch correction complete. Results stored in:")
         print(f"       • obsm['X_pca_harmony'] (PCA coordinates)")
+
+    def pca_gsea(self, pcs=[1, 2], on="protein", gene_sets=(
+        "KEGG_2026,Reactome_Pathways_2024,WikiPathways_2024_Human,"
+        "GO_Biological_Process_2025,MSigDB_Hallmark_2020"
+    ), gene_col="Genes",
+        min_size=5, max_size=500, permutation_num=1000, weight=1, threads=4, seed=0,
+        key_added="pca_gsea", verbose=True, fdr_report_cutoffs=(0.05, 0.25), **kwargs,):
+        """
+        Run preranked GSEA on PCA loadings for selected principal components.
+
+        Args:
+            pcs (list[int] or None): Principal components to analyze, 1-indexed.
+                Defaults to [1, 2]. If None, run all available PCs.
+            on (str): Whether to use "protein" or "peptide" data.
+            gene_sets (str or dict): Enrichr library name(s) for GSEApy. Pass a comma-separated
+                string to merge multiple libraries; pathway keys are prefixed ``LIBRARY__term``
+                in merged results.
+            gene_col (str): Column in `.var` containing gene symbols.
+            min_size (int): Minimum gene set size.
+            max_size (int): Maximum gene set size.
+            permutation_num (int): Number of permutations for prerank.
+            weight (float): Weighting parameter for enrichment score.
+            threads (int): Number of threads for GSEApy.
+            seed (int): Random seed.
+            key_added (str): Key for storing results in `.uns`.
+            verbose (bool): Whether to print progress.
+            fdr_report_cutoffs (tuple[float, ...]): FDR thresholds for verbose per-PC reporting
+                (counts of terms with ``FDR q-val`` at or below each cutoff). Default ``(0.05, 0.25)``.
+                Pass an empty tuple to omit.
+            **kwargs: Additional keyword arguments passed to `gseapy.prerank()`.
+
+        Returns:
+            None
+
+        Note:
+            Each DataFrame in ``.{prot|pep}.uns[key_added]['results']`` includes gseapy columns
+            plus ``library`` and ``pathway`` parsed from ``Term`` when using merged libraries
+            (``LIBRARY__pathway_name``).
+        """
+        if not self._check_data(on):  # type: ignore[attr-defined]
+            return
+
+        if on == "protein":
+            adata = self.prot
+        elif on == "peptide":
+            adata = self.pep
+        else:
+            raise ValueError("`on` must be either 'protein' or 'peptide'.")
+
+        subpdata = "prot" if on == "protein" else "pep"
+
+        if "pca" not in adata.uns or "PCs" not in adata.uns["pca"]:
+            print(f"{format_log_prefix('warn')} PCA results not found in .{subpdata}.uns['pca'].")
+            print(f"{format_log_prefix('blank', 3)} Please run `.pca()` first, then rerun `pca_gsea()`.")
+            return
+
+        # additional helper functions
+        import logging
+        import io
+        from contextlib import contextmanager, redirect_stdout, redirect_stderr
+
+        @contextmanager
+        def _suppress_gseapy_output():
+            previous_disable = logging.root.manager.disable
+            sink = io.StringIO()
+            logging.disable(logging.ERROR)
+            try:
+                with redirect_stdout(sink), redirect_stderr(sink):
+                    yield
+            finally:
+                logging.disable(previous_disable)
+
+        def _percent_tied_values(values):
+            """Return percent of entries that are part of a duplicated value group."""
+            s = pd.Series(values)
+            if s.empty:
+                return 0.0
+            return 100 * s.duplicated(keep=False).sum() / len(s)
+        
+        def _build_pca_rank_df(adata, genes, loadings, use_abs_for_duplicates=False):
+            rank_df = pd.DataFrame({
+                "feature": adata.var_names.astype(str),
+                "gene": genes.values,
+                "loading": loadings,
+            }).dropna(subset=["gene"]).copy()
+
+            dup_genes = sorted(rank_df.loc[rank_df["gene"].duplicated(keep=False), "gene"].unique())
+
+            if len(dup_genes) > 0:
+                if use_abs_for_duplicates:
+                    idx = rank_df.groupby("gene")["loading"].agg(lambda x: x.abs().idxmax())
+                else:
+                    idx = rank_df.groupby("gene")["loading"].idxmax()
+                rank_df = rank_df.loc[idx].copy()
+
+            rank_df["abs_loading"] = rank_df["loading"].abs()
+            rank_df = rank_df.sort_values("loading", ascending=False).reset_index(drop=True)
+            return rank_df, dup_genes
+        
+        # ----------------------------------
+
+        genes = _gseapy_resolve_uppercase_genes(
+            adata,
+            gene_col=gene_col,
+        )
+
+        if genes is None:
+            context="PCA GSEA"
+            print(f"{format_log_prefix('warn')} `.var[{gene_col!r}]` not found.")
+            print(f"{format_log_prefix('blank',3)} {context} requires resolved gene symbols.")
+            print(f"{format_log_prefix('blank',3)} Please annotate gene names first, then rerun.")
+            return
+
+        pcs_all = adata.uns["pca"]["PCs"]
+        n_pcs_available = pcs_all.shape[0]
+
+        if pcs is None:
+            pcs = list(range(1, n_pcs_available + 1))
+            print(f"{format_log_prefix('warn')} `pcs=None` detected – running GSEA on all available PCs.")
+            print(f"{format_log_prefix('blank', 3)} This may take a long time, especially with many PCs or large gene set libraries.")
+
+        if not isinstance(pcs, (list, tuple, np.ndarray)):
+            raise ValueError("`pcs` must be a list of integers or None.")
+
+        pcs = [int(pc) for pc in pcs]
+
+        invalid_pcs = [pc for pc in pcs if pc < 1 or pc > n_pcs_available]
+        if invalid_pcs:
+            raise ValueError(
+                f"Invalid PCs requested: {invalid_pcs}. "
+                f"Available PCs are 1 to {n_pcs_available}."
+            )
+
+        # Precompute tied-loading percentages once per requested PC
+        _, dup_genes = _build_pca_rank_df(adata, genes, pcs_all[pcs[0] - 1, :], use_abs_for_duplicates=True)
+        tied_pct_by_pc = {}
+        for pc in pcs:
+            loadings = pcs_all[pc - 1, :]
+            rank_df_tmp, _ = _build_pca_rank_df(adata, genes, loadings, use_abs_for_duplicates=True)
+            rnk_tmp = rank_df_tmp.set_index("gene")["loading"]
+            tied_pct_by_pc[pc] = _percent_tied_values(rnk_tmp.values)
+
+        if verbose:
+            print(f"{format_log_prefix('user')} Running PCA GSEA [{on}] on PCs: {pcs}", flush=True)
+            print(f"   🔸 Gene set library: {gene_sets}")
+            print(f"   🔸 Gene column: {gene_col}")
+
+            if len(dup_genes) > 0:
+                preview = ", ".join(dup_genes[:10])
+                suffix = " ..." if len(dup_genes) > 10 else ""
+                print(f"{format_log_prefix('warn_only',2)} Duplicated genes ({len(dup_genes)}): {preview}{suffix}")
+                print(f"     Using maximum absolute loading for duplicated genes.")
+
+                base_params = dict(min_size=min_size, max_size=max_size, permutation_num=permutation_num, weight=weight, threads=threads, seed=seed)
+                params = {**base_params, **kwargs}
+                param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+
+                print(f"{format_log_prefix('api',2)} gseapy.prerank({param_str})")
+
+            tied_msg = ", ".join([f"PC{pc} {tied_pct_by_pc[pc]:.2f}%" for pc in pcs])
+            print(f"{format_log_prefix('info_only',3)} Tied prerank stats: {tied_msg}. GSEApy may order tied genes arbitrarily.")
+
+        stored_results = {}
+        stored_rankings = {}
+
+        for pc in pcs:
+            loadings = pcs_all[pc - 1, :]
+
+            rank_df, _ = _build_pca_rank_df(adata, genes, loadings, use_abs_for_duplicates=True)
+            rnk = rank_df.set_index("gene")["loading"]
+
+            if verbose:
+                print(
+                    f"{format_log_prefix('blank',3)}🔹 PC{pc}: "
+                    f"{len(loadings)} features -> "
+                    f"{rank_df.shape[0]} unique uppercase genes"
+                )
+
+            with _suppress_gseapy_output():
+                pre_res = gp.prerank(
+                    rnk=rnk,
+                    gene_sets=gene_sets,
+                    min_size=min_size,
+                    max_size=max_size,
+                    permutation_num=permutation_num,
+                    weight=weight,
+                    threads=threads,
+                    seed=seed,
+                    outdir=None,
+                    verbose=False,
+                    **kwargs,
+                )
+
+            res_df = _annotate_pca_gsea_result_df(pre_res.res2d.copy())
+            stored_results[f"PC{pc}"] = res_df
+            stored_rankings[f"PC{pc}"] = rank_df.copy()
+
+            if verbose:
+                msg = f"{format_log_prefix('result_only', 4)} PC{pc}: {res_df.shape[0]} enriched terms returned"
+                fdr_col = "FDR q-val"
+                if fdr_report_cutoffs and fdr_col in res_df.columns:
+                    s = pd.to_numeric(res_df[fdr_col], errors="coerce")
+                    parts = [f"n(FDR<={c})={int((s <= c).sum())}" for c in fdr_report_cutoffs]
+                    msg += "; " + ", ".join(parts)
+                elif fdr_report_cutoffs and fdr_col not in res_df.columns:
+                    msg += f"; (no '{fdr_col}' column for FDR counts)"
+                print(msg)
+
+        adata.uns[key_added] = {
+            "params": {
+                "pcs": pcs,
+                "gene_sets": gene_sets,
+                "gene_col": gene_col,
+                "min_size": min_size,
+                "max_size": max_size,
+                "permutation_num": permutation_num,
+                "weight": weight,
+                "threads": threads,
+                "seed": seed,
+                "on": on,
+            },
+            "results": stored_results,
+            "rankings": stored_rankings,
+        }
+
+        self._append_history(  # type: ignore[attr-defined]
+            f'{on}: PCA GSEA run on PCs {pcs}, stored in .{subpdata}.uns["{key_added}"]'
+        )
+
+        if verbose:
+            print(f"{format_log_prefix('result')} PCA GSEA complete.")
+            print(f"   • Results stored in: .{subpdata}.uns['{key_added}']['results]")
+            print(f"   • Keys: {list(stored_results.keys())}")
 
     def nanmissingvalues(self, on = 'protein', limit = 0.5):
         """
@@ -1559,3 +1793,50 @@ class AnalysisMixin:
                 print(f"{format_log_prefix('result')} Returning cleaned matrix: {nan_count} NaNs replaced with {set_to}.")
             return X_clean 
 
+# helper functions for analysis methods
+def _annotate_pca_gsea_result_df(res_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add ``library`` and ``pathway`` columns from gseapy ``Term`` when using merged Enrichr
+    libraries (``LIBRARY__pathway_name``). Leaves ``Term`` unchanged.
+    """
+    if "Term" not in res_df.columns:
+        return res_df
+    out = res_df.copy()
+    term = out["Term"].astype(str)
+    lib = term.map(lambda x: x.split("__", 1)[0] if "__" in x else "")
+    pw = term.map(lambda x: x.split("__", 1)[1] if "__" in x else x)
+    idx = list(out.columns).index("Term") + 1
+    out.insert(idx, "library", lib.values)
+    out.insert(idx + 1, "pathway", pw.values)
+    return out
+
+def _gseapy_resolve_uppercase_genes(adata, gene_col="Genes"):
+    """
+    For use with gseapy prerank and ssgsea functions. Resolves gene symbols from `.var[gene_col]`, uppercase them, and return as a Series.
+
+    Hard-stops with a warning if gene names are unavailable.
+    """
+    if gene_col not in adata.var.columns:
+        return None
+
+    genes = adata.var[gene_col].copy()
+
+    # Normalize empties to NaN
+    genes = genes.replace("", np.nan)
+    genes = genes.replace("nan", np.nan)
+
+    # Uppercase non-missing values
+    genes = genes.astype("object")
+    genes = genes.where(genes.isna(), genes.astype(str).str.upper())
+
+    return genes
+
+def _print_duplicate_gene_warning(dup_genes, method_desc="mean"):
+    """Print a warning listing duplicated gene symbols and chosen collapse method."""
+    if len(dup_genes) == 0:
+        return
+
+    dup_text = ", ".join(dup_genes)
+    print(f"{format_log_prefix('warn')} Found duplicated gene symbols.")
+    print(f"{format_log_prefix('blank',3)} Duplicated genes ({len(dup_genes)}): {dup_text}")
+    print(f"{format_log_prefix('blank',3)} Using {method_desc} for duplicated genes.")
