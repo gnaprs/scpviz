@@ -441,6 +441,28 @@ def test_plot_abundance_boxgrid_multi_gene_axes_independent(pdata):
 # Tests for scplt.plot_pca
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (for 3D projection)
 
+def _seed_mock_pca_gsea(pdata, on="protein"):
+    pdata.pca(on=on)
+    adata = pdata.prot if on == "protein" else pdata.pep
+    adata.uns["pca_gsea"] = {
+        "results": {
+            "PC1": pd.DataFrame(
+                {
+                    "Term": ["OXPHOS", "Immune", "Synapse"],
+                    "NES": [1.8, -1.2, 0.6],
+                    "FDR q-val": [0.01, 0.03, 0.2],
+                }
+            ),
+            "PC2": pd.DataFrame(
+                {
+                    "Term": ["OXPHOS", "Immune", "Synapse"],
+                    "NES": [-0.9, 2.1, 0.2],
+                    "FDR q-val": [0.08, 0.005, 0.4],
+                }
+            ),
+        }
+    }
+
 # --- Basic 2D PCA plot ---
 def test_plot_pca_runs_without_error(pdata):
     fig, ax = plt.subplots()
@@ -516,6 +538,181 @@ def test_plot_pca_invalid_plot_pc(pdata, bad_pc):
     fig, ax = plt.subplots()
     with pytest.raises(AssertionError, match="plot_pc must be a list"):
         scplt.plot_pca(ax, pdata, plot_pc=bad_pc)
+    plt.close(fig)
+
+def test_plot_pca_gsea_pathway_vectors_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        top_n=2,
+        fdr_cutoff=0.1,
+    )
+    assert _is_axes_container(out)
+    assert len(ax.patches) >= 1
+    assert len(ax.texts) >= 1
+    plt.close(fig)
+
+def test_plot_pca_gsea_pathway_vectors_without_samples(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        top_n=2,
+        show_samples=False,
+    )
+    assert _is_axes_container(out)
+    assert _count_artists(out) > 0
+    plt.close(fig)
+
+def test_plot_pca_protein_vectors_smoke(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        top_n=4,
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    assert len(ax.patches) >= 1
+    assert len(ax.texts) >= 1
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_return_df_and_include(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    adata = pdata.prot
+    pick = str(adata.var_names[0])
+    _, vec_df = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        top_n=1,
+        include_genes={pick},
+        adjust_labels=False,
+        return_df=True,
+    )
+    assert list(vec_df["feature"]) == [pick]
+    assert {"gene", "feature", "load_x", "load_y", "arrow_x", "text_x"}.issubset(vec_df.columns)
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_top_n_must_be_positive(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="top_n"):
+        scplt.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            top_n=None,
+            adjust_labels=False,
+        )
+    with pytest.raises(ValueError, match="at least 1"):
+        scplt.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            top_n=0,
+            adjust_labels=False,
+        )
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_bubble_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_bubble(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+    )
+    assert _is_axes_container(out)
+    assert _count_artists(out) > 0
+    plt.close(fig)
+
+def test_plot_pca_gsea_heatmap_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_heatmap(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+    )
+    assert _is_axes_container(out)
+    assert _count_artists(out) > 0
+    assert "pathway_loadings" in pdata.prot.uns["pca_gsea"]
+    plt.close(fig)
+
+def test_plot_pca_gsea_pathway_vectors_library_split_and_return_df(pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    adata.uns["pca_gsea"] = {
+        "results": {
+            "PC1": pd.DataFrame(
+                {
+                    "Term": ["KEGG_2026__DNA_REPLICATION", "Reactome_Pathways_2024__IMMUNE_RESPONSE"],
+                    "NES": [1.8, -1.2],
+                    "FDR q-val": [0.01, 0.03],
+                }
+            ),
+            "PC2": pd.DataFrame(
+                {
+                    "Term": ["KEGG_2026__DNA_REPLICATION", "Reactome_Pathways_2024__IMMUNE_RESPONSE"],
+                    "NES": [-0.9, 2.1],
+                    "FDR q-val": [0.08, 0.005],
+                }
+            ),
+        }
+    }
+    fig, ax = plt.subplots()
+    _, vec_df = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        top_n=2,
+        return_df=True,
+    )
+    assert "library" in vec_df.columns
+    assert not vec_df["pathway"].str.contains("__").any()
+    assert set(vec_df["library"]) == {"KEGG_2026", "Reactome_Pathways_2024"}
+    plt.close(fig)
+
+def test_plot_pca_gsea_bubble_include_exclude_pathways(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    _, bubble_df = scplt.plot_pca_gsea_bubble(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        include_pathways=["Immune", "OXPHOS"],
+        exclude_pathways=["Immune"],
+        top_n=1,
+        title_case_labels=False,
+        return_df=True,
+    )
+    assert set(bubble_df["pathway_raw"]) == {"OXPHOS"}
     plt.close(fig)
 
 # test resolve_plot_color

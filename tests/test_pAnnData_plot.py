@@ -24,6 +24,67 @@ def test_plot_rs_runs_without_error(pdata):
     """Ensure plot_rs() executes successfully with valid RS."""
     import matplotlib.pyplot as plt
     plt.close("all")
+
+def _seed_mock_pca_gsea(pdata, on="protein"):
+    pdata.pca(on=on)
+    adata = pdata.prot if on == "protein" else pdata.pep
+    adata.uns["pca_gsea"] = {
+        "results": {
+            "PC1": pd.DataFrame({"Term": ["OXPHOS", "Immune"], "NES": [1.5, -1.1], "FDR q-val": [0.01, 0.04]}),
+            "PC2": pd.DataFrame({"Term": ["OXPHOS", "Immune"], "NES": [-0.7, 1.9], "FDR q-val": [0.06, 0.01]}),
+        }
+    }
+
+def test_plot_pca_gsea_pathway_vectors_wrapper_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = pdata.plot_pca_gsea_pathway_vectors(ax=ax, on="protein", plot_pc=[1, 2], top_n=2)
+    assert isinstance(out, matplotlib.axes.Axes)
+    assert len(ax.patches) >= 1
+    plt.close(fig)
+
+def test_plot_pca_protein_vectors_wrapper_smoke(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    out = pdata.plot_pca_protein_vectors(
+        ax=ax, on="protein", plot_pc=[1, 2], top_n=3, adjust_labels=False
+    )
+    assert isinstance(out, matplotlib.axes.Axes)
+    assert len(ax.patches) >= 1
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_bubble_wrapper_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = pdata.plot_pca_gsea_bubble(ax=ax, on="protein", pcs=[1, 2], top_n=2)
+    assert isinstance(out, matplotlib.axes.Axes)
+    assert len(ax.collections) >= 1
+    plt.close(fig)
+
+def test_plot_pca_gsea_heatmap_wrapper_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = pdata.plot_pca_gsea_heatmap(ax=ax, on="protein", pcs=[1, 2], top_n=2)
+    assert isinstance(out, matplotlib.axes.Axes)
+    assert len(ax.collections) >= 1
+    plt.close(fig)
+
+def test_plot_pca_gsea_bubble_wrapper_include_exclude(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    _, out_df = pdata.plot_pca_gsea_bubble(
+        ax=ax,
+        on="protein",
+        pcs=[1, 2],
+        include_pathways=["OXPHOS", "Immune"],
+        exclude_pathways=["Immune"],
+        top_n=1,
+        title_case_labels=False,
+        return_df=True,
+    )
+    assert set(out_df["pathway_raw"]) == {"OXPHOS"}
+    plt.close(fig)
     pdata.plot_rs(figsize=(4, 2))
 
 def test_plot_rs_handles_missing_rs(pdata_nopep, capsys):
