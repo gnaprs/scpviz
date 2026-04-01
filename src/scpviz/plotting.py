@@ -2613,6 +2613,1110 @@ def plot_pca_scree(ax, pca):
     
     return ax
 
+def _ensure_pca_gsea_payload(
+    pdata,
+    on="protein",
+    key_added="pca_gsea",
+    requested_pcs=None,
+    force=False,
+    gsea_kwargs=None,
+):
+    """
+    Ensure ``adata.uns[key_added]`` holds PCA-GSEA results, running ``pca_gsea`` if missing or forced.
+
+    Returns:
+        tuple: ``(adata, payload)`` after validating ``adata.uns[key_added]``.
+    """
+
+    def _get_pca_gsea_payload(pdata, on="protein", key_added="pca_gsea"):
+        """Return adata + validated pca_gsea payload."""
+        adata = utils.get_adata(pdata, on)
+        if key_added not in adata.uns:
+            raise KeyError(
+                f"{utils.format_log_prefix('error',2)} PCA GSEA key '{key_added}' not found in .uns."
+            )
+        payload = adata.uns[key_added]
+        if "results" not in payload:
+            raise KeyError(
+                f"{utils.format_log_prefix('error',2)} Missing 'results' in .uns['{key_added}']."
+            )
+        return adata, payload
+
+    adata = utils.get_adata(pdata, on)
+    needs_run = force or key_added not in adata.uns
+    if needs_run:
+        if requested_pcs is None:
+            raise ValueError("`requested_pcs` must be provided when auto-running pca_gsea.")
+        if force:
+            print(f"{utils.format_log_prefix('warn')} force=True: re-running pca_gsea on requested PCs {requested_pcs}.")
+        else:
+            print(f"{utils.format_log_prefix('info')} pca_gsea results not found; running pca_gsea on requested PCs {requested_pcs}.")
+        kwargs = dict(gsea_kwargs or {})
+        pdata.pca_gsea(on=on, pcs=[int(pc) for pc in requested_pcs], key_added=key_added, **kwargs)
+    return _get_pca_gsea_payload(pdata, on, key_added)
+
+def _build_pca_gsea_tables(payload, pcs=None):
+    """
+    Build long-format and pivot tables from a PCA-GSEA ``results`` dict.
+
+    Returns:
+        tuple: ``(long_df, matrix_df, fdr_df, missing_pc_keys)``. Pathway identifiers align with
+        ``pathway_raw`` / ``pathway`` / ``library`` columns in ``long_df``.
+    """
+    rows = []
+    results_dict = payload.get("results", {})
+    available_pc_keys = sorted(results_dict.keys(), key=lambda x: int(str(x).replace("PC", "")))
+    requested_pc_keys = available_pc_keys.copy()
+    if pcs is not None:
+        requested_pc_keys = [f"PC{int(pc)}" for pc in pcs]
+    available_selected = [pc for pc in available_pc_keys if pc in requested_pc_keys]
+    missing_pc_keys = [pc for pc in requested_pc_keys if pc not in available_pc_keys]
+    if len(available_selected) == 0:
+        raise ValueError("No matching PCs were found in pca_gsea results.")
+
+    for pc_key in available_selected:
+        df = results_dict[pc_key].copy()
+        if "Term" in df.columns:
+            pathway_raw = df["Term"].astype(str)
+        elif df.index.name is not None or not isinstance(df.index, pd.RangeIndex):
+            pathway_raw = pd.Index(df.index).astype(str)
+        else:
+            raise KeyError("Could not resolve pathway names (expected 'Term' column or pathway index).")
+
+        nes_col = "NES" if "NES" in df.columns else ("nes" if "nes" in df.columns else None)
+        if nes_col is None:
+            raise KeyError(f"Missing NES column in pca_gsea result for {pc_key}.")
+        fdr_col = "FDR q-val" if "FDR q-val" in df.columns else ("FDR" if "FDR" in df.columns else None)
+
+        if "pathway" in df.columns and "library" in df.columns:
+            pathway_short = df["pathway"].astype(str)
+            pathway_lib = df["library"].astype(str)
+        else:
+            pathway_short = pathway_raw.map(lambda x: str(x).split("__", 1)[1] if "__" in str(x) else str(x))
+            pathway_lib = pathway_raw.map(lambda x: str(x).split("__", 1)[0] if "__" in str(x) else "")
+        tmp = pd.DataFrame({
+            "pathway_raw": pathway_raw.values,
+            "pathway": pathway_short.values,
+            "library": pathway_lib.values,
+            "pc": pc_key,
+            "NES": pd.to_numeric(df[nes_col], errors="coerce").values,
+        })
+        if fdr_col is not None:
+            tmp["FDR q-val"] = pd.to_numeric(df[fdr_col], errors="coerce").values
+        else:
+            tmp["FDR q-val"] = np.nan
+        rows.append(tmp)
+
+    long_df = pd.concat(rows, axis=0, ignore_index=True).dropna(subset=["pathway_raw", "NES"])
+    matrix_df = long_df.pivot_table(index="pathway_raw", columns="pc", values="NES", aggfunc="first")
+    fdr_df = long_df.pivot_table(index="pathway_raw", columns="pc", values="FDR q-val", aggfunc="first")
+    matrix_df = matrix_df.reindex(columns=requested_pc_keys)
+    fdr_df = fdr_df.reindex(index=matrix_df.index, columns=requested_pc_keys)
+    return long_df, matrix_df, fdr_df, missing_pc_keys
+
+def _format_pathway_label(label):
+    """Convert enrichment labels like `DNA_REPLICATION` to `Dna Replication`."""
+    raw = str(label).strip()
+    text = raw.split("__", 1)[1] if "__" in raw else raw
+    text = text.replace("_", " ")
+    text = re.sub(r"\s+", " ", text)
+    return text.title()
+
+def _apply_pathway_name_filters(long_df, matrix_df, fdr_df, include_pathways=None, exclude_pathways=None):
+    """Filter pathway rows by user include/exclude names (raw, short, or library)."""
+    if include_pathways is None and exclude_pathways is None:
+        return long_df, matrix_df, fdr_df
+
+    meta = long_df[["pathway_raw", "pathway", "library"]].drop_duplicates("pathway_raw")
+    meta = meta.set_index("pathway_raw")
+
+    def _to_set(x):
+        if x is None:
+            return None
+        if isinstance(x, str):
+            return {x}
+        return {str(v) for v in x}
+
+    include_set = _to_set(include_pathways)
+    exclude_set = _to_set(exclude_pathways)
+
+    selected = pd.Series(True, index=meta.index)
+    if include_set:
+        selected &= (
+            meta.index.to_series().isin(include_set)
+            | meta["pathway"].astype(str).isin(include_set)
+            | meta["library"].astype(str).isin(include_set)
+        )
+    if exclude_set:
+        selected &= ~(
+            meta.index.to_series().isin(exclude_set)
+            | meta["pathway"].astype(str).isin(exclude_set)
+            | meta["library"].astype(str).isin(exclude_set)
+        )
+
+    keep = meta.index[selected].tolist()
+    long_df = long_df[long_df["pathway_raw"].isin(keep)].copy()
+    matrix_df = matrix_df.loc[matrix_df.index.intersection(keep)]
+    fdr_df = fdr_df.reindex(index=matrix_df.index, columns=matrix_df.columns)
+    return long_df, matrix_df, fdr_df
+
+def _pathway_filter_by_fdr(matrix_df, fdr_df, fdr_cutoff):
+    """
+    Keep pathways that pass the FDR cutoff on at least one displayed PC.
+
+    If ``fdr_cutoff`` is ``None``, no rows are removed. Otherwise a pathway is kept if **any** column has
+    FDR ≤ ``fdr_cutoff``.
+    """
+    if fdr_cutoff is None:
+        return matrix_df
+    keep_mask = (fdr_df <= float(fdr_cutoff)).any(axis=1)
+    return matrix_df.loc[keep_mask]
+
+def _compute_pc_score_df(matrix_df, fdr_df, fdr_cutoff=0.1):
+    """
+    Per-PC ranking score: ``|NES| * -log10(FDR)``, optionally gated by ``fdr_cutoff``.
+
+    If ``fdr_cutoff`` is not ``None``, scores are zeroed on PCs where FDR exceeds the cutoff. ``None`` uses
+    all FDR values with no gate. Does not drop rows (use ``_pathway_filter_by_fdr`` with the same cutoff first).
+    """
+    fdr_safe = fdr_df.clip(lower=1e-300)
+    score_df = matrix_df.abs().mul(-np.log10(fdr_safe))
+    if fdr_cutoff is not None:
+        score_df = score_df.where(fdr_df <= float(fdr_cutoff), 0.0)
+    return score_df.fillna(0.0)
+
+def _validate_plot_top_n(top_n, *, what="items"):
+    """
+    Require a positive integer ``top_n`` for PCA-GSEA and protein vector plots (no ``None``).
+    """
+    if top_n is None:
+        raise ValueError(
+            f"`top_n` must be a positive integer; got None. Pass e.g. 12 or 50 to cap {what}, "
+            "or use include_pathways / include_genes to restrict to a small set."
+        )
+    try:
+        n = int(top_n)
+    except (TypeError, ValueError) as err:
+        raise ValueError(f"`top_n` must be a positive integer; got {top_n!r}.") from err
+    if n < 1:
+        raise ValueError(f"`top_n` must be at least 1; got {n}.")
+    return n
+
+
+def _select_top_pathways(score_df, top_n, top_n_mode="balanced"):
+    """
+    Select top pathways from a PC-score table.
+    - balanced: split top_n approximately equally per PC (with dedupe).
+    - max_score: global ranking by max score across PCs.
+
+    ``top_n`` must be an integer >= 1 (validated at the public plot API).
+    """
+    n = int(top_n)
+    if n < 1:
+        raise ValueError("`top_n` must be at least 1.")
+
+    if top_n_mode == "max_score":
+        return score_df.max(axis=1).sort_values(ascending=False).head(n).index.tolist()
+
+    if top_n_mode != "balanced":
+        raise ValueError("`top_n_mode` must be either 'balanced' or 'max_score'.")
+
+    pcs = list(score_df.columns)
+    k = max(len(pcs), 1)
+    base = n // k
+    rem = n % k
+    quotas = {pc: base + (1 if i < rem else 0) for i, pc in enumerate(pcs)}
+
+    selected = []
+    count_by_pc = {pc: 0 for pc in pcs}
+    per_pc_rank = {pc: score_df[pc].sort_values(ascending=False).index.tolist() for pc in pcs}
+    for pc in pcs:
+        for pathway in per_pc_rank[pc]:
+            if pathway in selected:
+                continue
+            selected.append(pathway)
+            count_by_pc[pc] += 1
+            if count_by_pc[pc] >= quotas[pc]:
+                break
+
+    if len(selected) < n:
+        global_rank = score_df.max(axis=1).sort_values(ascending=False).index.tolist()
+        for pathway in global_rank:
+            if pathway in selected:
+                continue
+            selected.append(pathway)
+            if len(selected) >= n:
+                break
+
+    return selected[:n]
+
+def plot_pca_gsea_pathway_vectors(
+    ax,
+    pdata,
+    on="protein",
+    key_added="pca_gsea",
+    plot_pc=[1, 2],
+    top_n=12,
+    fdr_cutoff=0.1,
+    arrow_scale=0.25,
+    pca_kwargs=None,
+    show_samples=True,
+    title_case_labels=True,
+    force=False,
+    gsea_kwargs=None,
+    adjust_labels=True,
+    adjust_text_kwargs=None,
+    text_positions=None,
+    lock_text_positions=False,
+    top_n_mode="balanced",
+    include_pathways=None,
+    exclude_pathways=None,
+    return_df=False,
+):
+    """
+    Overlay PCA-GSEA pathways as arrows in a two-dimensional PCA sample space.
+
+    Each arrow encodes normalized enrichment scores (NES) on two principal components taken from
+    ``adata.uns[key_added]['results']`` (from ``pca_gsea``). Arrow endpoints are rescaled using the
+    current axis limits so pathways remain visible; they are not plotted in the same numeric units as
+    sample coordinates. When ``show_samples`` is True, the sample PCA scatter is drawn first via
+    ``plot_pca``.
+
+    Args:
+        ax (matplotlib.axes.Axes): Target axis (2D).
+        pdata (pAnnData): Input object.
+        on (str): Data level, ``"protein"`` or ``"peptide"``.
+        key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+        plot_pc (list of int): Exactly two 1-based PCs, e.g. ``[1, 2]``.
+        top_n (int): Maximum number of pathways to show after ranking; must be >= 1 (required, not optional).
+        fdr_cutoff (float or None): **Single FDR threshold** (default ``0.1``) used in two **separate** places:
+
+            (1) **Row filter** (``_pathway_filter_by_fdr``): remove pathways that do **not** pass FDR ≤ cutoff on
+            **any** plotted PC. (2) **Per-PC score mask** (``_compute_pc_score_df``): for pathways that remain,
+            on each PC use ``|NES| * -log10(FDR)`` only if FDR ≤ cutoff on **that** PC; otherwise that PC’s score
+            is 0 for ``top_n`` selection.
+
+            **Why both?** (2) does **not** delete rows. A pathway that fails the cutoff on **every** PC would get
+            all-zero scores under (2) but would still exist in the table until ``top_n`` selection; without (1)
+            those rows could still appear among ties at score 0. Step (1) drops “no significant PC” pathways
+            outright. **Example:** passes on PC1 only—(1) keeps the row; (2) gives a
+            positive ranking contribution from PC1 and 0 from PC2. ``None`` disables both (no FDR filter; rank using
+            all FDR values).
+        arrow_scale (float): Scale factor for arrow length relative to axis span.
+        pca_kwargs (dict or None): Additional arguments passed to ``plot_pca`` when ``show_samples=True``.
+        show_samples (bool): If True, plot samples first; if False, draw only axes, grid lines, and arrows.
+        title_case_labels (bool): If True, format pathway labels for display (e.g. title case).
+        force (bool): If True, re-run ``pca_gsea`` for ``plot_pc``.
+        gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when results are auto-computed.
+        adjust_labels (bool): If True, run ``adjust_text`` to reduce label overlap.
+        adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
+        text_positions (dict or None): Optional manual label positions; keys are pathway raw or display
+            strings, values are ``(x, y)`` data coordinates.
+        lock_text_positions (bool): If True, labels with entries in ``text_positions`` are not moved by
+            ``adjust_text``.
+        top_n_mode (str): Pathway selection strategy:
+
+            - ``"balanced"`` (default): approximately equal representation per PC within ``top_n``.
+            - ``"max_score"``: global rank by maximum score across the two PCs.
+
+            PC score is ``|NES| * -log10(FDR)`` (FDR clipped for stability), after the ``fdr_cutoff`` gate.
+        include_pathways (str, iterable, or None): Restrict to pathways matching these names (raw Term,
+            short pathway, or library).
+        exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+        return_df (bool): If True, also return a DataFrame with NES, FDR, and label positions.
+
+    Returns:
+        matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+    Note:
+        May attach ``payload["pathway_loadings"]`` for reuse in the same session.
+
+    TODO:
+        Add explicit FDR visual encoding on vector arrows (e.g., color or alpha by FDR).
+
+    Example:
+        Default overlay on PC1 vs PC2 with label de-cluttering and return coordinates for a second pass:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots()
+            ax, vec_df = scplt.plot_pca_gsea_pathway_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                adjust_text_kwargs={"expand": (1.3, 1.3)},
+                return_df=True,
+            )
+            ```
+
+        Reuse label positions from a previous run (e.g. after editing coordinates in ``vec_df``):
+            ```python
+            manual = {
+                row["pathway_raw"]: (row["text_x"], row["text_y"])
+                for _, row in vec_df.iterrows()
+            }
+            ax = scplt.plot_pca_gsea_pathway_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                text_positions=manual,
+                lock_text_positions=True,
+            )
+            ```
+    """
+    if len(plot_pc) != 2:
+        raise ValueError("`plot_pc` must contain exactly two PCs for pathway vectors.")
+    top_n = _validate_plot_top_n(top_n, what="pathways")
+
+    _, payload = _ensure_pca_gsea_payload(
+        pdata=pdata,
+        on=on,
+        key_added=key_added,
+        requested_pcs=plot_pc,
+        force=force,
+        gsea_kwargs=gsea_kwargs,
+    )
+    long_df, matrix_df, fdr_df, missing_pc_keys = _build_pca_gsea_tables(payload=payload, pcs=plot_pc)
+    pcx, pcy = f"PC{int(plot_pc[0])}", f"PC{int(plot_pc[1])}"
+    if missing_pc_keys:
+        raise ValueError(
+            f"Requested PCs missing from pca_gsea results: {missing_pc_keys}. "
+            f"Please run pca_gsea on these PCs (or set force=True)."
+        )
+
+    long_df, matrix_df, fdr_df = _apply_pathway_name_filters(
+        long_df=long_df,
+        matrix_df=matrix_df,
+        fdr_df=fdr_df,
+        include_pathways=include_pathways,
+        exclude_pathways=exclude_pathways,
+    )
+    matrix_df = _pathway_filter_by_fdr(
+        matrix_df=matrix_df[[pcx, pcy]], fdr_df=fdr_df[[pcx, pcy]], fdr_cutoff=fdr_cutoff
+    )
+    matrix_df = matrix_df.dropna(subset=[pcx, pcy], how="all")
+    if matrix_df.empty:
+        raise ValueError("No pathways available after filtering for pathway vector plot.")
+
+    score_df = _compute_pc_score_df(
+        matrix_df=matrix_df[[pcx, pcy]],
+        fdr_df=fdr_df[[pcx, pcy]],
+        fdr_cutoff=fdr_cutoff,
+    )
+    selected = _select_top_pathways(score_df=score_df, top_n=top_n, top_n_mode=top_n_mode)
+    matrix_df = matrix_df.loc[selected]
+
+    meta_pw = long_df.drop_duplicates("pathway_raw").set_index("pathway_raw")
+    short_by_raw = meta_pw["pathway"]
+    lib_by_raw = meta_pw["library"]
+
+    def _pathway_display_name(pathway_raw_key):
+        short = short_by_raw.get(pathway_raw_key, np.nan)
+        if pd.isna(short):
+            raw_s = str(pathway_raw_key)
+            short = raw_s.split("__", 1)[1] if "__" in raw_s else raw_s
+        return str(short)
+
+    # Cache derived pathway loading tables for downstream reuse.
+    payload["pathway_loadings"] = {"matrix": matrix_df.copy(), "fdr_qval": fdr_df.copy(), "long": long_df.copy()}
+
+    if show_samples:
+        if pca_kwargs is None:
+            pca_kwargs = {}
+        plot_pca(ax=ax, pdata=pdata, on=on, plot_pc=plot_pc, **pca_kwargs)
+    else:
+        adata = utils.get_adata(pdata, on)
+        if "pca" not in adata.uns or "variance_ratio" not in adata.uns["pca"]:
+            raise ValueError("PCA metadata not found. Run `.pca()` before plotting pathway vectors with `show_samples=False`.")
+        var = adata.uns["pca"]["variance_ratio"]
+        ax.set_xlabel(f"PC{plot_pc[0]} ({var[int(plot_pc[0]) - 1] * 100:.2f}%)")
+        ax.set_ylabel(f"PC{plot_pc[1]} ({var[int(plot_pc[1]) - 1] * 100:.2f}%)")
+        ax.axhline(0, color="lightgray", linewidth=0.8, zorder=0)
+        ax.axvline(0, color="lightgray", linewidth=0.8, zorder=0)
+        ax.set_aspect("equal", adjustable="datalim")
+
+    xspan = max(abs(v) for v in ax.get_xlim())
+    yspan = max(abs(v) for v in ax.get_ylim())
+    span = min(xspan, yspan)
+    coords = matrix_df[[pcx, pcy]].fillna(0.0).values
+    denom = np.max(np.abs(coords))
+    if denom == 0:
+        denom = 1.0
+    scale = float(arrow_scale) * span / denom
+
+    texts = []
+    text_rows = []
+    text_positions = text_positions or {}
+    for pathway, (vx, vy) in matrix_df[[pcx, pcy]].fillna(0.0).iterrows():
+        x_end = vx * scale
+        y_end = vy * scale
+        label_txt = _format_pathway_label(pathway) if title_case_labels else str(pathway)
+        pos = text_positions.get(str(pathway), text_positions.get(label_txt, None))
+        text_x, text_y = (x_end, y_end) if pos is None else (float(pos[0]), float(pos[1]))
+        ax.arrow(0, 0, x_end, y_end, color="black", alpha=0.7, head_width=0.02 * span, length_includes_head=True)
+        txt = ax.text(text_x, text_y, label_txt, fontsize=8, ha="left", va="bottom")
+        if not (lock_text_positions and pos is not None):
+            texts.append(txt)
+        text_rows.append({
+            "pathway_raw": str(pathway),
+            "pathway": label_txt,
+            "arrow_x": x_end,
+            "arrow_y": y_end,
+            "text_obj": txt,
+        })
+
+    if adjust_labels and len(texts) > 0:
+        # By default, do not draw connector lines from text to arrow tips.
+        adjust_cfg = {"expand": (1.6, 1.6), "arrowprops": None}
+        if adjust_text_kwargs:
+            adjust_cfg.update(adjust_text_kwargs)
+        adjust_text(texts, ax=ax, **adjust_cfg)
+
+    vector_df = matrix_df[[pcx, pcy]].copy().rename(columns={pcx: "nes_x", pcy: "nes_y"})
+    vector_df["pc_x"] = pcx
+    vector_df["pc_y"] = pcy
+    vector_df["fdr_x"] = fdr_df.loc[vector_df.index, pcx].values
+    vector_df["fdr_y"] = fdr_df.loc[vector_df.index, pcy].values
+    vector_df["vector_norm"] = np.sqrt(vector_df["nes_x"] ** 2 + vector_df["nes_y"] ** 2)
+    vector_df["pathway_raw"] = vector_df.index.astype(str)
+    vector_df["library"] = vector_df["pathway_raw"].map(lib_by_raw)
+    miss_lib = vector_df["library"].isna()
+    if miss_lib.any():
+        vector_df.loc[miss_lib, "library"] = vector_df.loc[miss_lib, "pathway_raw"].map(
+            lambda x: x.split("__", 1)[0] if "__" in str(x) else ""
+        )
+    disp_series = vector_df["pathway_raw"].map(_pathway_display_name)
+    if title_case_labels:
+        vector_df["pathway"] = disp_series.map(_format_pathway_label)
+    else:
+        vector_df["pathway"] = disp_series
+    vector_df = vector_df.reset_index(drop=True)[
+        ["pathway", "pathway_raw", "library", "pc_x", "pc_y", "nes_x", "nes_y", "fdr_x", "fdr_y", "vector_norm"]
+    ]
+    text_pos_df = pd.DataFrame(
+        [
+            {
+                "pathway_raw": row["pathway_raw"],
+                "pathway": row["pathway"],
+                "arrow_x": row["arrow_x"],
+                "arrow_y": row["arrow_y"],
+                "text_x": row["text_obj"].get_position()[0],
+                "text_y": row["text_obj"].get_position()[1],
+            }
+            for row in text_rows
+        ]
+    )
+    vector_df = vector_df.merge(text_pos_df, on=["pathway", "pathway_raw"], how="left")
+
+    ax.set_title(f"PCA pathway vectors ({pcx} vs {pcy})")
+    if return_df:
+        return ax, vector_df
+    return ax
+
+
+def plot_pca_protein_vectors(
+    ax,
+    pdata,
+    on="protein",
+    plot_pc=(1, 2),
+    gene_col="Genes",
+    top_n=20,
+    arrow_scale=0.25,
+    pca_kwargs=None,
+    show_samples=True,
+    title_case_labels=False,
+    adjust_labels=True,
+    adjust_text_kwargs=None,
+    text_positions=None,
+    lock_text_positions=False,
+    min_abs_loading_for_top_n=None,
+    top_n_mode="balanced",
+    include_genes=None,
+    exclude_genes=None,
+    return_df=False,
+):
+    """
+    Overlay protein PCA loadings as arrows in a two-dimensional sample PCA space.
+
+    Arrows use feature loadings from ``adata.uns['pca']['PCs']`` (from ``pAnnData.pca``), not GSEA NES.
+    Geometry matches ``plot_pca_gsea_pathway_vectors``: each arrow runs from the origin in the direction
+    ``(loading_on_PCx, loading_on_PCy)``, with length rescaled from the current axis limits for visibility.
+    Labels default to the ``gene_col`` column in ``.var`` when present, otherwise ``.var_names``.
+
+    Args:
+        ax (matplotlib.axes.Axes): Target axis (2D).
+        pdata (pAnnData): Input object.
+        on (str): Data level, ``"protein"`` or ``"peptide"``.
+        plot_pc (tuple or list of int): Exactly two 1-based PCs.
+        gene_col (str): Column in ``.var`` for display labels; missing column falls back to ``.var_names``.
+        top_n (int): Maximum proteins to show after ranking; must be >= 1 (required).
+        arrow_scale (float): Scale factor for arrow length relative to axis span.
+        pca_kwargs (dict or None): Forwarded to ``plot_pca`` when ``show_samples=True``.
+        show_samples (bool): If True, draw the sample PCA scatter first; if False, only axes and arrows.
+        title_case_labels (bool): If True, lightly format gene text (underscores to spaces, title case).
+        adjust_labels (bool): If True, run ``adjust_text`` to reduce overlap.
+        adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
+        text_positions (dict or None): Manual label positions keyed by gene or formatted label.
+        lock_text_positions (bool): If True, manual positions are excluded from ``adjust_text`` motion.
+        min_abs_loading_for_top_n (float or None): If set, ranking scores on a PC are zero when
+            ``|loading|`` is below this threshold on that PC.
+        top_n_mode (str): ``"balanced"`` or ``"max_score"`` (same selection logic as pathway vectors, using
+            absolute loadings instead of NES/FDR scores).
+        include_genes (str, iterable, or None): Keep only genes/features matching these strings.
+        exclude_genes (str, iterable, or None): Remove genes/features matching these strings.
+        return_df (bool): If True, return ``(ax, vector_df)`` with loadings and arrow/text coordinates.
+
+    Returns:
+        matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+    Example:
+        Top-loading genes on PC1 vs PC2 over the sample PCA scatter, returning arrow and text coordinates:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots()
+            ax, vec = scplt.plot_pca_protein_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                top_n=25,
+                return_df=True,
+            )
+            ```
+
+        Loading arrows only (no sample points) for a compact biplot-style panel:
+            ```python
+            fig, ax = plt.subplots()
+            scplt.plot_pca_protein_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                top_n=20,
+                show_samples=False,
+                adjust_labels=False,
+            )
+            ```
+    """
+    plot_pc = list(plot_pc)
+    if len(plot_pc) != 2:
+        raise ValueError("`plot_pc` must contain exactly two PCs for protein loading vectors.")
+    top_n = _validate_plot_top_n(top_n, what="proteins")
+
+    def _build_pca_protein_loading_matrix(adata, plot_pc, gene_col="Genes"):
+        """
+        Build a gene-by-PC matrix of PCA loadings (one row per gene after collapsing duplicate labels).
+
+        Duplicate resolution matches ``enrichment_functional_pca``: for each gene label, keep the feature
+        row with the largest Euclidean norm in the loading plane spanned by the two requested PCs.
+
+        Returns:
+            tuple: ``(matrix_df, feature_by_gene, pcx_name, pcy_name)``. Loading columns use labels such as
+            ``PC1`` and ``PC2`` matching the requested ``plot_pc`` values.
+        """
+        if "pca" not in adata.uns or "PCs" not in adata.uns["pca"]:
+            raise ValueError("PCA loadings not found. Run `.pca()` on this data layer first.")
+        PCs = adata.uns["pca"]["PCs"]
+        n_comp, n_feat = PCs.shape
+        if n_feat != adata.n_vars:
+            raise ValueError(
+                f"PCA loading matrix width ({n_feat}) does not match number of variables ({adata.n_vars})."
+            )
+        pc_a, pc_b = int(plot_pc[0]), int(plot_pc[1])
+        for pc in (pc_a, pc_b):
+            if pc < 1 or pc > n_comp:
+                raise ValueError(
+                    f"Invalid PC {pc}: available PCs are 1..{n_comp}."
+                )
+        col_a, col_b = f"PC{pc_a}", f"PC{pc_b}"
+        lx = PCs[pc_a - 1, :]
+        ly = PCs[pc_b - 1, :]
+        if gene_col in adata.var.columns:
+            genes = adata.var[gene_col].astype(str)
+        else:
+            genes = pd.Series(adata.var_names.astype(str), index=adata.var_names)
+        df = pd.DataFrame(
+            {
+                "feature": adata.var_names.astype(str),
+                "gene": genes.values,
+                col_a: lx,
+                col_b: ly,
+            },
+            index=adata.var_names.astype(str),
+        )
+        df = df.dropna(subset=["gene"]).copy()
+        df["gene"] = df["gene"].astype(str)
+        df = df[df["gene"].str.len() > 0]
+        if df.empty:
+            raise ValueError("No genes with non-empty labels after resolving `.var` for PCA protein vectors.")
+        plane_norm = np.sqrt(df[col_a].astype(float) ** 2 + df[col_b].astype(float) ** 2)
+        df["_plane_norm"] = plane_norm
+        pick = df.groupby("gene", sort=False)["_plane_norm"].idxmax()
+        df = df.loc[pick].drop(columns="_plane_norm")
+        matrix_df = df.set_index("gene")[[col_a, col_b]]
+        feature_by_gene = df.set_index("gene")["feature"]
+        return matrix_df, feature_by_gene, col_a, col_b
+
+    def _apply_gene_name_filters(matrix_df, feature_by_gene, include_genes=None, exclude_genes=None):
+        """
+        Filter protein rows by user include/exclude lists (gene label or ``.var_names`` feature id).
+
+        Returns:
+            tuple: Filtered ``(matrix_df, feature_by_gene)``.
+        """
+        if include_genes is None and exclude_genes is None:
+            return matrix_df, feature_by_gene
+
+        def _to_set(x):
+            if x is None:
+                return None
+            if isinstance(x, str):
+                return {x}
+            return {str(v) for v in x}
+
+        include_set = _to_set(include_genes)
+        exclude_set = _to_set(exclude_genes)
+
+        selected = pd.Series(True, index=matrix_df.index)
+        feat = feature_by_gene.reindex(matrix_df.index)
+        if include_set:
+            selected &= matrix_df.index.to_series().isin(include_set) | feat.astype(str).isin(include_set)
+        if exclude_set:
+            selected &= ~(matrix_df.index.to_series().isin(exclude_set) | feat.astype(str).isin(exclude_set))
+
+        keep = matrix_df.index[selected]
+        matrix_df = matrix_df.loc[keep]
+        feature_by_gene = feature_by_gene.reindex(matrix_df.index)
+        return matrix_df, feature_by_gene
+
+    def _compute_protein_pc_score_df(matrix_df, min_abs_loading_for_top_n=None):
+        """
+        Compute per-PC scores from absolute loadings for ranking proteins.
+
+        Score on each PC is ``|loading|``. If ``min_abs_loading_for_top_n`` is set, entries below that
+        threshold are zeroed on that PC (similar in role to FDR gating for pathway ranking).
+        """
+        score_df = matrix_df.abs()
+        if min_abs_loading_for_top_n is not None:
+            m = float(min_abs_loading_for_top_n)
+            score_df = score_df.where(score_df >= m, 0.0)
+        return score_df.fillna(0.0)
+
+    adata = utils.get_adata(pdata, on)
+    matrix_df, feature_by_gene, pcx, pcy = _build_pca_protein_loading_matrix(
+        adata, plot_pc, gene_col=gene_col
+    )
+    matrix_df, feature_by_gene = _apply_gene_name_filters(
+        matrix_df,
+        feature_by_gene,
+        include_genes=include_genes,
+        exclude_genes=exclude_genes,
+    )
+    if matrix_df.empty:
+        raise ValueError("No proteins available after gene name filters.")
+
+    score_df = _compute_protein_pc_score_df(matrix_df[[pcx, pcy]], min_abs_loading_for_top_n)
+    selected = _select_top_pathways(score_df=score_df, top_n=top_n, top_n_mode=top_n_mode)
+    matrix_df = matrix_df.loc[selected]
+    feature_by_gene = feature_by_gene.reindex(matrix_df.index)
+
+    if show_samples:
+        if pca_kwargs is None:
+            pca_kwargs = {}
+        plot_pca(ax=ax, pdata=pdata, on=on, plot_pc=plot_pc, **pca_kwargs)
+    else:
+        if "pca" not in adata.uns or "variance_ratio" not in adata.uns["pca"]:
+            raise ValueError(
+                "PCA metadata not found. Run `.pca()` before plotting protein vectors with `show_samples=False`."
+            )
+        var = adata.uns["pca"]["variance_ratio"]
+        ax.set_xlabel(f"PC{plot_pc[0]} ({var[int(plot_pc[0]) - 1] * 100:.2f}%)")
+        ax.set_ylabel(f"PC{plot_pc[1]} ({var[int(plot_pc[1]) - 1] * 100:.2f}%)")
+        ax.axhline(0, color="lightgray", linewidth=0.8, zorder=0)
+        ax.axvline(0, color="lightgray", linewidth=0.8, zorder=0)
+        ax.set_aspect("equal", adjustable="datalim")
+
+    xspan = max(abs(v) for v in ax.get_xlim())
+    yspan = max(abs(v) for v in ax.get_ylim())
+    span = min(xspan, yspan)
+    coords = matrix_df[[pcx, pcy]].fillna(0.0).values
+    denom = np.max(np.abs(coords))
+    if denom == 0:
+        denom = 1.0
+    scale = float(arrow_scale) * span / denom
+
+    texts = []
+    text_rows = []
+    text_positions = text_positions or {}
+    for gene, row in matrix_df[[pcx, pcy]].fillna(0.0).iterrows():
+        vx, vy = float(row[pcx]), float(row[pcy])
+        x_end = vx * scale
+        y_end = vy * scale
+        label_txt = str(gene)
+        if title_case_labels:
+            label_txt = label_txt.replace("_", " ").title()
+        pos = text_positions.get(str(gene), text_positions.get(label_txt, None))
+        text_x, text_y = (x_end, y_end) if pos is None else (float(pos[0]), float(pos[1]))
+        ax.arrow(
+            0,
+            0,
+            x_end,
+            y_end,
+            color="black",
+            alpha=0.7,
+            head_width=0.02 * span,
+            length_includes_head=True,
+        )
+        txt = ax.text(text_x, text_y, label_txt, fontsize=8, ha="left", va="bottom")
+        if not (lock_text_positions and pos is not None):
+            texts.append(txt)
+        text_rows.append(
+            {
+                "gene": str(gene),
+                "arrow_x": x_end,
+                "arrow_y": y_end,
+                "text_obj": txt,
+            }
+        )
+
+    if adjust_labels and len(texts) > 0:
+        adjust_cfg = {"expand": (1.6, 1.6), "arrowprops": None}
+        if adjust_text_kwargs:
+            adjust_cfg.update(adjust_text_kwargs)
+        adjust_text(texts, ax=ax, **adjust_cfg)
+
+    vector_df = matrix_df[[pcx, pcy]].copy().rename(columns={pcx: "load_x", pcy: "load_y"})
+    vector_df["pc_x"] = pcx
+    vector_df["pc_y"] = pcy
+    vector_df["feature"] = feature_by_gene.reindex(matrix_df.index).astype(str).values
+    vector_df["vector_norm"] = np.sqrt(vector_df["load_x"] ** 2 + vector_df["load_y"] ** 2)
+    vector_df = vector_df.reset_index()
+    idx_col = vector_df.columns[0]
+    if idx_col != "gene":
+        vector_df = vector_df.rename(columns={idx_col: "gene"})
+
+    text_pos_df = pd.DataFrame(
+        [
+            {
+                "gene": row["gene"],
+                "arrow_x": row["arrow_x"],
+                "arrow_y": row["arrow_y"],
+                "text_x": row["text_obj"].get_position()[0],
+                "text_y": row["text_obj"].get_position()[1],
+            }
+            for row in text_rows
+        ]
+    )
+    vector_df = vector_df.merge(text_pos_df, on="gene", how="left")
+    vector_df = vector_df[
+        ["gene", "feature", "pc_x", "pc_y", "load_x", "load_y", "vector_norm", "arrow_x", "arrow_y", "text_x", "text_y"]
+    ]
+
+    ax.set_title(f"PCA protein loading vectors ({pcx} vs {pcy})")
+    if return_df:
+        return ax, vector_df
+    return ax
+
+def plot_pca_gsea_bubble(
+    ax,
+    pdata,
+    on="protein",
+    key_added="pca_gsea",
+    pcs=None,
+    top_n=20,
+    fdr_cutoff=0.1,
+    size_scale=120.0,
+    cmap="coolwarm",
+    title_case_labels=True,
+    force=False,
+    gsea_kwargs=None,
+    top_n_mode="balanced",
+    include_pathways=None,
+    exclude_pathways=None,
+    return_df=False,
+):
+    """
+    Plot PCA-GSEA results as a bubble chart (principal component versus pathway).
+
+    Bubble color encodes NES; bubble area reflects significance (``-log10(FDR)``). Rows and columns
+    are ordered by pathway and PC. If ``pcs`` is omitted, all PCs present in stored results are used.
+
+    Args:
+        ax (matplotlib.axes.Axes): Target axis.
+        pdata (pAnnData): Input object.
+        on (str): Data level, ``"protein"`` or ``"peptide"``.
+        key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+        pcs (list of int or None): 1-based PCs to include; ``None`` uses every PC in stored results.
+        top_n (int): Cap on distinct pathways after ranking; must be >= 1 (required).
+        fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``):
+            eligibility on at least one PC plus ``top_n`` ranking gate. ``None`` disables both.
+        size_scale (float): Multiplier for bubble area from ``-log10(FDR)``.
+        cmap (str or Colormap): Colormap for NES-centered coloring.
+        title_case_labels (bool): If True, format pathway tick labels for display.
+        force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
+        gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when auto-computing results.
+        top_n_mode (str): ``"balanced"`` or ``"max_score"`` (see ``plot_pca_gsea_pathway_vectors``).
+        include_pathways (str, iterable, or None): Keep only pathways matching these names.
+        exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+        return_df (bool): If True, return ``(ax, bubble_df)`` with plot coordinates and sizes.
+
+    Returns:
+        matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+    Example:
+        Bubble chart for the first three PCs, top 25 pathways by ranking, and return the table used for the plot:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(6, 8))
+            ax, df = scplt.plot_pca_gsea_bubble(
+                ax,
+                pdata,
+                pcs=[1, 2, 3],
+                top_n=25,
+                return_df=True,
+            )
+            ```
+
+        Stricter FDR cutoff (0.05) and title-case pathway labels on the y-axis:
+            ```python
+            fig, ax = plt.subplots(figsize=(5, 9))
+            scplt.plot_pca_gsea_bubble(
+                ax,
+                pdata,
+                pcs=[1, 2],
+                top_n=30,
+                fdr_cutoff=0.05,
+                title_case_labels=True,
+            )
+            ```
+    """
+    top_n = _validate_plot_top_n(top_n, what="pathways")
+    requested_pcs = pcs
+    if requested_pcs is None:
+        adata = utils.get_adata(pdata, on)
+        if key_added in adata.uns and "results" in adata.uns[key_added]:
+            requested_pcs = [int(str(k).replace("PC", "")) for k in adata.uns[key_added]["results"].keys()]
+    _, payload = _ensure_pca_gsea_payload(
+        pdata=pdata,
+        on=on,
+        key_added=key_added,
+        requested_pcs=requested_pcs,
+        force=force,
+        gsea_kwargs=gsea_kwargs,
+    )
+    long_df, matrix_df, fdr_df, missing_pc_keys = _build_pca_gsea_tables(payload=payload, pcs=pcs)
+    if missing_pc_keys:
+        print(
+            f"{utils.format_log_prefix('warn')} Requested PCs missing from existing pca_gsea results: {missing_pc_keys}. "
+            f"Showing NaN columns for unrun PCs. Rerun pca_gsea on these PCs (or set force=True)."
+        )
+
+    long_df, matrix_df, fdr_df = _apply_pathway_name_filters(
+        long_df=long_df,
+        matrix_df=matrix_df,
+        fdr_df=fdr_df,
+        include_pathways=include_pathways,
+        exclude_pathways=exclude_pathways,
+    )
+    matrix_df = _pathway_filter_by_fdr(matrix_df=matrix_df, fdr_df=fdr_df, fdr_cutoff=fdr_cutoff)
+    if matrix_df.empty:
+        raise ValueError("No pathways available after filtering for bubble plot.")
+    sel_pathways = matrix_df.index.tolist()
+    long_df = long_df[long_df["pathway_raw"].isin(sel_pathways)].copy()
+
+    score_df = _compute_pc_score_df(
+        matrix_df=matrix_df,
+        fdr_df=fdr_df.reindex(index=matrix_df.index, columns=matrix_df.columns),
+        fdr_cutoff=fdr_cutoff,
+    )
+    sel = _select_top_pathways(score_df=score_df, top_n=top_n, top_n_mode=top_n_mode)
+    long_df = long_df[long_df["pathway_raw"].isin(sel)].copy()
+
+    pathway_order = (
+        long_df.assign(abs_nes=long_df["NES"].abs())
+        .groupby("pathway_raw")["abs_nes"]
+        .max()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+    pc_order = sorted(long_df["pc"].unique(), key=lambda x: int(str(x).replace("PC", "")))
+    long_df["pc_i"] = long_df["pc"].map({pc: i for i, pc in enumerate(pc_order)})
+    long_df["pathway_i"] = long_df["pathway_raw"].map({p: i for i, p in enumerate(pathway_order)})
+
+    fdr_safe = long_df["FDR q-val"].fillna(1.0).clip(lower=1e-300, upper=1.0)
+    bubble_size = (-np.log10(fdr_safe)) * float(size_scale)
+    norm = mcolors.TwoSlopeNorm(vcenter=0)
+    scatter = ax.scatter(
+        long_df["pc_i"],
+        long_df["pathway_i"],
+        s=bubble_size,
+        c=long_df["NES"],
+        cmap=cmap,
+        norm=norm,
+        alpha=0.85,
+        edgecolors="black",
+        linewidths=0.3,
+    )
+
+    ax.set_xticks(np.arange(len(pc_order)))
+    ax.set_xticklabels(pc_order)
+    ax.set_yticks(np.arange(len(pathway_order)))
+    if title_case_labels:
+        ax.set_yticklabels([_format_pathway_label(x) for x in pathway_order])
+    else:
+        ax.set_yticklabels([str(x).split("__", 1)[1] if "__" in str(x) else str(x) for x in pathway_order])
+    ax.set_xlabel("Principal Component")
+    ax.set_ylabel("Pathway")
+    ax.set_title("PCA-GSEA bubble plot")
+    plt.colorbar(scatter, ax=ax, label="NES")
+
+    # Bubble size legend for -log10(FDR q-val)
+    fdr_reference = np.array([0.1, 0.05, 0.01])
+    legend_sizes = (-np.log10(fdr_reference.clip(min=1e-300))) * float(size_scale)
+    handles = [
+        ax.scatter([], [], s=s, facecolors="none", edgecolors="black", linewidths=0.6, label=f"-log10(FDR)={-np.log10(f):.1f}")
+        for s, f in zip(legend_sizes, fdr_reference)
+    ]
+    ax.legend(handles=handles, title="Bubble size", loc="upper left", bbox_to_anchor=(1.02, 1.0), frameon=True)
+
+    bubble_df = long_df.copy()
+    if title_case_labels:
+        bubble_df["pathway"] = bubble_df["pathway"].map(_format_pathway_label)
+    bubble_df["neg_log10_fdr"] = -np.log10(fdr_safe.values)
+    bubble_df["bubble_size"] = bubble_size.values
+    bubble_df = bubble_df[
+        ["pathway", "pathway_raw", "library", "pc", "NES", "FDR q-val", "neg_log10_fdr", "bubble_size", "pc_i", "pathway_i"]
+    ].rename(columns={"pc": "PC"})
+    if return_df:
+        return ax, bubble_df
+    return ax
+
+def plot_pca_gsea_heatmap(
+    ax,
+    pdata,
+    on="protein",
+    key_added="pca_gsea",
+    pcs=None,
+    top_n=30,
+    fdr_cutoff=0.1,
+    cmap="coolwarm",
+    title_case_labels=True,
+    force=False,
+    gsea_kwargs=None,
+    top_n_mode="balanced",
+    include_pathways=None,
+    exclude_pathways=None,
+    return_df=False,
+):
+    """
+    Plot a pathway-by-principal-component heatmap of PCA-GSEA NES values.
+
+    Cell color is NES; optional ``top_n`` trimming uses the same FDR-aware scoring as the bubble plot.
+    Missing PCs in stored results produce NaN columns and a warning.
+
+    Args:
+        ax (matplotlib.axes.Axes): Target axis.
+        pdata (pAnnData): Input object.
+        on (str): Data level, ``"protein"`` or ``"peptide"``.
+        key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+        pcs (list of int or None): 1-based PCs as columns; ``None`` uses all PCs in stored results.
+        top_n (int): Maximum pathways to retain after ranking; must be >= 1 (required).
+        fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``).
+        cmap (str or Colormap): Heatmap colormap (diverging around zero is typical).
+        title_case_labels (bool): If True, format pathway labels on the axis.
+        force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
+        gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when auto-computing results.
+        top_n_mode (str): ``"balanced"`` or ``"max_score"``.
+        include_pathways (str, iterable, or None): Keep only pathways matching these names.
+        exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+        return_df (bool): If True, return ``(ax, heatmap_df)`` with the NES matrix used for plotting
+            (pathway index may be formatted when ``title_case_labels=True``).
+
+    Returns:
+        matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+    Example:
+        Heatmap of NES for four PCs and the 40 top-ranked pathways:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(5, 10))
+            scplt.plot_pca_gsea_heatmap(ax, pdata, pcs=[1, 2, 3, 4], top_n=40)
+            ```
+
+        Diverging colormap with formatted pathway names on rows:
+            ```python
+            fig, ax = plt.subplots(figsize=(4, 12))
+            scplt.plot_pca_gsea_heatmap(
+                ax,
+                pdata,
+                pcs=[1, 2, 3],
+                top_n=50,
+                cmap="RdBu_r",
+                title_case_labels=True,
+            )
+            ```
+    """
+    top_n = _validate_plot_top_n(top_n, what="pathways")
+    requested_pcs = pcs
+    if requested_pcs is None:
+        adata = utils.get_adata(pdata, on)
+        if key_added in adata.uns and "results" in adata.uns[key_added]:
+            requested_pcs = [int(str(k).replace("PC", "")) for k in adata.uns[key_added]["results"].keys()]
+    _, payload = _ensure_pca_gsea_payload(
+        pdata=pdata,
+        on=on,
+        key_added=key_added,
+        requested_pcs=requested_pcs,
+        force=force,
+        gsea_kwargs=gsea_kwargs,
+    )
+    long_df, matrix_df, fdr_df, missing_pc_keys = _build_pca_gsea_tables(payload=payload, pcs=pcs)
+    if missing_pc_keys:
+        print(
+            f"{utils.format_log_prefix('warn')} Requested PCs missing from existing pca_gsea results: {missing_pc_keys}. "
+            f"Showing NaN columns for unrun PCs. Rerun pca_gsea on these PCs (or set force=True)."
+        )
+
+    long_df, matrix_df, fdr_df = _apply_pathway_name_filters(
+        long_df=long_df,
+        matrix_df=matrix_df,
+        fdr_df=fdr_df,
+        include_pathways=include_pathways,
+        exclude_pathways=exclude_pathways,
+    )
+    matrix_df = _pathway_filter_by_fdr(matrix_df=matrix_df, fdr_df=fdr_df, fdr_cutoff=fdr_cutoff)
+    matrix_df = matrix_df.dropna(how="all")
+    if matrix_df.empty:
+        raise ValueError("No pathways available after filtering for heatmap.")
+
+    score_df = _compute_pc_score_df(
+        matrix_df=matrix_df,
+        fdr_df=fdr_df.reindex(index=matrix_df.index, columns=matrix_df.columns),
+        fdr_cutoff=fdr_cutoff,
+    )
+    selected = _select_top_pathways(score_df=score_df, top_n=top_n, top_n_mode=top_n_mode)
+    matrix_df = matrix_df.loc[selected]
+
+    if title_case_labels:
+        matrix_plot = matrix_df.copy()
+        matrix_plot.index = [_format_pathway_label(x) for x in matrix_plot.index]
+    else:
+        matrix_plot = matrix_df
+
+    payload["pathway_loadings"] = {"matrix": matrix_df.copy(), "fdr_qval": fdr_df.copy(), "long": long_df.copy()}
+    sns.heatmap(matrix_plot, ax=ax, cmap=cmap, center=0, linewidths=0.2, cbar_kws={"label": "NES"})
+    ax.set_xlabel("Principal Component")
+    ax.set_ylabel("Pathway")
+    ax.set_title("PCA-GSEA pathway x PC heatmap")
+    if return_df:
+        return ax, matrix_plot.copy()
+    return ax
+
 def plot_clustermap(ax, pdata, on='prot', classes=None, layer="X", x_label='accession', namelist=None, lut=None, log2=True,
                     cmap="coolwarm", figsize=(6, 10), force=False, impute=None, order=None, **kwargs):
     """

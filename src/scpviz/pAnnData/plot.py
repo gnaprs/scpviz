@@ -338,3 +338,275 @@ class PlotMixin:
             box_kwargs=box_kwargs, hline_kwargs=hline_kwargs, bar_kwargs=bar_kwargs, bar_error=bar_error,
             violin_kwargs=violin_kwargs, text_kwargs=text_kwargs, strip_kwargs=strip_kwargs,
         )
+
+    def plot_pca_gsea_pathway_vectors(
+        self,
+        ax,
+        on="protein",
+        key_added="pca_gsea",
+        plot_pc=[1, 2],
+        top_n=12,
+        fdr_cutoff=0.1,
+        arrow_scale=0.25,
+        pca_kwargs=None,
+        show_samples=True,
+        title_case_labels=True,
+        force=False,
+        gsea_kwargs=None,
+        adjust_labels=True,
+        adjust_text_kwargs=None,
+        text_positions=None,
+        lock_text_positions=False,
+        top_n_mode="balanced",
+        include_pathways=None,
+        exclude_pathways=None,
+        return_df=False,
+    ):
+        """
+        Wrapper for `scpviz.plotting.plot_pca_gsea_pathway_vectors`.
+
+        Draw PCA-GSEA pathways as arrows on a PCA scatter (or on empty PCA axes). NES on two PCs sets
+        each arrow direction; length is rescaled for display.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axis (2D).
+            on (str): ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results.
+            plot_pc (list of int): Two 1-based PCs.
+            top_n (int): Maximum pathways after ranking; must be >= 1.
+            fdr_cutoff (float or None): FDR threshold for eligibility and ``top_n`` ranking (default ``0.1``);
+                ``None`` disables. See ``scpviz.plotting.plot_pca_gsea_pathway_vectors``.
+            arrow_scale (float): Rescales arrow length relative to the axis span.
+            pca_kwargs (dict or None): Passed to ``plot_pca`` when ``show_samples=True``.
+            show_samples (bool): Whether to plot the sample PCA embedding first.
+            title_case_labels (bool): Format pathway labels for display.
+            force (bool): Re-run ``pca_gsea`` when True.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` if it is run automatically.
+            adjust_labels (bool): Run ``adjust_text`` when True.
+            adjust_text_kwargs (dict or None): Extra kwargs for ``adjust_text``.
+            text_positions (dict or None): Optional fixed label coordinates.
+            lock_text_positions (bool): Keep manual positions fixed under ``adjust_text``.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
+            include_pathways (str, iterable, or None): Restrict to these pathway names.
+            exclude_pathways (str, iterable, or None): Drop these pathway names.
+            return_df (bool): If True, return ``(ax, vector_df)``.
+
+        Returns:
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+        """
+        return plotting.plot_pca_gsea_pathway_vectors(
+            ax=ax,
+            pdata=self,
+            on=on,
+            key_added=key_added,
+            plot_pc=plot_pc,
+            top_n=top_n,
+            fdr_cutoff=fdr_cutoff,
+            arrow_scale=arrow_scale,
+            pca_kwargs=pca_kwargs,
+            show_samples=show_samples,
+            title_case_labels=title_case_labels,
+            force=force,
+            gsea_kwargs=gsea_kwargs,
+            adjust_labels=adjust_labels,
+            adjust_text_kwargs=adjust_text_kwargs,
+            text_positions=text_positions,
+            lock_text_positions=lock_text_positions,
+            top_n_mode=top_n_mode,
+            include_pathways=include_pathways,
+            exclude_pathways=exclude_pathways,
+            return_df=return_df,
+        )
+
+    def plot_pca_protein_vectors(
+        self,
+        ax,
+        on="protein",
+        plot_pc=(1, 2),
+        gene_col="Genes",
+        top_n=20,
+        arrow_scale=0.25,
+        pca_kwargs=None,
+        show_samples=True,
+        title_case_labels=False,
+        adjust_labels=True,
+        adjust_text_kwargs=None,
+        text_positions=None,
+        lock_text_positions=False,
+        min_abs_loading_for_top_n=None,
+        top_n_mode="balanced",
+        include_genes=None,
+        exclude_genes=None,
+        return_df=False,
+    ):
+        """
+        Wrapper for `scpviz.plotting.plot_pca_protein_vectors`.
+
+        Draw PCA feature loadings as arrows on a PCA scatter. Uses ``adata.uns['pca']['PCs']`` from
+        ``.pca()``; arrows are scaled for visibility like the PCA-GSEA pathway vector plot.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axis (2D).
+            on (str): ``"protein"`` or ``"peptide"``.
+            plot_pc (tuple or list of int): Two 1-based PCs.
+            gene_col (str): ``.var`` column for labels; falls back to ``.var_names`` if missing.
+            top_n (int): Maximum proteins after ranking; must be >= 1.
+            arrow_scale (float): Rescales arrow length relative to the axis span.
+            pca_kwargs (dict or None): Passed to ``plot_pca`` when ``show_samples=True``.
+            show_samples (bool): Whether to plot the sample PCA embedding first.
+            title_case_labels (bool): Light formatting of gene text when True.
+            adjust_labels (bool): Run ``adjust_text`` when True.
+            adjust_text_kwargs (dict or None): Extra kwargs for ``adjust_text``.
+            text_positions (dict or None): Optional fixed label coordinates.
+            lock_text_positions (bool): Keep manual positions fixed under ``adjust_text``.
+            min_abs_loading_for_top_n (float or None): Minimum |loading| gate for ranking per PC.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
+            include_genes (str, iterable, or None): Restrict to these gene or feature ids.
+            exclude_genes (str, iterable, or None): Drop these gene or feature ids.
+            return_df (bool): If True, return ``(ax, vector_df)``.
+
+        Returns:
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+        """
+        return plotting.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=self,
+            on=on,
+            plot_pc=plot_pc,
+            gene_col=gene_col,
+            top_n=top_n,
+            arrow_scale=arrow_scale,
+            pca_kwargs=pca_kwargs,
+            show_samples=show_samples,
+            title_case_labels=title_case_labels,
+            adjust_labels=adjust_labels,
+            adjust_text_kwargs=adjust_text_kwargs,
+            text_positions=text_positions,
+            lock_text_positions=lock_text_positions,
+            min_abs_loading_for_top_n=min_abs_loading_for_top_n,
+            top_n_mode=top_n_mode,
+            include_genes=include_genes,
+            exclude_genes=exclude_genes,
+            return_df=return_df,
+        )
+
+    def plot_pca_gsea_bubble(
+        self,
+        ax,
+        on="protein",
+        key_added="pca_gsea",
+        pcs=None,
+        top_n=20,
+        fdr_cutoff=0.1,
+        size_scale=120.0,
+        cmap="coolwarm",
+        title_case_labels=True,
+        force=False,
+        gsea_kwargs=None,
+        top_n_mode="balanced",
+        include_pathways=None,
+        exclude_pathways=None,
+        return_df=False,
+    ):
+        """
+        Wrapper for `scpviz.plotting.plot_pca_gsea_bubble`.
+
+        Bubble chart of pathways by principal component: color is NES, size reflects FDR.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axis.
+            on (str): ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results.
+            pcs (list of int or None): PCs to show; ``None`` uses all stored PCs.
+            top_n (int): Cap on pathways after ranking; must be >= 1.
+            fdr_cutoff (float or None): FDR threshold (default ``0.1``); see plotting function docstring.
+            size_scale (float): Scales bubble area from ``-log10(FDR)``.
+            cmap (str or Colormap): Colormap for NES.
+            title_case_labels (bool): Format pathway tick labels.
+            force (bool): Re-run ``pca_gsea`` when True.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` if run automatically.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
+            include_pathways (str, iterable, or None): Restrict to these names.
+            exclude_pathways (str, iterable, or None): Drop these names.
+            return_df (bool): If True, return ``(ax, bubble_df)``.
+
+        Returns:
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+        """
+        return plotting.plot_pca_gsea_bubble(
+            ax=ax,
+            pdata=self,
+            on=on,
+            key_added=key_added,
+            pcs=pcs,
+            top_n=top_n,
+            fdr_cutoff=fdr_cutoff,
+            size_scale=size_scale,
+            cmap=cmap,
+            title_case_labels=title_case_labels,
+            force=force,
+            gsea_kwargs=gsea_kwargs,
+            top_n_mode=top_n_mode,
+            include_pathways=include_pathways,
+            exclude_pathways=exclude_pathways,
+            return_df=return_df,
+        )
+
+    def plot_pca_gsea_heatmap(
+        self,
+        ax,
+        on="protein",
+        key_added="pca_gsea",
+        pcs=None,
+        top_n=30,
+        fdr_cutoff=0.1,
+        cmap="coolwarm",
+        title_case_labels=True,
+        force=False,
+        gsea_kwargs=None,
+        top_n_mode="balanced",
+        include_pathways=None,
+        exclude_pathways=None,
+        return_df=False,
+    ):
+        """
+        Wrapper for `scpviz.plotting.plot_pca_gsea_heatmap`.
+
+        Heatmap of NES values (pathways × principal components) from PCA-GSEA results.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axis.
+            on (str): ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results.
+            pcs (list of int or None): PCs as columns; ``None`` uses all stored PCs.
+            top_n (int): Cap on pathways after ranking; must be >= 1.
+            fdr_cutoff (float or None): FDR threshold (default ``0.1``); see plotting function docstring.
+            cmap (str or Colormap): Heatmap colormap.
+            title_case_labels (bool): Format pathway labels on the axis.
+            force (bool): Re-run ``pca_gsea`` when True.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` if run automatically.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
+            include_pathways (str, iterable, or None): Restrict to these names.
+            exclude_pathways (str, iterable, or None): Drop these names.
+            return_df (bool): If True, return ``(ax, heatmap_df)`` (see plotting function docstring).
+
+        Returns:
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+        """
+        return plotting.plot_pca_gsea_heatmap(
+            ax=ax,
+            pdata=self,
+            on=on,
+            key_added=key_added,
+            pcs=pcs,
+            top_n=top_n,
+            fdr_cutoff=fdr_cutoff,
+            cmap=cmap,
+            title_case_labels=title_case_labels,
+            force=force,
+            gsea_kwargs=gsea_kwargs,
+            top_n_mode=top_n_mode,
+            include_pathways=include_pathways,
+            exclude_pathways=exclude_pathways,
+            return_df=return_df,
+        )
