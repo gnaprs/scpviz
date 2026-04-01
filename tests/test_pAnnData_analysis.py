@@ -992,6 +992,14 @@ class DummyPrerankResult:
             "FDR q-val": [0.01, 0.05],
         })
 
+class DummySsGSEAResult:
+    def __init__(self, sample_names):
+        rows = []
+        for s in sample_names:
+            rows.append({"Name": s, "Term": "PATHWAY_A", "ES": 0.8})
+            rows.append({"Name": s, "Term": "PATHWAY_B", "ES": -0.3})
+        self.res2d = pd.DataFrame(rows)
+
 @pytest.mark.parametrize("on", ["protein", "peptide"])
 def test_pca_gsea_default_storage(monkeypatch, pdata, on):
     if on == "protein":
@@ -1141,3 +1149,92 @@ def test_pca_gsea_duplicate_genes_collapsed_by_max(monkeypatch, pdata, on):
     assert "DUP" in captured["rnk"].index
     assert captured["rnk"]["DUP"] == 0.9
     assert captured["rnk"].index.tolist().count("DUP") == 1
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_ssgsea_default_storage(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+    adata.var["Genes"] = [f"GENE{i}" for i in range(adata.n_vars)]
+
+    def mock_ssgsea(*args, **kwargs):
+        return DummySsGSEAResult(sample_names=adata.obs_names.astype(str))
+
+    monkeypatch.setattr("gseapy.ssgsea", mock_ssgsea)
+
+    pdata.ssgsea(on=on)
+
+    assert "X_ssgsea" in adata.obsm
+    assert "ssgsea" in adata.uns
+    assert "params" in adata.uns["ssgsea"]
+    assert "long_results" in adata.uns["ssgsea"]
+    assert "pathway_names" in adata.uns["ssgsea"]
+
+    n = adata.n_obs
+    assert adata.obsm["X_ssgsea"].shape[0] == n
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_ssgsea_missing_gene_column_hard_stop(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+    adata.var.drop(columns=["Genes"], errors="ignore", inplace=True)
+    adata.obsm.pop("X_ssgsea", None)
+    adata.uns.pop("ssgsea", None)
+
+    called = {"ssgsea": False}
+
+    def mock_ssgsea(*args, **kwargs):
+        called["ssgsea"] = True
+        return DummySsGSEAResult(sample_names=adata.obs_names.astype(str))
+
+    monkeypatch.setattr("gseapy.ssgsea", mock_ssgsea)
+
+    pdata.ssgsea(on=on)
+
+    assert "X_ssgsea" not in adata.obsm
+    assert "ssgsea" not in adata.uns
+    assert called["ssgsea"] is False
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_ssgsea_duplicate_genes_collapsed_by_mean(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    # Create duplicate genes
+    genes = [f"GENE{i}" for i in range(adata.n_vars)]
+    if adata.n_vars >= 3:
+        genes[0] = "DUP"
+        genes[1] = "DUP"
+    adata.var["Genes"] = genes
+
+    # Force known values in first two duplicated rows
+    X = adata.X.toarray().copy()
+    X[:, 0] = 2.0
+    X[:, 1] = 6.0
+    adata.X = X
+
+    captured = {}
+
+    def mock_ssgsea(*args, **kwargs):
+        data = kwargs["data"]
+        captured["data"] = data.copy()
+        return DummySsGSEAResult(sample_names=adata.obs_names.astype(str))
+
+    monkeypatch.setattr("gseapy.ssgsea", mock_ssgsea)
+
+    pdata.ssgsea(on=on)
+
+    assert "DUP" in captured["data"].index
+    np.testing.assert_allclose(captured["data"].loc["DUP"].values, np.full(adata.n_obs, 4.0))
+    assert captured["data"].index.tolist().count("DUP") == 1
