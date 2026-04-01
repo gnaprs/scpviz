@@ -1838,79 +1838,6 @@ def resolve_marker_shapes(adata, marker_shape, shape_cmap="default"):
 
     return markers, shape_legend, shape_map
 
-def _build_scatter_kwargs(
-    *,
-    base_kwargs,
-    color_key,
-    face_plot,
-    face_all,
-    face_cmap_resolved,
-    edge_key,
-    edge_plot,
-    edge_all,
-    edge_lw,
-    n
-):
-    """
-    Build kwargs for a single ax.scatter call (already subset-aligned).
-
-    Returns:
-        dict: kwargs for ax.scatter
-    """
-    kw = dict(base_kwargs)
-
-    # Face
-    if color_key is None:
-        kw.setdefault("c", ["grey"] * n)
-        kw.pop("cmap", None)
-    else:
-        kw["c"] = face_plot
-        kw["cmap"] = face_cmap_resolved
-
-    # Edge
-    if edge_key is None:
-        kw["edgecolors"] = "none"
-    else:
-        kw["edgecolors"] = edge_plot
-        kw["linewidths"] = edge_lw
-
-    return kw
-
-def _slice_scatter_kwargs(scatter_kwargs, m):
-    """
-    Slice array-like scatter kwargs for a subset mask m (boolean array).
-
-    Returns:
-        dict: kwargs safe to pass to ax.scatter for that group.
-    """
-    kw = dict(scatter_kwargs)
-
-    # Slice face colors if array-like
-    if "c" in kw and isinstance(kw["c"], (list, np.ndarray)):
-        c = np.asarray(kw["c"])
-        if c.shape[0] == m.shape[0]:
-            kw["c"] = c[m]
-
-    # Slice edgecolors safely:
-    # - edgecolors can be "none" / None / a single color string / an array of colors
-    if "edgecolors" in kw:
-        ec = kw["edgecolors"]
-
-        # scalar "off" cases
-        if ec is None or (isinstance(ec, str) and ec == "none"):
-            return kw
-
-        # scalar single color string (e.g. "black") -> do not slice
-        if isinstance(ec, str):
-            return kw
-
-        # array-like -> slice if aligned
-        ec_arr = np.asarray(ec)
-        if ec_arr.shape[0] == m.shape[0]:
-            kw["edgecolors"] = ec_arr[m]
-
-    return kw
-
 def _resolve_subset_mask(adata, subset_mask):
     n = adata.n_obs
     if subset_mask is None:
@@ -1936,34 +1863,6 @@ def _resolve_subset_mask(adata, subset_mask):
     if m.shape[0] != n:
         raise ValueError(f"subset_mask length {m.shape[0]} does not match n_obs {n}.")
     return m.astype(bool)
-
-def _add_continuous_colorbar(ax, color_mapped, cmap_resolved, label, text_size=10):
-    """Attach a colorbar if using continuous coloring."""
-    import matplotlib.cm as cm
-    import matplotlib.colors as mcolors
-    import numpy as np
-
-    if cmap_resolved is None or color_mapped is None:
-        return
-
-    vals = np.asarray(color_mapped)
-    if vals.size == 0:
-        return
-    if np.issubdtype(vals.dtype, np.number) is False:
-        return
-    
-    norm = mcolors.Normalize(vmin=np.min(vals), vmax=np.max(vals))
-    sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
-    sm.set_array([])
-    cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
-    cb.set_label(label, fontsize=text_size)
-
-def _legend_title_from_key(key):
-    if key is None:
-        return None
-    if isinstance(key, list):
-        return "/".join(str(c).capitalize() for c in key)
-    return str(key).capitalize()
 
 def _plot_confidence_ellipse(x, y, ax, n_std=2.4477, facecolor='none', edgecolor='black', alpha=0.2, **kwargs):
     from matplotlib.patches import Ellipse
@@ -2013,6 +1912,99 @@ def _plot_embedding_scatter(*, ax, adata, Xt, mask, obs_names_plot,
       - edge_color is categorical only
       - marker_shape is categorical only (marker splitting)
     """
+
+    def _build_scatter_kwargs(
+        *,
+        base_kwargs,
+        color_key,
+        face_plot,
+        face_all,
+        face_cmap_resolved,
+        edge_key,
+        edge_plot,
+        edge_all,
+        edge_lw,
+        n,
+    ):
+        """
+        Build kwargs for a single ax.scatter call (already subset-aligned).
+
+        Returns:
+            dict: kwargs for ax.scatter
+        """
+        kw = dict(base_kwargs)
+
+        if color_key is None:
+            kw.setdefault("c", ["grey"] * n)
+            kw.pop("cmap", None)
+        else:
+            kw["c"] = face_plot
+            kw["cmap"] = face_cmap_resolved
+
+        if edge_key is None:
+            kw["edgecolors"] = "none"
+        else:
+            kw["edgecolors"] = edge_plot
+            kw["linewidths"] = edge_lw
+
+        return kw
+
+    def _slice_scatter_kwargs(scatter_kwargs, m):
+        """
+        Slice array-like scatter kwargs for a subset mask m (boolean array).
+
+        Returns:
+            dict: kwargs safe to pass to ax.scatter for that group.
+        """
+        kw = dict(scatter_kwargs)
+
+        if "c" in kw and isinstance(kw["c"], (list, np.ndarray)):
+            c = np.asarray(kw["c"])
+            if c.shape[0] == m.shape[0]:
+                kw["c"] = c[m]
+
+        if "edgecolors" in kw:
+            ec = kw["edgecolors"]
+
+            if ec is None or (isinstance(ec, str) and ec == "none"):
+                return kw
+
+            if isinstance(ec, str):
+                return kw
+
+            ec_arr = np.asarray(ec)
+            if ec_arr.shape[0] == m.shape[0]:
+                kw["edgecolors"] = ec_arr[m]
+
+        return kw
+
+    def _add_continuous_colorbar(ax_cb, color_mapped, cmap_resolved, label, text_size=10):
+        """Attach a colorbar if using continuous coloring."""
+        import matplotlib.cm as cm
+        import matplotlib.colors as mcolors
+
+        if cmap_resolved is None or color_mapped is None:
+            return
+
+        vals = np.asarray(color_mapped)
+        if vals.size == 0:
+            return
+        if np.issubdtype(vals.dtype, np.number) is False:
+            return
+
+        norm = mcolors.Normalize(vmin=np.min(vals), vmax=np.max(vals))
+        sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
+        sm.set_array([])
+        cb = ax_cb.figure.colorbar(sm, ax=ax_cb, pad=0.01)
+        cb.set_label(label, fontsize=text_size)
+
+    def _legend_title_from_key(key):
+        if key is None:
+            return None
+        if isinstance(key, list):
+            return "/".join(str(c).capitalize() for c in key)
+        return str(key).capitalize()
+
     # resolve colors & marker
     face_mapped, face_cmap_resolved, face_legend = resolve_plot_colors(
         adata, color, cmap, layer=layer
