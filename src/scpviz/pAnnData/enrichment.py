@@ -501,6 +501,150 @@ class EnrichmentMixin:
 
         return result
 
+    def enrichment_functional_pca(
+        self,
+        pcs=(1, 2),
+        on="protein",
+        top_n=150,
+        gene_col="Genes",
+        direction="both",
+        key_prefix="PCA",
+        species=None,
+        background=None,
+        debug=False,
+        **kwargs,
+    ):
+        """
+        Run STRING functional enrichment on top PCA-loading proteins/genes.
+
+        This method selects top features from PCA loadings for each requested PC and
+        delegates STRING querying/storage to ``enrichment_functional(from_de=False)``.
+
+        Args:
+            pcs (iterable of int): PCs to analyze (1-indexed).
+            on (str): Data level, either ``"protein"`` or ``"peptide"``.
+            top_n (int): Number of features to keep. For ``direction="both"``, the top
+                ``top_n`` genes by absolute loading (one enrichment per PC). For
+                ``"positive"`` or ``"negative"``, the top ``top_n`` in that tail only.
+            gene_col (str): Column in ``.var`` used for pathway labels/genes.
+                Falls back to ``.var_names`` when missing.
+            direction (str): ``"both"`` runs one STRING enrichment per PC on the top
+                ``top_n`` genes ranked by ``|loading|``. ``"positive"`` / ``"negative"``
+                run separate enrichments on the top ``top_n`` positive or negative
+                loadings only.
+            key_prefix (str): Prefix used for stored keys in ``.stats["functional"]``.
+            species (str or int, optional): Passed to STRING enrichment.
+            background (str or list, optional): Passed to STRING enrichment.
+            debug (bool): Verbose diagnostics.
+            **kwargs: Additional kwargs forwarded to ``enrichment_functional``.
+
+        Returns:
+            dict: Nested dictionary of results, keyed by ``"PCk"`` then either ``{"abs": df}``
+            (when ``direction="both"``) or ``{"positive": df}`` / ``{"negative": df}``.
+        """
+        if on == "protein":
+            adata = self.prot
+        elif on == "peptide":
+            adata = self.pep
+        else:
+            raise ValueError("`on` must be either 'protein' or 'peptide'.")
+
+        if "pca" not in adata.uns or "PCs" not in adata.uns["pca"]:
+            raise ValueError(f"PCA results not found in .{ 'prot' if on == 'protein' else 'pep' }.uns['pca'].")
+
+        if direction not in {"both", "positive", "negative"}:
+            raise ValueError("`direction` must be one of {'both', 'positive', 'negative'}.")
+
+        pcs_all = adata.uns["pca"]["PCs"]
+        n_pcs_available = pcs_all.shape[0]
+        pcs = [int(pc) for pc in pcs]
+        invalid = [pc for pc in pcs if pc < 1 or pc > n_pcs_available]
+        if invalid:
+            raise ValueError(
+                f"Invalid PCs requested: {invalid}. Available PCs are 1 to {n_pcs_available}."
+            )
+        if int(top_n) <= 0:
+            raise ValueError("`top_n` must be a positive integer.")
+
+        genes = (
+            adata.var[gene_col].copy()
+            if gene_col in adata.var.columns
+            else pd.Series(adata.var_names.astype(str), index=adata.var_names)
+        )
+        if gene_col not in adata.var.columns:
+            print(f"{format_log_prefix('warn')} `.var[{gene_col!r}]` not found. Falling back to `.var_names`.")
+
+        def _next_available_key(base):
+            functional = self.stats.get("functional", {})
+            if base not in functional:
+                return base
+            i = 2
+            while f"{base}_{i}" in functional:
+                i += 1
+            return f"{base}_{i}"
+
+        print(f"{format_log_prefix('user')} Running STRING enrichment [PCA-loading based]")
+        print(f"   🔸 PCs: {pcs} | top_n: {top_n} | direction: {direction}")
+
+        all_results = {}
+        for pc in pcs:
+            loadings = pcs_all[pc - 1, :]
+            rank_df = pd.DataFrame(
+                {"feature": adata.var_names.astype(str), "gene": genes.values, "loading": loadings}
+            ).dropna(subset=["gene"]).copy()
+            rank_df["gene"] = rank_df["gene"].astype(str)
+            # Collapse duplicate gene labels by strongest absolute loading.
+            idx = rank_df.groupby("gene")["loading"].agg(lambda x: x.abs().idxmax())
+            rank_df = rank_df.loc[idx].copy()
+
+            pc_results = {}
+            if direction == "both":
+                rank_df = rank_df.assign(abs_loading=rank_df["loading"].abs())
+                abs_genes = (
+                    rank_df.sort_values("abs_loading", ascending=False)["gene"]
+                    .head(int(top_n))
+                    .tolist()
+                )
+                key = _next_available_key(f"{key_prefix}_PC{pc}_abs")
+                pc_results["abs"] = self.enrichment_functional(
+                    genes=abs_genes,
+                    from_de=False,
+                    store_key=key,
+                    species=species,
+                    background=background,
+                    debug=debug,
+                    **kwargs,
+                )
+            else:
+                if direction == "positive":
+                    pos_genes = rank_df.sort_values("loading", ascending=False)["gene"].head(int(top_n)).tolist()
+                    key = _next_available_key(f"{key_prefix}_PC{pc}_positive")
+                    pc_results["positive"] = self.enrichment_functional(
+                        genes=pos_genes,
+                        from_de=False,
+                        store_key=key,
+                        species=species,
+                        background=background,
+                        debug=debug,
+                        **kwargs,
+                    )
+                else:
+                    neg_genes = rank_df.sort_values("loading", ascending=True)["gene"].head(int(top_n)).tolist()
+                    key = _next_available_key(f"{key_prefix}_PC{pc}_negative")
+                    pc_results["negative"] = self.enrichment_functional(
+                        genes=neg_genes,
+                        from_de=False,
+                        store_key=key,
+                        species=species,
+                        background=background,
+                        debug=debug,
+                        **kwargs,
+                    )
+
+            all_results[f"PC{pc}"] = pc_results
+
+        return all_results
+
     def list_enrichments(self):
         """
         List available STRING enrichment results and unprocessed DE contrasts.
@@ -837,3 +981,6 @@ def enrichment_functional(pdata, *args, **kwargs):
 
 def enrichment_ppi(pdata, *args, **kwargs):
     return EnrichmentMixin.enrichment_ppi(pdata, *args, **kwargs)
+
+def enrichment_functional_pca(pdata, *args, **kwargs):
+    return EnrichmentMixin.enrichment_functional_pca(pdata, *args, **kwargs)
