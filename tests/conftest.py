@@ -10,7 +10,7 @@ import scpviz.setup
 matplotlib.use("Agg")
 
 def pytest_configure():
-    scviz.settings.GLOBAL_DEBUG = True
+    scpviz.setup.GLOBAL_DEBUG = True
 
 def create_pd_pAnnData():
     """Creates a pd pAnnData object for testing."""
