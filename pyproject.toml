@@ -38,6 +38,7 @@ dependencies = [
   "leidenalg",
   "scikit-misc",
   "directlfq",
+  "gseapy"
 ]
 
 [project.urls]

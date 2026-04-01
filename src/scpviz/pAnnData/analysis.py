@@ -1284,6 +1284,117 @@ class AnalysisMixin:
             print(f"   • Results stored in: .{subpdata}.uns['{key_added}']['results]")
             print(f"   • Keys: {list(stored_results.keys())}")
 
+    def ssgsea(self, on="protein", layer="X", gene_sets="GO_Biological_Process_2023", gene_col="Genes", 
+               min_size=5, max_size=500, threads=4, seed=0, key_added="ssgsea", verbose=True, **kwargs,):
+        """
+        Compute per-sample ssGSEA pathway scores.
+
+        Args:
+            on (str): Whether to use "protein" or "peptide" data.
+            layer (str): Data layer to use.
+            gene_sets (str or dict): Gene set library for GSEApy.
+            gene_col (str): Column in `.var` containing gene symbols.
+            min_size (int): Minimum gene set size.
+            max_size (int): Maximum gene set size.
+            threads (int): Number of threads for GSEApy.
+            seed (int): Random seed.
+            key_added (str): Base key for storing results.
+            verbose (bool): Whether to print progress.
+            **kwargs: Additional keyword arguments passed to `gseapy.ssgsea()`.
+
+        Returns:
+            None
+        """
+        if not self._check_data(on):  # type: ignore[attr-defined]
+            return
+
+        if on == 'protein':
+            adata = self.prot
+        elif on == 'peptide':
+            adata = self.pep
+        else:
+            raise ValueError("`on` must be either 'protein' or 'peptide'.")
+
+        genes = _gseapy_resolve_uppercase_genes(
+            adata,
+            gene_col=gene_col,
+        )
+        
+        if genes is None:
+            context="ssGSEA"
+            print(f"{format_log_prefix('warn')} `.var[{gene_col!r}]` not found.")
+            print(f"{format_log_prefix('blank',3)} {context} requires resolved gene symbols.")
+            print(f"{format_log_prefix('blank',3)} Please annotate gene names first, then rerun.")
+            return
+
+        X = utils.get_adata_layer(adata, layer=layer)
+        expr_df = pd.DataFrame(
+            X.T,
+            index=genes.values,
+            columns=adata.obs_names.astype(str),
+        )
+
+        expr_df = expr_df[~pd.isna(expr_df.index)].copy()
+
+        dup_genes = sorted(pd.Index(expr_df.index)[pd.Index(expr_df.index).duplicated(keep=False)].unique())
+        if len(dup_genes) > 0:
+            _print_duplicate_gene_warning(dup_genes, method_desc="mean abundance")
+            expr_df = expr_df.groupby(expr_df.index).mean()
+
+        log_prefix = format_log_prefix("user")
+        subpdata = "prot" if on == "protein" else "pep"
+
+        if verbose:
+            print(f"{log_prefix} Running ssGSEA [{on}] using layer: {layer}")
+            print(f"   🔸 Gene set library: {gene_sets}")
+            print(f"   🔸 Gene column: {gene_col}")
+            print(f"   🔸 Input matrix after cleanup (genes × samples): {expr_df.shape}")
+
+        ss = gp.ssgsea(
+            data=expr_df,
+            gene_sets=gene_sets,
+            min_size=min_size,
+            max_size=max_size,
+            threads=threads,
+            seed=seed,
+            outdir=None,
+            verbose=False,
+            **kwargs,
+        )
+
+        res_df = ss.res2d.copy()
+
+        # GSEApy ssGSEA returns long-form results with:
+        # Name = sample, Term = pathway, ES = enrichment score
+        score_df = res_df.pivot(index="Term", columns="Name", values="ES").T
+        score_df = score_df.reindex(adata.obs_names.astype(str))
+
+        adata.obsm[f"X_{key_added}"] = score_df
+        adata.uns[key_added] = {
+            "params": {
+                "layer": layer,
+                "gene_sets": gene_sets,
+                "gene_col": gene_col,
+                "min_size": min_size,
+                "max_size": max_size,
+                "threads": threads,
+                "seed": seed,
+                "on": on,
+            },
+            "long_results": res_df,
+            "pathway_names": list(score_df.columns),
+        }
+
+        self._append_history(  # type: ignore[attr-defined]
+            f'{on}: ssGSEA run on {layer}, stored in .{subpdata}.obsm["X_{key_added}"] and .{subpdata}.uns["{key_added}"]'
+        )
+
+        if verbose:
+            print(f"{format_log_prefix('result_only', indent=2)} ssGSEA complete. Results stored in:")
+            print(f"       • .{subpdata}.obsm['X_{key_added}'] (samples × pathways)")
+            print(f"       • .{subpdata}.uns['{key_added}']")
+            print(f"       • Pathways scored: {score_df.shape[1]}")
+
     def nanmissingvalues(self, on = 'protein', limit = 0.5):
         """
         Set columns (proteins or peptides) with excessive missing values to NaN.
