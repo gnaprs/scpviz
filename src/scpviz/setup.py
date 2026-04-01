@@ -28,11 +28,30 @@ def get_datetime():
 
 # print versions of all dependencies of scpviz
 def print_versions():
-    dependencies = ["numpy","pandas","matplotlib","seaborn",
-                    "upsetplot","sklearn","scipy","umap",
-                    "adjustText","anndata","requests","matplotlib_venn","pyarrow"]
+    dependencies = [
+    "numpy",
+    "pandas", 
+    "matplotlib", 
+    "seaborn",
+    "upsetplot", 
+    "scikit-learn", 
+    "scipy",
+    "umap-learn", 
+    "adjustText", 
+    "anndata",
+    "requests",
+    "matplotlib_venn",
+    "pyarrow",
+    "scanpy",
+    "IPython",
+    "igraph",
+    "harmonypy",
+    "leidenalg",
+    "scikit-misc",
+    "directlfq",
+    ]
 
-    print("scpviz version: 0.1.0")
+    print("scpviz version: 0.5.7-alpha")
     print("Date and time: ", get_datetime())
     print("Dependencies:")
     for package in dependencies:

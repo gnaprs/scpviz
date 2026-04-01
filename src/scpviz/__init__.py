@@ -21,3 +21,9 @@ __all__ = ["pAnnData"]
 
 import warnings
 warnings.filterwarnings('ignore')
+
+from importlib.metadata import version, PackageNotFoundError
+try:
+    __version__ = version("scpviz")
+except PackageNotFoundError:
+    __version__ = "unknown"
