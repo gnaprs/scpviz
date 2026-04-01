@@ -287,6 +287,80 @@ def test_enrichment_ppi_empty_mapping(monkeypatch, pdata):
     with pytest.raises(ValueError, match="No valid STRING mappings"):
         pdata.enrichment_ppi(genes=["X"])
 
+def test_enrichment_functional_pca_both_selects_top_abs_loading(monkeypatch, pdata):
+    """direction='both' → one enrichment per PC: top_n genes by |loading|."""
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    adata.var["Genes"] = [f"G{i}" for i in range(adata.n_vars)]
+
+    pcs = adata.uns["pca"]["PCs"].copy()
+    pcs[0, :] = 0.0
+    pcs[0, 0] = 0.9
+    pcs[0, 1] = -0.8
+    pcs[0, 2] = 0.7
+    pcs[0, 3] = -0.6
+    adata.uns["pca"]["PCs"] = pcs
+
+    calls = []
+    def fake_enrichment_functional(**kwargs):
+        calls.append(kwargs)
+        return pd.DataFrame({"term": ["X"]})
+
+    monkeypatch.setattr(pdata, "enrichment_functional", fake_enrichment_functional)
+    out = pdata.enrichment_functional_pca(pcs=[1], top_n=2, direction="both", key_prefix="PCA")
+
+    assert "PC1" in out
+    assert set(out["PC1"].keys()) == {"abs"}
+    assert len(calls) == 1
+    assert calls[0]["store_key"] == "PCA_PC1_abs"
+    assert calls[0]["genes"] == ["G0", "G1"]
+
+
+def test_enrichment_functional_pca_positive_negative_separate_tails(monkeypatch, pdata):
+    """direction='positive' or 'negative' → top_n within that tail only."""
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    adata.var["Genes"] = [f"G{i}" for i in range(adata.n_vars)]
+    pcs = adata.uns["pca"]["PCs"].copy()
+    pcs[0, :] = 0.0
+    pcs[0, 0] = 0.9
+    pcs[0, 1] = -0.8
+    pcs[0, 2] = 0.7
+    pcs[0, 3] = -0.6
+    adata.uns["pca"]["PCs"] = pcs
+
+    calls = []
+    def fake_enrichment_functional(**kwargs):
+        calls.append(kwargs)
+        return pd.DataFrame({"term": ["X"]})
+
+    monkeypatch.setattr(pdata, "enrichment_functional", fake_enrichment_functional)
+    pdata.enrichment_functional_pca(pcs=[1], top_n=2, direction="positive", key_prefix="P")
+    assert len(calls) == 1
+    assert calls[0]["genes"] == ["G0", "G2"]
+
+    calls.clear()
+    pdata.enrichment_functional_pca(pcs=[1], top_n=2, direction="negative", key_prefix="N")
+    assert len(calls) == 1
+    assert calls[0]["genes"] == ["G1", "G3"]
+
+def test_enrichment_functional_pca_key_suffix_if_exists(monkeypatch, pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    adata.var["Genes"] = [f"G{i}" for i in range(adata.n_vars)]
+    pdata.stats["functional"] = {"PCA_PC1_positive": {"result": pd.DataFrame()}}
+
+    calls = []
+    def fake_enrichment_functional(**kwargs):
+        calls.append(kwargs)
+        return pd.DataFrame({"term": ["X"]})
+
+    monkeypatch.setattr(pdata, "enrichment_functional", fake_enrichment_functional)
+    pdata.enrichment_functional_pca(pcs=[1], top_n=1, direction="positive", key_prefix="PCA")
+
+    assert len(calls) == 1
+    assert calls[0]["store_key"] == "PCA_PC1_positive_2"
+
 # ----------------------------------------------------------------------
 # list_enrichments coverage
 def test_list_enrichments_print(capsys, pdata):
