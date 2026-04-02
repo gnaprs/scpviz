@@ -343,7 +343,7 @@ def get_classlist(adata, classes = None, order = None):
         # NOTE: might break, should use better method to filter out file-related columns
         quant_col_index = adata.obs.columns.get_loc(next(col for col in adata.obs.columns if "_quant" in col))
         selected_columns = adata.obs.iloc[:, :quant_col_index]
-        classes_list = selected_columns.apply(lambda x: '_'.join(x), axis=1).unique()
+        classes_list = selected_columns.apply(lambda x: "_".join(x.astype(str)), axis=1).unique()
         classes = selected_columns.columns.tolist()
     elif isinstance(classes, str):
         # check if classes is one of the columns of adata.obs
@@ -358,7 +358,7 @@ def get_classlist(adata, classes = None, order = None):
         else:
             if not all([c in adata.obs.columns for c in classes]):
                 raise ValueError(f"Invalid value for 'classes'. Not all elements in '{classes}' are columns in adata.obs.")
-            classes_list = adata.obs[classes].apply(lambda x: '_'.join(x), axis=1).unique()
+            classes_list = adata.obs[classes].apply(lambda x: "_".join(x.astype(str)), axis=1).unique()
     else:
         raise ValueError("Invalid value for 'classes'. Must be None, a string or a list of strings.")
 
