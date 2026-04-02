@@ -1581,6 +1581,97 @@ class TestPairwiseCorrelation:
         sm = pdata.prot.uns["pairwise_corr"]["sample_matrix"]
         assert isinstance(sm, pd.DataFrame)
         assert sm.shape[0] == sm.shape[1] == pdata.prot.n_obs
+
+class TestLogTransform:
+    """log_transform(), provenance, and fixed output layer names."""
+
+    @pytest.mark.parametrize("base,expected_key", [(10, "X_log10"), ("e", "X_loge")])
+    def test_log10_and_loge_layers(self, pdata, base, expected_key):
+        pdata.log_transform(base=base, set_X=False)
+        assert expected_key in pdata.prot.layers
+
+    def test_stores_layer(self, pdata):
+        pdata.log_transform(set_X=False)
+        assert "X_log2" in pdata.prot.layers
+
+    def test_provenance_registered(self, pdata):
+        pdata.log_transform(set_X=False)
+        reg = pdata.prot.uns["layer_provenance"]
+        assert "X_log2" in reg
+        assert reg["X_log2"]["op"] == "log_transform"
+        assert reg["X_log2"]["input_layer"] == "X_raw"
+
+    def test_log10_base_metadata(self, pdata):
+        pdata.log_transform(base=10, set_X=False)
+        assert pdata.prot.uns["layer_provenance"]["X_log10"]["base"] == "10"
+
+    def test_double_log_warns(self, pdata, capsys):
+        pdata.log_transform(set_X=True)
+        capsys.readouterr()
+        pdata.log_transform(layer="X_log2", set_X=False)
+        captured = capsys.readouterr()
+        assert "already" in captured.out.lower() or "log" in captured.out.lower()
+
+    def test_set_X_updates_X(self, pdata):
+        pdata.log_transform(set_X=True)
+        X = (
+            pdata.prot.X.toarray()
+            if scipy.sparse.issparse(pdata.prot.X)
+            else pdata.prot.X
+        )
+        assert np.nanmedian(X) < 100
+
+    def test_set_X_false_leaves_X(self, pdata):
+        X_before = (
+            pdata.prot.X.toarray().copy()
+            if scipy.sparse.issparse(pdata.prot.X)
+            else pdata.prot.X.copy()
+        )
+        pdata.log_transform(set_X=False)
+        X_after = (
+            pdata.prot.X.toarray()
+            if scipy.sparse.issparse(pdata.prot.X)
+            else pdata.prot.X
+        )
+        np.testing.assert_array_equal(X_before, X_after)
+
+    def test_log2_values_correct(self, pdata):
+        raw = (
+            pdata.prot.X.toarray().copy()
+            if scipy.sparse.issparse(pdata.prot.X)
+            else pdata.prot.X.copy()
+        )
+        pdata.log_transform(base=2, pseudocount=1.0, set_X=False)
+        result = pdata.prot.layers["X_log2"]
+        result = result.toarray() if scipy.sparse.issparse(result) else result
+        np.testing.assert_allclose(result, np.log2(raw + 1.0), atol=1e-5)
+
+    def test_invalid_base_raises(self, pdata):
+        with pytest.raises(ValueError, match="base="):
+            pdata.log_transform(base=3)
+
+    def test_invalid_layer_raises(self, pdata):
+        with pytest.raises(KeyError):
+            pdata.log_transform(layer="X_doesnotexist")
+
+    def test_history_appended(self, pdata):
+        before = len(pdata.history)
+        pdata.log_transform(set_X=False)
+        assert len(pdata.history) > before
+
+    def test_peptide_level(self, pdata):
+        if pdata.pep is None:
+            pytest.skip("No peptide data in fixture")
+        pdata.log_transform(on="peptide", set_X=False)
+        assert "X_log2" in pdata.pep.layers
+
+    def test_collision_suffix_applied(self, pdata):
+        pdata.normalize(method="median", set_X=False)
+        pdata.log_transform(layer="X", set_X=False)
+        pdata.log_transform(layer="X_norm_median", set_X=False)
+        assert "X_log2" in pdata.prot.layers
+        assert "X_log2_1" in pdata.prot.layers
+
 class TestShowLayerProvenance:
     def test_runs_without_error(self, pdata, capsys):
         pdata.normalize(method="median", set_X=False)

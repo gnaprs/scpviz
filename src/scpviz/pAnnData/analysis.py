@@ -40,6 +40,7 @@ class AnalysisMixin:
         pca: Run PCA on normalized expression matrix, handling NaN exclusion and reinsertion of features.
         clean_X: Replace NaNs in `.X` or a specified layer, optionally backing up the original.
         _normalize_helper: Internal helper to compute per-sample scaling across multiple normalization methods.
+        log_transform: Apply log transform with pseudocount; register layer provenance.
     """
 
     def cv(self, classes = None, on = 'protein', layer = "X", debug = False):
@@ -163,14 +164,6 @@ class AnalysisMixin:
         group2_string = _label(group2_dict)
         comparison_string = f'{group1_string} vs {group2_string}'
 
-        log_prefix = format_log_prefix("user")
-        n1, n2 = len(pdata_case1.prot), len(pdata_case2.prot)
-        print(f"{log_prefix} Running differential expression [protein]")
-        print(f"   🔸 Comparing groups: {comparison_string}")
-        print(f"   🔸 Group sizes: {n1} vs {n2} samples")
-        print(f"   🔸 Method: {method} | Fold Change: {fold_change_mode} | Layer: {layer}")
-        print(f"   🔸 P-value threshold: {pval} | Log2FC threshold: {log2fc}")
-
         # --- Get layer data ---
         data1 = utils.get_adata_layer(pdata_case1.prot, layer)
         data2 = utils.get_adata_layer(pdata_case2.prot, layer)
@@ -178,6 +171,30 @@ class AnalysisMixin:
         # Shape: (samples, features)
         data1 = np.asarray(data1)
         data2 = np.asarray(data2)
+
+        _layer_is_log = utils.infer_layer_is_log(layer, pdata_case1.prot)
+        _finite_de = data1[np.isfinite(data1)]
+        _median_val = float(np.nanmedian(_finite_de)) if _finite_de.size > 0 else 0.0
+
+        if not _layer_is_log and _median_val > 1e4:
+            print(
+                f"{format_log_prefix('warn')} Layer {layer!r} appears to contain "
+                f"non-log intensities (median={_median_val:.2e}). Statistical tests "
+                "assume approximately normal distributions — consider log_transform() "
+                "before DE analysis."
+            )
+
+        log_prefix = format_log_prefix("user")
+        n1, n2 = len(pdata_case1.prot), len(pdata_case2.prot)
+        print(f"{log_prefix} Running differential expression [protein]")
+        print(f"   🔸 Comparing groups: {comparison_string}")
+        print(f"   🔸 Group sizes: {n1} vs {n2} samples")
+        print(
+            f"   🔸 Layer: {layer} "
+            f"{'(log-transformed)' if _layer_is_log else '(non-log)'}"
+        )
+        print(f"   🔸 Method: {method} | Fold Change: {fold_change_mode}")
+        print(f"   🔸 P-value threshold: {pval} | Log2FC threshold: {log2fc}")
 
         # --- Compute fold change ---
         if fold_change_mode == 'mean':
@@ -189,8 +206,27 @@ class AnalysisMixin:
 
                 # Identify zeros or NaNs in either group
                 mask_invalid = (group1_mean == 0) | (group2_mean == 0) | np.isnan(group1_mean) | np.isnan(group2_mean)
-                log2fc_vals = np.log2(group1_mean / group2_mean)
-                log2fc_vals[mask_invalid] = np.nan
+
+                if _layer_is_log:
+                    rec = pdata_case1.prot.uns.get("layer_provenance", {}).get(layer, {})
+                    _base_val = str(rec.get("base", "2"))
+                    if _base_val in ("10",):
+                        log2fc_vals = (group1_mean - group2_mean) / np.log10(2)
+                        _base_label = "log10"
+                    elif _base_val in ("e",):
+                        log2fc_vals = (group1_mean - group2_mean) / np.log(2)
+                        _base_label = "loge"
+                    else:
+                        log2fc_vals = group1_mean - group2_mean
+                        _base_label = "log2"
+                    log2fc_vals[mask_invalid] = np.nan
+                    print(
+                        f"{format_log_prefix('info')} Layer {layer!r} is log-transformed "
+                        f"({_base_label}) — using mean difference for log2FC."
+                    )
+                else:
+                    log2fc_vals = np.log2(group1_mean / group2_mean)
+                    log2fc_vals[mask_invalid] = np.nan
 
                 n_invalid = np.sum(mask_invalid)
                 if n_invalid > 0:
@@ -702,6 +738,110 @@ class AnalysisMixin:
             f"{on}: Imputed layer '{layer}' using '{method}' (grouped by {classes if classes else 'ALL'}). "
             f"Stored in '{actual_layer_name}'."
         )
+
+    def log_transform(
+        self,
+        on: str = "protein",
+        layer: str = "X",
+        base: int | float | str = 2,
+        pseudocount: float = 1.0,
+        set_X: bool = True,
+    ) -> None:
+        """
+        Log-transform intensities with a pseudocount and register layer provenance.
+
+        Output is stored under a short fixed name: ``X_log2``, ``X_log10``, or ``X_loge``.
+        If that name already exists with a different origin, a numeric suffix is applied
+        (see :func:`scpviz.utils.update_layer_provenance`).
+
+        Args:
+            on: ``\"protein\"`` / ``\"prot\"`` or ``\"peptide\"`` / ``\"pep\"``.
+            layer: Source layer (default ``\"X\"``).
+            base: ``2``, ``10``, ``\"e\"``, or ``numpy.e``.
+            pseudocount: Added before the logarithm (default ``1.0``).
+            set_X: If True, point ``.X`` at the new log layer.
+        """
+        if not self._check_data(on):  # type: ignore[attr-defined], ValidationMixin
+            return
+
+        adata = utils.get_adata(self, on)
+        SUPPORTED_BASES = {2: np.log2, 10: np.log10, "e": np.log, np.e: np.log}
+        if base not in SUPPORTED_BASES:
+            raise ValueError(
+                f"{format_log_prefix('error')} base={base!r} not supported. "
+                "Choose from: 2, 10, 'e', or numpy.e."
+            )
+        log_fn = SUPPORTED_BASES[base]
+
+        base_str = (
+            "e"
+            if base in ("e", np.e)
+            else (str(int(base)) if float(base) == int(float(base)) else str(base))
+        )
+        layer_name = f"X_log{base_str}"
+
+        if layer == "X":
+            raw_mx = adata.X
+            data = raw_mx.toarray() if sparse.issparse(raw_mx) else raw_mx.copy()
+        elif layer in adata.layers:
+            raw_mx = adata.layers[layer]
+            data = raw_mx.toarray() if sparse.issparse(raw_mx) else np.asarray(raw_mx)
+        else:
+            raise KeyError(
+                f"{format_log_prefix('error')} Layer {layer!r} not found in adata.layers."
+            )
+
+        _already_log = utils.infer_layer_is_log(layer, adata)
+        if _already_log:
+            print(
+                f"{format_log_prefix('warn')} Layer {layer!r} appears to already be "
+                "log-transformed (provenance registry or layer name). "
+                f"Proceeding — result stored under the resolved output layer name."
+            )
+
+        n_negative = int(np.sum(data < 0))
+        if n_negative > 0:
+            print(
+                f"{format_log_prefix('warn')} {n_negative} value(s) < 0 detected. "
+                f"Pseudocount ({pseudocount}) added — negative values become "
+                f"log({pseudocount}). Consider checking your normalization."
+            )
+
+        data_log = log_fn(data + pseudocount)
+
+        was_sparse = sparse.issparse(
+            adata.layers[layer] if layer != "X" else adata.X
+        )
+        _resolved_input = utils.resolve_input_layer(adata, layer)
+        actual_layer_name = utils.update_layer_provenance(
+            adata,
+            layer_name=layer_name,
+            op="log_transform",
+            input_layer=_resolved_input,
+            base=base_str,
+            pseudocount=pseudocount,
+        )
+        adata.layers[actual_layer_name] = (
+            sparse.csr_matrix(data_log) if was_sparse else data_log
+        )
+
+        on_norm = "protein" if on in ("protein", "prot") else "peptide"
+        subpdata = "prot" if on_norm == "protein" else "pep"
+        log_prefix = format_log_prefix("user")
+        print(f"{log_prefix} Log-transforming [{on_norm}] layer: {layer!r} → {actual_layer_name!r}")
+        print(f"     🔸 base: {base_str} log base (pseudocount {pseudocount})")
+        print(f"{format_log_prefix('result_only', indent=2)} Log transform complete. Results stored in:")
+        print(f"       • .{subpdata}.layers[{actual_layer_name!r}]")
+        if set_X:
+            print(f"       • .{subpdata}.X updated")
+        print(f"       • .{subpdata}.uns['layer_provenance'][{actual_layer_name!r}] updated")
+        
+        if set_X:
+            self.set_X(layer=actual_layer_name, on=on)  # type: ignore[attr-defined]
+
+        self._append_history(  # type: ignore[attr-defined]
+            f"{on_norm}: log_transform(base={base}, pseudocount={pseudocount}) on layer={layer!r}. "
+            f"Stored in {actual_layer_name!r}."
         )
 
     def neighbor(self, on = 'protein', layer = "X", use_rep='X_pca', user_indent=0, **kwargs):
@@ -974,6 +1114,21 @@ class AnalysisMixin:
             X = adata.X.toarray()
         elif layer in adata.layers.keys():
             X = adata.layers[layer].toarray()
+
+        _layer_is_log_pca = utils.infer_layer_is_log(layer, adata)
+        _finite_pca = X[np.isfinite(X)]
+        if not _layer_is_log_pca and _finite_pca.size > 0 and np.nanmedian(_finite_pca) > 1e4:
+            print(
+                f"{format_log_prefix('info')} Layer {layer!r} appears to contain "
+                f"non-log intensities (median={np.nanmedian(_finite_pca):.2e}). "
+                "PCA will proceed with z-scoring (standard practice). Optionally "
+                "run pdata.log_transform() first for better low-abundance separation."
+            )
+        elif _layer_is_log_pca:
+            print(
+                f"{format_log_prefix('info')} Layer {layer!r} detected as log-transformed. "
+                "Using log-space values for PCA."
+            )
 
         log_prefix = format_log_prefix("user")
         print(f"{log_prefix} Performing PCA [{on}] using layer: {layer}, removing NaN features.")
@@ -1990,6 +2145,22 @@ class AnalysisMixin:
 
         X_full = utils.get_adata_layer(adata, layer)
         X_full = np.asarray(X_full)
+
+        _layer_is_log_pw = utils.infer_layer_is_log(layer, adata)
+        _finite_pw = X_full[np.isfinite(X_full)]
+        if not _layer_is_log_pw and _finite_pw.size > 0 and np.nanmedian(_finite_pw) > 1e4:
+            print(
+                f"{format_log_prefix('info')} Layer {layer!r} appears to contain "
+                f"non-log intensities (median={np.nanmedian(_finite_pw):.2e}). "
+                "Pairwise correlations on non-log data are dominated by highly abundant "
+                "proteins. Consider normalize() then log_transform(), then rerun with "
+                "the resulting log layer."
+            )
+        elif _layer_is_log_pw:
+            print(
+                f"{format_log_prefix('info')} Layer {layer!r} detected as log-transformed. "
+                "Using log-space values for correlation."
+            )
 
         raw_labels = utils.get_samplenames(adata, classes)
         obs_labels = pd.Series(

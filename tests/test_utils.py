@@ -1237,9 +1237,7 @@ def test_get_pca_importance_invalid_inputs():
     with pytest.raises(IndexError):
         utils.get_pca_importance({"PCs": pcs}, ["x", "y"])
 
-
 # --- layer provenance & log inference ---
-
 
 class TestInferLayerIsLog:
     def test_log2_name_heuristic(self):
@@ -1287,7 +1285,6 @@ class TestInferLayerIsLog:
             adata, "X_log2", op="normalize", input_layer="X", method="median"
         )
         assert utils.infer_layer_is_log("X_log2", adata) is False
-
 
 class TestUpdateLayerProvenance:
     def _make_adata(self):
