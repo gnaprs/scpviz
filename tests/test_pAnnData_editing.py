@@ -27,11 +27,20 @@ def test_set_X_valid_layer(pdata_diann):
 
     np.testing.assert_allclose(x, y)
 
-
 def test_set_X_invalid_layer_raises(pdata_diann):
     with pytest.raises(ValueError, match="Layer .* not found"):
         pdata_diann.set_X(layer="nonexistent_layer", on="protein")
 
+def test_set_X_updates_current_X_layer(pdata):
+    """set_X() maintains current_X_layer in adata.uns (via normalize → set_X)."""
+    pdata.normalize(method="median")
+    assert pdata.prot.uns.get("current_X_layer") == "X_norm_median"
+
+def test_set_X_false_does_not_update_current_X_layer(pdata):
+    """set_X=False leaves current_X_layer unchanged."""
+    initial = pdata.prot.uns.get("current_X_layer")
+    pdata.normalize(method="median", set_X=False)
+    assert pdata.prot.uns.get("current_X_layer") == initial
 
 # -----------------------------
 # Tests for get_abundance
@@ -222,7 +231,6 @@ def test_export_morpheus_outputs_files(pdata, tmp_path):
 
     # df_obs should match obs (rows) or var (columns), depending on which file we parse
     assert df_matrix.shape == pdata.prot.X.toarray().shape
-
 
 # -----------------------------
 # Tests for set_rs
