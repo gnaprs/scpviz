@@ -2,7 +2,9 @@ from matplotlib.pylab import f
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from scipy.stats import variation, ttest_ind, mannwhitneyu, wilcoxon
+from scipy.stats import variation, ttest_ind, mannwhitneyu, wilcoxon, spearmanr
+from scipy.spatial.distance import cdist
+from sklearn.metrics.pairwise import nan_euclidean_distances
 from scpviz import utils
 from scpviz.utils import format_log_prefix
 import warnings
@@ -1836,6 +1838,335 @@ class AnalysisMixin:
         )
 
         return aligned.T.to_numpy()
+
+    def pairwise_correlation(
+        self,
+        classes: str | list[str],
+        on: str = "protein",
+        layer: str = "X",
+        method: str = "pearson",
+        order: list | None = None,
+        compute_sample_matrix: bool = False,
+        force: bool = False,
+        subset_mask: np.ndarray | list | None = None,
+    ) -> None:
+        """
+        Compute pairwise proteome correlations across groups defined by `.obs` metadata.
+
+        For each group label (one column, or combined labels from multiple columns),
+        computes the mean expression profile (nanmean), drops features with NaN in any
+        group, then computes an (n_groups × n_groups) correlation or distance matrix.
+        Optionally also computes a sample-level matrix.
+        Results are stored in `adata.uns["pairwise_corr"]`.
+
+        Args:
+            classes (str or list of str): One `.obs` column name, or a list of column
+                names, defining sample groups (same convention as `normalize()` and
+                `plot_pca()`). Multiple columns are combined per sample using
+                :func:`~scpviz.utils.get_samplenames` (comma-space join, same as
+                group-wise ``normalize``).
+            on (str): Whether to use `"protein"` or `"peptide"` data (default: `"protein"`).
+            layer (str): Data layer to use. `"X"` uses `.X`; any other value uses
+                `.layers[layer]`. Default: `"X"`.
+            method (str): Correlation/distance metric. One of:
+                `"pearson"`, `"spearman"`, `"euclidean"`. Default: `"pearson"`.
+            order (list or None): Preferred ordering of group labels. Unknown values
+                are dropped (with a warning); groups not listed are appended after,
+                sorted alphabetically (with a warning). If None, order is sorted
+                alphabetically.
+            compute_sample_matrix (bool): If True, also compute an (n_samples × n_samples)
+                matrix sorted to match the resolved group order. Default: False.
+            force (bool): If True, recompute even if results are cached in
+                `adata.uns["pairwise_corr"]`. Default: False.
+            subset_mask (array-like or None): Boolean mask of length `n_obs` selecting
+                samples to include. If None, all samples are used.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If `classes` is invalid or missing from `.obs`, `method` is
+                invalid, or `subset_mask` has the wrong shape or is all-False.
+            KeyError: If `layer` is not `"X"` and not in `adata.layers`.
+
+        Note:
+            Features where **any** group mean is NaN are dropped (complete cases only).
+            A cache hit still appends a history entry noting that cached results were used.
+            For multi-column ``classes``, combined labels use a comma-space separator;
+            see ``uns['pairwise_corr']['separator']`` and ``classes_list`` for plotting.
+
+        Example:
+            Combined cell line and treatment (labels like ``"AS, kd"``)::
+
+                pdata.pairwise_correlation(
+                    classes=["cellline", "treatment"],
+                    method="pearson",
+                )
+        """
+        if not self._check_data(on):  # type: ignore[attr-defined], ValidationMixin
+            pass
+
+        adata = utils.get_adata(self, on)
+        on_norm = "protein" if on in ("protein", "prot") else "peptide"
+        subpdata = "prot" if on_norm == "protein" else "pep"
+
+        _classes_list: list[str] = [classes] if isinstance(classes, str) else list(classes)
+        if not _classes_list:
+            raise ValueError(
+                f"{format_log_prefix('error')} classes must be a non-empty string or "
+                "list of strings."
+            )
+        _missing_cols = [c for c in _classes_list if c not in adata.obs.columns]
+        if _missing_cols:
+            raise ValueError(
+                f"{format_log_prefix('error')} classes column(s) not found in "
+                f"adata.obs: {_missing_cols}"
+            )
+        _separator: str | None = ", " if len(_classes_list) > 1 else None
+
+        if method not in ("pearson", "spearman", "euclidean"):
+            raise ValueError(
+                f"{format_log_prefix('error')} method={method!r} is not supported. "
+                "Choose from: 'pearson', 'spearman', 'euclidean'."
+            )
+
+        subset_indices: tuple[int, ...] | None
+        if subset_mask is None:
+            subset_indices = None
+        else:
+            sm = np.asarray(subset_mask, dtype=bool)
+            if sm.ndim != 1 or sm.size != adata.n_obs:
+                raise ValueError(
+                    f"{format_log_prefix('error')} subset_mask must be a 1D boolean "
+                    f"array of length n_obs={adata.n_obs}."
+                )
+            if not np.any(sm):
+                raise ValueError(
+                    f"{format_log_prefix('error')} subset_mask selects zero samples."
+                )
+            subset_indices = tuple(np.flatnonzero(sm).tolist())
+
+        if layer != "X" and layer not in adata.layers:
+            raise KeyError(
+                f"{format_log_prefix('error')} Layer {layer!r} not found in adata.layers."
+            )
+
+        X_full = utils.get_adata_layer(adata, layer)
+        X_full = np.asarray(X_full)
+
+        raw_labels = utils.get_samplenames(adata, classes)
+        obs_labels = pd.Series(
+            raw_labels, index=adata.obs_names, name="_combined_class"
+        )
+
+        if subset_indices is not None:
+            row_sel = np.array(subset_indices, dtype=int)
+            X = X_full[row_sel]
+            obs_names_used = adata.obs_names[row_sel]
+            obs_labels = obs_labels.iloc[row_sel]
+        else:
+            X = X_full
+            obs_names_used = adata.obs_names
+
+        unique_groups = pd.unique(obs_labels).tolist()
+        if len(unique_groups) == 0:
+            raise ValueError(
+                f"{format_log_prefix('error')} No groups found for classes={_classes_list!r} "
+                "after applying subset_mask."
+            )
+
+        ug_set = set(unique_groups)
+        if order is None:
+            final_order = sorted(unique_groups)
+        else:
+            invalid_in_order = [v for v in order if v not in ug_set]
+            if invalid_in_order:
+                print(
+                    f"{format_log_prefix('warn')} order contains values not present in "
+                    f"combined labels from {_classes_list!r}; removing: {invalid_in_order}"
+                )
+            seen: set = set()
+            valid_user: list = []
+            for v in order:
+                if v not in ug_set or v in seen:
+                    continue
+                seen.add(v)
+                valid_user.append(v)
+            omitted = sorted(ug_set - set(valid_user))
+            if omitted:
+                print(
+                    f"{format_log_prefix('warn')} groups not listed in order will be "
+                    f"appended after your order (alphabetically): {omitted}"
+                )
+            final_order = valid_user + omitted
+
+        prev = adata.uns.get("pairwise_corr")
+        cache_hit = False
+        if (
+            not force
+            and isinstance(prev, dict)
+            and prev.get("classes") == classes
+            and prev.get("method") == method
+            and prev.get("layer") == layer
+            and prev.get("compute_sample_matrix") == compute_sample_matrix
+            and prev.get("subset_indices") == subset_indices
+            and prev.get("order") == final_order
+        ):
+            cache_hit = True
+
+        if cache_hit:
+            print(
+                f"{format_log_prefix('info')} Pairwise correlation already computed "
+                f"(classes={classes!r}, method={method}). Use force=True to recompute."
+            )
+            self._append_history(  # type: ignore[attr-defined], HistoryMixin
+                f'{on_norm}: pairwise_correlation — used last cached result '
+                f'(classes={classes!r}, method={method}, layer={layer}).'
+            )
+            return
+
+        if not force and isinstance(prev, dict):
+            print(
+                f"{format_log_prefix('warn')} Recomputing pairwise correlation: "
+                "parameters differ from cached result."
+            )
+
+        n_groups = len(final_order)
+        group_means = np.zeros((n_groups, X.shape[1]), dtype=float)
+        for i, g in enumerate(final_order):
+            mask = (obs_labels == g).to_numpy()
+            rows = X[mask, :]
+            if rows.shape[0] == 0:
+                group_means[i, :] = np.nan
+            else:
+                group_means[i, :] = np.nanmean(rows, axis=0)
+
+        nan_mask = np.isnan(group_means).any(axis=0)
+        group_means_clean = group_means[:, ~nan_mask]
+        n_features_used = int(group_means_clean.shape[1])
+        n_features_dropped = int(nan_mask.sum())
+
+        if n_groups < 2:
+            if method == "euclidean":
+                group_corr_arr = np.zeros((1, 1), dtype=float)
+            else:
+                group_corr_arr = np.ones((1, 1), dtype=float)
+        elif method == "pearson":
+            group_corr_arr = np.corrcoef(group_means_clean)
+        elif method == "spearman":
+            sp = spearmanr(group_means_clean.T).statistic
+            sp = np.asarray(sp)
+            if sp.ndim == 0:
+                group_corr_arr = np.array([[1.0, float(sp)], [float(sp), 1.0]])
+            else:
+                group_corr_arr = sp
+        else:
+            group_corr_arr = cdist(
+                group_means_clean, group_means_clean, metric="euclidean"
+            )
+
+        group_corr_df = pd.DataFrame(
+            group_corr_arr, index=final_order, columns=final_order
+        )
+
+        sample_corr_df = None
+        if compute_sample_matrix:
+            sorted_obs_names: list = []
+            for group in final_order:
+                sorted_obs_names.extend(
+                    obs_labels[obs_labels == group].index.tolist()
+                )
+            if subset_indices is not None:
+                _allowed = set(obs_names_used)
+                assert all(n in _allowed for n in sorted_obs_names), (
+                    "pairwise_correlation: sample-matrix obs names must stay within "
+                    "subset_mask; obs_labels should remain sliced after subset_indices."
+                )
+            row_ix = adata.obs_names.get_indexer(sorted_obs_names)
+            X_sorted = X_full[row_ix]
+            X_sorted_clean = X_sorted[:, ~nan_mask]
+            if method == "pearson":
+                sample_corr_df = pd.DataFrame(X_sorted_clean).T.corr(method="pearson")
+                sample_corr_df.index = sorted_obs_names
+                sample_corr_df.columns = sorted_obs_names
+            elif method == "spearman":
+                sample_corr_df = pd.DataFrame(X_sorted_clean).T.corr(method="spearman")
+                sample_corr_df.index = sorted_obs_names
+                sample_corr_df.columns = sorted_obs_names
+            else:
+                # cdist treats NaNs as NaN output; raw abundance rows usually have missing
+                # values, which yields an all-NaN matrix and a blank heatmap. Use nan-aware
+                # Euclidean distance between sample vectors (sklearn).
+                dist = nan_euclidean_distances(X_sorted_clean)
+                sample_corr_df = pd.DataFrame(
+                    dist, index=sorted_obs_names, columns=sorted_obs_names
+                )
+
+        adata.uns["pairwise_corr"] = {
+            "group_matrix": group_corr_df,
+            "sample_matrix": sample_corr_df,
+            "classes": classes,
+            "classes_list": _classes_list,
+            "separator": _separator,
+            "order": final_order,
+            "method": method,
+            "layer": layer,
+            "compute_sample_matrix": compute_sample_matrix,
+            "n_features_used": n_features_used,
+            "n_features_dropped": n_features_dropped,
+            "subset_indices": subset_indices,
+        }
+
+        _classes_display = classes if isinstance(classes, str) else list(classes)
+        self._append_history(  # type: ignore[attr-defined], HistoryMixin
+            f"{on_norm}: pairwise_correlation on classes={_classes_display!r}, "
+            f"method={method}, layer={layer}"
+            + (
+                f", subset_indices={subset_indices}"
+                if subset_indices is not None
+                else ""
+            )
+        )
+
+        print(
+            f"{format_log_prefix('user')} Computing pairwise correlation [{on_norm}] "
+            f"using layer: {layer}"
+        )
+        _fp_fc = format_log_prefix("filter_conditions")
+        if isinstance(classes, str):
+            print(f"{_fp_fc}classes: {classes}")
+        else:
+            print(f"{_fp_fc}classes: {list(classes)}")
+        for _col in _classes_list:
+            _u = pd.unique(adata.obs[_col])
+            _head = [str(_v) for _v in _u[:5]]
+            _more = len(_u) - 5
+            _suffix = f" (+{_more} more)" if _more > 0 else ""
+            print(f"{_fp_fc}{_col}: {', '.join(_head)}{_suffix}")
+        print(f"{_fp_fc}method: {method}")
+        order_preview = " | ".join(str(x) for x in final_order)
+        print(
+            f"{_fp_fc}order (N={len(final_order)}): "
+            f"{order_preview}"
+        )
+        print(
+            f"{_fp_fc}Features: {n_features_used} used / "
+            f"{adata.n_vars} total ({n_features_dropped} dropped — NaN in ≥1 group mean)"
+        )
+        _ng = len(final_order)
+        print(
+            f"{format_log_prefix('result_only', indent=2)} Pairwise correlation complete. "
+            "Results stored in:"
+        )
+        print(f"       • .{subpdata}.uns['pairwise_corr']")
+        if compute_sample_matrix and sample_corr_df is not None:
+            _ns = int(sample_corr_df.shape[0])
+            print(
+                f"       • Group matrix: ({_ng} × {_ng}) | "
+                f"Sample matrix: ({_ns} × {_ns})"
+            )
+        else:
+            print(f"       • Group matrix: ({_ng} × {_ng})")
 
     def clean_X(self, on='prot', inplace=True, set_to=0, layer=None, to_sparse=False, backup_layer="X_preclean", verbose=True):
         """
