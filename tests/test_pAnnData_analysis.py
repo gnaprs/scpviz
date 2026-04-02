@@ -1581,3 +1581,86 @@ class TestPairwiseCorrelation:
         sm = pdata.prot.uns["pairwise_corr"]["sample_matrix"]
         assert isinstance(sm, pd.DataFrame)
         assert sm.shape[0] == sm.shape[1] == pdata.prot.n_obs
+class TestShowLayerProvenance:
+    def test_runs_without_error(self, pdata, capsys):
+        pdata.normalize(method="median", set_X=False)
+        pdata.log_transform(layer="X_norm_median", set_X=False)
+        pdata.show_layer_provenance("X_log2")
+        captured = capsys.readouterr()
+        assert "log_transform" in captured.out
+
+    def test_full_registry_no_layer_arg(self, pdata, capsys):
+        pdata.normalize(method="median", set_X=False)
+        pdata.show_layer_provenance()
+        captured = capsys.readouterr()
+        assert "normalize" in captured.out
+
+    def test_unknown_layer_warns(self, pdata, capsys):
+        pdata.normalize(method="median", set_X=False)
+        pdata.show_layer_provenance("X_does_not_exist")
+        captured = capsys.readouterr()
+        assert "not found" in captured.out.lower()
+
+    def test_empty_registry_info(self, pdata, capsys):
+        if "layer_provenance" in pdata.prot.uns:
+            del pdata.prot.uns["layer_provenance"]
+        pdata.show_layer_provenance()
+        captured = capsys.readouterr()
+        assert "no layer provenance" in captured.out.lower()
+        assert "[INFO]" in captured.out
+
+def test_provenance_chain_depth_after_chain(pdata):
+    """Full normalize → impute → log chain records resolved input layers."""
+    pdata.normalize(method="median")
+    pdata.impute(method="min", min_scale=0.1)
+    pdata.log_transform()
+
+    reg = pdata.prot.uns["layer_provenance"]
+
+    assert reg["X_norm_median"]["input_layer"] == "X_raw"
+    assert reg["X_impute_min"]["input_layer"] == "X_norm_median"
+    assert reg["X_log2"]["input_layer"] == "X_impute_min"
+
+def test_chain_walk_depth_greater_than_one(pdata, capsys):
+    """show_layer_provenance shows full chain including raw root."""
+    pdata.normalize(method="median")
+    pdata.impute(method="min", min_scale=0.1)
+    pdata.log_transform()
+    capsys.readouterr()
+    pdata.show_layer_provenance("X_log2")
+    captured = capsys.readouterr()
+    assert "[3]" in captured.out
+
+def test_explicit_layer_not_resolved(pdata):
+    """Explicit layer='X_norm_median' records that name as provenance input."""
+    pdata.normalize(method="median")
+    pdata.log_transform(layer="X_norm_median", set_X=False)
+    reg = pdata.prot.uns["layer_provenance"]
+    assert reg["X_log2"]["input_layer"] == "X_norm_median"
+
+def test_two_chains_from_same_raw(pdata):
+    """Two normalizations from X_raw both record X_raw as input."""
+    pdata.normalize(method="median")
+    pdata.normalize(method="sum", layer="X_raw")
+    reg = pdata.prot.uns["layer_provenance"]
+    assert reg["X_norm_median"]["input_layer"] == "X_raw"
+    assert reg["X_norm_sum"]["input_layer"] == "X_raw"
+
+def test_show_provenance_uses_current_X_layer(pdata, capsys):
+    pdata.normalize(method="median")
+    pdata.log_transform(layer="X_norm_median")
+    capsys.readouterr()
+    pdata.show_layer_provenance()
+    captured = capsys.readouterr()
+    assert "Current .X" in captured.out
+    assert "X_log2" in captured.out
+
+def test_show_provenance_skips_current_X_when_uns_missing(pdata, capsys):
+    """No current_X_layer key → no Current .X section (honest for legacy objects)."""
+    pdata.normalize(method="median", set_X=False)
+    del pdata.prot.uns["current_X_layer"]
+    capsys.readouterr()
+    pdata.show_layer_provenance()
+    captured = capsys.readouterr()
+    assert "Current .X" not in captured.out
+    assert "Other layers" in captured.out or "○" in captured.out
