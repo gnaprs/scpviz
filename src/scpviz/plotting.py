@@ -32,6 +32,7 @@ Functions:
 
 Functions:
     plot_clustermap: Clustered heatmap of proteins/peptides × samples.
+    plot_pairwise_correlation: Group- or sample-level pairwise correlation / distance heatmap with annotation bars.
 
 ## Differential Expression and Volcano Plots
 
@@ -76,6 +77,7 @@ Functions:
 
 """
 
+import copy
 import re
 from matplotlib import markers
 import numpy as np
@@ -93,6 +95,7 @@ import matplotlib.collections as clt
 import matplotlib.cm as cm
 import matplotlib.patheffects as PathEffects
 import matplotlib.lines as mlines
+from matplotlib.gridspec import GridSpec
 
 import upsetplot
 from adjustText import adjust_text
@@ -3716,6 +3719,553 @@ def plot_pca_gsea_heatmap(
     if return_df:
         return ax, matrix_plot.copy()
     return ax
+
+
+def _pairwise_corr_subset_cache_key(mask: np.ndarray) -> tuple[int, ...] | None:
+    """Match :meth:`pairwise_correlation` ``subset_indices`` (None = all samples)."""
+    if mask.shape[0] == 0:
+        return None
+    if bool(np.all(mask)):
+        return None
+    return tuple(np.flatnonzero(mask).tolist())
+
+
+def plot_pairwise_correlation(
+    pdata,
+    classes: str | list[str],
+    on: str = "protein",
+    layer: str = "X",
+    method: str = "pearson",
+    order: list | None = None,
+    show_samples: bool = False,
+    cmap: str = "RdBu_r",
+    vmin: float | None = None,
+    vmax: float | None = None,
+    annotation_cmap: str | dict | list = "default",
+    figsize: tuple | None = None,
+    text_size: int = 9,
+    colorbar_label: str | None = None,
+    annot: bool = False,
+    annot_fmt: str = ".2f",
+    annot_size: int = 7,
+    title: str | None = None,
+    force: bool = False,
+    subset_mask: np.ndarray | pd.Series | list | None = None,
+    show_annotation_legend: bool = True,
+    legend_anchor_x: float = 0.3,
+    show_ticklabels: bool | None = None,
+    ticklabels_auto_max_samples: int = 20,
+):
+    """
+    Plot a pairwise protein/peptide abundance correlation heatmap across groups or samples in `.obs`.
+
+    Automatically runs :meth:`~scpviz.pAnnData.pAnnData.pairwise_correlation` if
+    results are not already cached (or if ``force=True``). The figure is created
+    internally; no ``ax`` argument is needed.
+
+    Cached analysis results are reused when ``classes``, ``method``, ``layer``, and
+    ``subset_mask`` (via the same key as ``pairwise_correlation``) match. If
+    ``show_samples=True`` but the cache lacks a sample matrix, analysis is rerun with
+    ``compute_sample_matrix=True``. Group-level plots may reuse a cache that already
+    includes a sample matrix (nothing is stripped). Display ``order`` is applied only
+    when drawing and does not require recomputation.
+
+    Args:
+        pdata: Input pAnnData object.
+        classes: `.obs` column(s) defining groups — passed to ``pairwise_correlation``.
+        on: ``"protein"`` or ``"peptide"`` (default ``"protein"``).
+        layer: Data layer (default ``"X"``).
+        method: ``"pearson"``, ``"spearman"``, or ``"euclidean"``.
+        order: Optional row/column order. Must match the matrix being plotted:
+
+            - ``show_samples=False``: group labels — for a single ``classes`` column,
+              values like ``"AS"``; for ``classes=[...]``, combined strings exactly as
+              produced by :func:`~scpviz.utils.get_samplenames` (e.g. ``"AS, kd"`` with
+              the stored comma-space separator).
+
+            - ``show_samples=True``: **observation names** only — i.e. entries of
+              ``adata.obs_names`` (however your object labels samples, e.g. PD import
+              sample IDs), **not** combined group strings. To order samples by group,
+              build a list of those obs names in the desired sequence (e.g. all
+              samples of one group, then the next).
+
+            If ``None``, uses storage order (group order from analysis, or sample order
+            used when computing the sample matrix).
+        show_samples: If False (default), plot the group × group matrix. If True,
+            plot the sample × sample matrix (requires ``compute_sample_matrix`` in cache
+            or triggers a run that computes it).
+        cmap: Matplotlib colormap for the heatmap.
+        vmin / vmax: Colormap limits; correlation methods default to ``[-1, 1]``.
+        annotation_cmap: ``"default"`` (independent palette per obs column), or a
+            single ``dict``, ``list``, or matplotlib cmap name shared across annotation bars.
+        figsize: ``(width, height)`` in inches; if ``None``, auto-estimated.
+        text_size: Base font size for ticks, colorbar, and legends.
+        colorbar_label: Override colorbar label.
+        annot: If True, write numeric values in each cell.
+        annot_fmt / annot_size: Cell annotation format and size.
+        title: Optional figure suptitle.
+        force: If True, recompute ``pairwise_correlation`` even if cache matches.
+        subset_mask: Boolean mask or boolean ``Series`` aligned to ``adata.obs``
+            (same semantics as :func:`plot_pca`). All-True is normalized to
+            ``None`` for cache parity with full-data analysis.
+        show_annotation_legend: If True (default), draw one legend per annotation
+            track in a dedicated GridSpec column right of the colorbar (obs column
+            names also appear on the left vertical bar axes; top bars stay unlabeled).
+        legend_anchor_x: Horizontal anchor for annotation legends inside the legend
+            column, in axes coordinates (``0`` = left edge of that column, ``1`` = right).
+            Larger values shift legends to the **right**, away from the colorbar, which
+            helps if they overlap the colorbar. Typical values to try: about ``0.15`` to
+            ``0.45`` (default ``0.3``). Ignored when ``show_annotation_legend`` is False.
+        show_ticklabels: When ``show_samples=True``, controls sample names on the
+            **x-axis** only (y-axis stays unlabeled to avoid clashing with annotation
+            bars). ``None`` (default) shows ticks if ``n_samples <= ticklabels_auto_max_samples``
+            and otherwise hides them and prints an info line. ``True`` / ``False`` force
+            on or off. Ignored when ``show_samples=False`` (group-level always shows
+            x-axis group labels).
+        ticklabels_auto_max_samples: When ``show_ticklabels is None`` and
+            ``show_samples=True``, sample names are shown only if the sample count is
+            at most this value (default ``20``). Must be >= 1.
+
+    Returns:
+        ``(fig, ax_heatmap)``.
+
+    Note:
+        Heatmap row (y) tick labels are always omitted (symmetric matrix; x-axis labels
+        carry sample or group names as applicable).
+        ``tight_layout`` may warn on some backends; layout is non-fatal if it fails.
+
+    Raises:
+        ValueError: If ``sample_matrix`` is missing when ``show_samples=True``, or if
+            ``ticklabels_auto_max_samples`` < 1.
+
+    Example:
+        Imports and group-level heatmap (``show_samples=False``, default). Uses cached
+        ``pairwise_correlation`` results when parameters match; pass ``force=True`` to
+        recompute after changing ``.X`` or normalization:
+            ```python
+            from scpviz import plotting as scplt
+
+            fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", method="pearson")
+            ```
+
+        Sample × sample heatmap (``show_samples=True``). Triggers or reuses analysis with
+        ``compute_sample_matrix=True``. Euclidean distances use NaN-aware geometry on raw
+        abundance rows; pick a sequential ``cmap`` (e.g. ``viridis``) for distances:
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata,
+                classes=["cellline", "treatment"],
+                show_samples=True,
+                method="euclidean",
+                cmap="viridis",
+            )
+            ```
+
+        Force sample names on the x-axis when there are many samples (auto-hide uses
+        ``ticklabels_auto_max_samples`` when ``show_ticklabels=None``):
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata,
+                classes="cellline",
+                show_samples=True,
+                show_ticklabels=True,
+            )
+            ```
+
+        **annotation_cmap** — ``"default"`` (omit or pass explicitly): independent
+        categorical palette per ``.obs`` column, built from sorted unique values:
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes=["cellline", "treatment"], annotation_cmap="default"
+            )
+            ```
+
+        **annotation_cmap** — ``dict`` mapping stringified ``.obs`` levels to colors; the
+        same dict is reused for every annotation column (cover all levels that appear):
+            ```python
+            ann = {"AS": "#E41A1C", "BE": "#377EB8", "kd": "#4DAF4A", "sc": "#984EA3"}
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes=["cellline", "treatment"], annotation_cmap=ann
+            )
+            ```
+
+        **annotation_cmap** — ``list`` of colors, assigned in sorted-level order **within
+        each** obs column (cycles if there are more levels than colors):
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes="cellline", annotation_cmap=["#FC9744", "#00AEE8", "#9D9D9D"]
+            )
+            ```
+
+        **annotation_cmap** — matplotlib colormap **name**: evenly spaced colors for each
+        column's sorted uniques:
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", annotation_cmap="tab10")
+            ```
+
+        Custom row/column order without recomputing (labels must exist in the matrix).
+        For **group** heatmaps, use combined strings when ``classes`` is a list (e.g.
+        ``"AS, kd"``):
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes=["cellline", "treatment"],
+                order=["AS, kd", "BE, sc", "AS, sc", "BE, kd"],
+            )
+            ```
+
+        For **sample** heatmaps, ``order`` must be **observation names** (same strings as
+        ``pdata.prot.obs_names``), not ``"AS, kd"`` group tokens — for example reverse
+        or subset the index:
+            ```python
+            names = list(pdata.prot.obs_names)
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata,
+                classes=["cellline", "treatment"],
+                show_samples=True,
+                order=list(reversed(names)),
+            )
+            ```
+
+        Subset of samples (boolean mask or ``Series`` aligned to ``adata.obs_names``) and
+        no annotation legends:
+            ```python
+            mask = pdata.prot.obs["cellline"].eq("AS").to_numpy()
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes="treatment", subset_mask=mask, show_annotation_legend=False
+            )
+            ```
+
+        Small matrices — show numeric values in cells; adjust legend horizontal position if
+        it overlaps the colorbar:
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes="cellline", annot=True, legend_anchor_x=0.45
+            )
+            ```
+    """
+    if ticklabels_auto_max_samples < 1:
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} ticklabels_auto_max_samples must be >= 1, "
+            f"got {ticklabels_auto_max_samples}."
+        )
+
+    adata = utils.get_adata(pdata, on)
+    mask = _resolve_subset_mask(adata, subset_mask)
+    subset_indices_key = _pairwise_corr_subset_cache_key(mask)
+    subset_for_pc = None if subset_indices_key is None else mask
+
+    prev = adata.uns.get("pairwise_corr")
+    if isinstance(prev, dict):
+        needs_sample_matrix = show_samples and not prev.get("compute_sample_matrix", False)
+    else:
+        needs_sample_matrix = bool(show_samples)
+
+    needs_recompute = (
+        force
+        or not isinstance(prev, dict)
+        or prev.get("classes") != classes
+        or prev.get("method") != method
+        or prev.get("layer") != layer
+        or prev.get("subset_indices") != subset_indices_key
+        or needs_sample_matrix
+    )
+
+    if needs_recompute:
+        pdata.pairwise_correlation(
+            classes=classes,
+            on=on,
+            layer=layer,
+            method=method,
+            order=None,
+            compute_sample_matrix=show_samples,
+            subset_mask=subset_for_pc,
+            force=force,
+        )
+    else:
+        print(
+            f"{utils.format_log_prefix('info')} Using cached pairwise_corr results. "
+            "Pass force=True to recompute."
+        )
+
+    result = adata.uns["pairwise_corr"]
+    classes_list = result["classes_list"]
+    separator = result["separator"]
+    method_used = result["method"]
+
+    if show_samples:
+        if result.get("sample_matrix") is None:
+            raise ValueError(
+                f"{utils.format_log_prefix('error')} sample_matrix is None — "
+                "rerun pairwise_correlation with compute_sample_matrix=True or call "
+                "plot_pairwise_correlation with show_samples=True (which requests it)."
+            )
+        matrix_df = result["sample_matrix"].copy()
+    else:
+        matrix_df = result["group_matrix"].copy()
+
+    _mat_kind = "sample" if show_samples else "group"
+    if order is not None:
+        if len(order) != len(set(order)):
+            raise ValueError(
+                f"{utils.format_log_prefix('error')} order contains duplicate {_mat_kind} labels."
+            )
+        missing = [x for x in order if x not in matrix_df.index]
+        if missing:
+            extra = ""
+            if show_samples:
+                extra = (
+                    " For sample-level plots, order must list observation names "
+                    "(prot/pep `.obs_names`), not combined group labels like 'AS, kd'. "
+                    "Use show_samples=False if you want to reorder by group label."
+                )
+            raise ValueError(
+                f"{utils.format_log_prefix('error')} order contains labels not in the "
+                f"{_mat_kind} matrix: {missing}.{extra}"
+            )
+        matrix_df = matrix_df.reindex(index=order, columns=order)
+        order_used = list(order)
+    else:
+        order_used = list(matrix_df.index)
+
+    n_groups = len(order_used)
+    n_ann = len(classes_list)
+
+    if show_samples:
+        if show_ticklabels is None:
+            _show_ticks = n_groups <= ticklabels_auto_max_samples
+            if not _show_ticks:
+                print(
+                    f"{utils.format_log_prefix('info')} {n_groups} samples — tick labels "
+                    f"hidden by default (threshold={ticklabels_auto_max_samples}). "
+                    "Pass show_ticklabels=True to force them on."
+                )
+        else:
+            _show_ticks = bool(show_ticklabels)
+    else:
+        _show_ticks = True
+
+    if figsize is None:
+        side = max(5.0, n_groups * 0.55)
+        ann_width = n_ann * 0.3
+        cbar_width = 0.5
+        legend_width = 1.5 if show_annotation_legend else 0.0
+        fig_w = side + ann_width * 2 + cbar_width + legend_width
+        fig_h = side + ann_width * 2
+        figsize = (fig_w, fig_h)
+        print(
+            f"{utils.format_log_prefix('info')} Auto-computed figsize={figsize}. "
+            "Pass figsize=(w, h) to override."
+        )
+
+    fig = plt.figure(figsize=figsize)
+    height_ratios = [0.04] * n_ann + [1.0]
+    if show_annotation_legend:
+        legend_col_ratio = 0.25
+        width_ratios = [0.04] * n_ann + [1.0, 0.04, legend_col_ratio]
+        ncols_gs = n_ann + 3
+    else:
+        width_ratios = [0.04] * n_ann + [1.0, 0.04]
+        ncols_gs = n_ann + 2
+    gs = GridSpec(
+        nrows=n_ann + 1,
+        ncols=ncols_gs,
+        figure=fig,
+        height_ratios=height_ratios,
+        width_ratios=width_ratios,
+        hspace=0.02,
+        wspace=0.05 if show_annotation_legend else 0.02,
+    )
+    ax_heatmap = fig.add_subplot(gs[n_ann, n_ann])
+    ax_cbar = fig.add_subplot(gs[n_ann, n_ann + 1])
+    ax_top = [fig.add_subplot(gs[i, n_ann]) for i in range(n_ann)]
+    ax_left = [fig.add_subplot(gs[n_ann, i]) for i in range(n_ann)]
+    if show_annotation_legend:
+        # One axis spanning the full legend column (plan's per-row 0.04-height cells would crush legends)
+        ax_leg_col = fig.add_subplot(gs[0 : n_ann + 1, n_ann + 2])
+        ax_leg_col.set_axis_off()
+    else:
+        ax_leg_col = None
+
+    _grey = "#bfbfbf"
+
+    def _ann_colors_for_column(col: str) -> dict:
+        unique_vals = sorted(adata.obs[col].astype(str).unique().tolist())
+        n_uv = len(unique_vals)
+        if annotation_cmap == "default":
+            pal = get_color("colors", n=n_uv)
+            return {v: pal[i] for i, v in enumerate(unique_vals)}
+        if isinstance(annotation_cmap, dict):
+            out: dict = {}
+            for v in unique_vals:
+                if v not in annotation_cmap:
+                    warnings.warn(
+                        f"annotation_cmap missing key {v!r} for column {col!r}; using grey.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    out[v] = _grey
+                else:
+                    out[v] = annotation_cmap[v]
+            return out
+        if isinstance(annotation_cmap, list):
+            if not annotation_cmap:
+                raise ValueError("annotation_cmap list must be non-empty.")
+            return {
+                v: annotation_cmap[i % len(annotation_cmap)]
+                for i, v in enumerate(unique_vals)
+            }
+        if isinstance(annotation_cmap, str):
+            cmap_obj = cm.get_cmap(annotation_cmap)
+            if n_uv == 0:
+                return {}
+            rgba = cmap_obj(np.linspace(0.0, 1.0, n_uv))
+            return {v: rgba[i] for i, v in enumerate(unique_vals)}
+        raise TypeError(
+            "annotation_cmap must be 'default', dict, non-empty list, or str (cmap name)."
+        )
+
+    ann_color_dicts = [_ann_colors_for_column(c) for c in classes_list]
+
+    n_parts = len(classes_list)
+    group_parts: list[list[str]] = []
+    if not show_samples:
+        if separator is not None:
+            for combined_label in order_used:
+                parts = str(combined_label).split(
+                    separator, maxsplit=max(0, n_parts - 1)
+                )
+                if len(parts) < n_parts:
+                    raise ValueError(
+                        f"{utils.format_log_prefix('error')} Cannot split combined label "
+                        f"{combined_label!r} into {n_parts} parts with separator {separator!r}."
+                    )
+                group_parts.append(parts)
+        else:
+            group_parts = [[str(g)] for g in order_used]
+
+    for i, col in enumerate(classes_list):
+        if show_samples:
+            group_col_labels = [
+                str(adata.obs.loc[sample_name, col]) for sample_name in order_used
+            ]
+        else:
+            col_idx = i
+            if separator is None:
+                group_col_labels = [str(g) for g in order_used]
+            else:
+                group_col_labels = [row[col_idx] for row in group_parts]
+
+        colors_for_bar = [ann_color_dicts[i][str(lbl)] for lbl in group_col_labels]
+        color_row = np.array([mcolors.to_rgba(c) for c in colors_for_bar])[np.newaxis, :, :]
+        ax_top[i].imshow(color_row, aspect="auto", interpolation="nearest")
+        ax_top[i].set_xticks([])
+        ax_top[i].set_yticks([])
+        for spine in ax_top[i].spines.values():
+            spine.set_visible(False)
+
+        color_col = np.array([mcolors.to_rgba(c) for c in colors_for_bar])[:, np.newaxis, :]
+        ax_left[i].imshow(color_col, aspect="auto", interpolation="nearest")
+        ax_left[i].set_xticks([0])
+        ax_left[i].set_xticklabels([col], fontsize=text_size - 1, rotation=90)
+        ax_left[i].xaxis.set_label_position("top")
+        ax_left[i].xaxis.tick_top()
+        ax_left[i].set_yticks([])
+        for spine in ax_left[i].spines.values():
+            spine.set_visible(False)
+
+    mat = np.asarray(matrix_df.values, dtype=float)
+    if not np.any(np.isfinite(mat)):
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} Heatmap matrix has no finite values "
+            "(often caused by NaNs in sample–sample distances or correlations)."
+        )
+    if vmin is None:
+        vmin = -1.0 if method_used in ("pearson", "spearman") else float(np.nanmin(mat))
+    if vmax is None:
+        vmax = 1.0 if method_used in ("pearson", "spearman") else float(np.nanmax(mat))
+
+    _cmap_base = cm.get_cmap(cmap)
+    try:
+        cmap_obj = _cmap_base.copy()
+    except AttributeError:
+        cmap_obj = copy.copy(_cmap_base)
+    cmap_obj.set_bad(color=(0.82, 0.82, 0.82, 1.0))
+    mat_show = np.ma.masked_invalid(mat)
+
+    im = ax_heatmap.imshow(
+        mat_show,
+        aspect="auto",
+        cmap=cmap_obj,
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+    if _show_ticks:
+        ax_heatmap.set_xticks(range(n_groups))
+        ax_heatmap.set_xticklabels(order_used, rotation=90, fontsize=text_size)
+    else:
+        ax_heatmap.set_xticks([])
+    ax_heatmap.set_yticks([])
+    ax_heatmap.tick_params(axis="x", which="both", length=0)
+
+    default_cbar_labels = {
+        "pearson": "Pearson r",
+        "spearman": "Spearman r",
+        "euclidean": "Euclidean distance",
+    }
+    clab = colorbar_label or default_cbar_labels.get(method_used, method_used)
+    cb = fig.colorbar(im, cax=ax_cbar)
+    cb.set_label(clab, fontsize=text_size)
+    cb.ax.tick_params(labelsize=text_size - 1)
+
+    if annot:
+        for row in range(n_groups):
+            for col_j in range(n_groups):
+                val = mat[row, col_j]
+                if not np.isfinite(val):
+                    continue
+                norm_val = (val - vmin) / (vmax - vmin + 1e-9)
+                tcol = "white" if norm_val < 0.5 else "black"
+                ax_heatmap.text(
+                    col_j,
+                    row,
+                    format(val, annot_fmt),
+                    ha="center",
+                    va="center",
+                    fontsize=annot_size,
+                    color=tcol,
+                )
+
+    if title:
+        fig.suptitle(title, fontsize=text_size + 1, y=1.01)
+
+    if show_annotation_legend and ax_leg_col is not None:
+        n_leg = len(classes_list)
+        for i, col in enumerate(classes_list):
+            handles = [
+                mpatches.Patch(color=ann_color_dicts[i][v], label=v)
+                for v in sorted(ann_color_dicts[i], key=lambda x: str(x))
+            ]
+            y_frac = 1.0 - (i + 0.5) / max(n_leg, 1)
+            leg = ax_leg_col.legend(
+                handles=handles,
+                title=col,
+                loc="center left",
+                bbox_to_anchor=(legend_anchor_x, y_frac),
+                bbox_transform=ax_leg_col.transAxes,
+                borderaxespad=0.0,
+                fontsize=text_size - 1,
+                title_fontsize=text_size,
+                frameon=False,
+            )
+            ax_leg_col.add_artist(leg)
+
+    try:
+        fig.tight_layout(rect=[0, 0, 1, 0.97] if title else [0, 0, 1, 1])
+    except Exception:
+        pass
+    return fig, ax_heatmap
+
 
 def plot_clustermap(ax, pdata, on='prot', classes=None, layer="X", x_label='accession', namelist=None, lut=None, log2=True,
                     cmap="coolwarm", figsize=(6, 10), force=False, impute=None, order=None, **kwargs):

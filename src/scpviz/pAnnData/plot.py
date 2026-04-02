@@ -339,6 +339,85 @@ class PlotMixin:
             violin_kwargs=violin_kwargs, text_kwargs=text_kwargs, strip_kwargs=strip_kwargs,
         )
 
+    def plot_pairwise_correlation(
+        self,
+        classes: str | list[str],
+        on: str = "protein",
+        layer: str = "X",
+        method: str = "pearson",
+        order: list | None = None,
+        show_samples: bool = False,
+        cmap: str = "RdBu_r",
+        vmin: float | None = None,
+        vmax: float | None = None,
+        annotation_cmap: str | dict | list = "default",
+        figsize: tuple | None = None,
+        text_size: int = 9,
+        colorbar_label: str | None = None,
+        annot: bool = False,
+        annot_fmt: str = ".2f",
+        annot_size: int = 7,
+        title: str | None = None,
+        force: bool = False,
+        subset_mask=None,
+        show_annotation_legend: bool = True,
+        legend_anchor_x: float = 0.3,
+        show_ticklabels: bool | None = None,
+        ticklabels_auto_max_samples: int = 20,
+    ):
+        """
+        Plot a pairwise proteome correlation heatmap across groups or samples in `.obs`.
+
+        Thin wrapper around :func:`scpviz.plotting.plot_pairwise_correlation`.
+        See that function's docstring for full parameter documentation.
+
+        Note:
+            The ``order`` argument lists **group labels** when ``show_samples=False``
+            (including combined strings such as ``"AS, kd"`` for multi-column ``classes``),
+            but lists **observation names** (``.prot.obs_names`` / ``.pep.obs_names``)
+            when ``show_samples=True``.
+
+        Returns:
+            fig (matplotlib.figure.Figure): The created figure.
+            ax (matplotlib.axes.Axes): The heatmap axes.
+
+        Example:
+            Sample-level heatmap with x-axis sample names forced on:
+            ```python
+            fig, ax = pdata.plot_pairwise_correlation(
+                classes="cellline",
+                show_samples=True,
+                show_ticklabels=True,
+            )
+            ```
+        """
+        return plotting.plot_pairwise_correlation(
+            pdata=self,
+            classes=classes,
+            on=on,
+            layer=layer,
+            method=method,
+            order=order,
+            show_samples=show_samples,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            annotation_cmap=annotation_cmap,
+            figsize=figsize,
+            text_size=text_size,
+            colorbar_label=colorbar_label,
+            annot=annot,
+            annot_fmt=annot_fmt,
+            annot_size=annot_size,
+            title=title,
+            force=force,
+            subset_mask=subset_mask,
+            show_annotation_legend=show_annotation_legend,
+            legend_anchor_x=legend_anchor_x,
+            show_ticklabels=show_ticklabels,
+            ticklabels_auto_max_samples=ticklabels_auto_max_samples,
+        )
+
     def plot_pca_gsea_pathway_vectors(
         self,
         ax,

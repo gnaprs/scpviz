@@ -924,6 +924,237 @@ def test_plot_clustermap_invalid_on_raises(pdata):
     with pytest.raises(ValueError, match="must be 'prot' or 'pep'"):
         scplt.plot_clustermap(None, pdata, on="invalid")
 
+
+class TestPlotPairwiseCorrelation:
+    """Smoke tests for plot_pairwise_correlation (group + sample level)."""
+
+    def test_returns_fig_and_ax(self, pdata):
+        import matplotlib.figure
+        fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(ax, plt.Axes)
+        plt.close(fig)
+
+    def test_heatmap_has_image(self, pdata):
+        import matplotlib.image as mimage
+        fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        images = [c for c in ax.get_children() if isinstance(c, mimage.AxesImage)]
+        assert len(images) >= 1
+        plt.close(fig)
+
+    def test_correct_tick_count(self, pdata):
+        n_groups = int(pdata.prot.obs["cellline"].nunique())
+        fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        assert len(ax.get_xticks()) == n_groups
+        assert len(ax.get_yticks()) == 0  # row labels omitted; groups on x-axis only
+        plt.close(fig)
+
+    def test_all_methods_run(self, pdata):
+        for method in ("pearson", "spearman", "euclidean"):
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes="cellline", method=method, force=True
+            )
+            plt.close(fig)
+
+    def test_list_classes_runs(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes=["cellline", "treatment"], force=True
+        )
+        plt.close(fig)
+
+    def test_annot_runs(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", annot=True, force=True
+        )
+        plt.close(fig)
+
+    def test_figsize_override(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", figsize=(12, 12), force=True
+        )
+        w, h = fig.get_size_inches()
+        assert abs(w - 12) < 0.1 and abs(h - 12) < 0.1
+        plt.close(fig)
+
+    def test_custom_cmap(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", cmap="viridis", force=True
+        )
+        plt.close(fig)
+
+    def test_title_set(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", title="Test Title", force=True
+        )
+        assert fig._suptitle is not None
+        assert "Test Title" in fig._suptitle.get_text()
+        plt.close(fig)
+
+    def test_wrapper_method_runs(self, pdata):
+        import matplotlib.figure
+        fig, ax = pdata.plot_pairwise_correlation(classes="cellline", force=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+        plt.close(fig)
+
+    def test_show_samples_returns_fig_and_ax(self, pdata):
+        import matplotlib.figure
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True, force=True
+        )
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(ax, plt.Axes)
+        plt.close(fig)
+
+    def test_show_samples_matrix_size(self, pdata):
+        n_samples = pdata.prot.n_obs
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_samples=True,
+            show_ticklabels=True,
+            force=True,
+        )
+        assert len(ax.get_xticks()) == n_samples
+        plt.close(fig)
+
+    def test_show_samples_ticks_hidden_auto(self, pdata, capsys):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_samples=True,
+            show_ticklabels=None,
+            ticklabels_auto_max_samples=3,
+            force=True,
+        )
+        captured = capsys.readouterr()
+        out_low = captured.out.lower()
+        assert ("tick" in out_low) and ("hidden" in out_low or "threshold" in out_low)
+        assert len(ax.get_xticks()) == 0
+        plt.close(fig)
+
+    def test_show_samples_ticks_forced_on(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_samples=True,
+            show_ticklabels=True,
+            force=True,
+        )
+        assert len(ax.get_xticks()) == pdata.prot.n_obs
+        plt.close(fig)
+
+    def test_show_samples_ticks_forced_off(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_samples=True,
+            show_ticklabels=False,
+            force=True,
+        )
+        assert len(ax.get_xticks()) == 0
+        plt.close(fig)
+
+    def test_show_samples_list_classes(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes=["cellline", "treatment"],
+            show_samples=True,
+            force=True,
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_show_samples_triggers_recompute_if_sample_matrix_missing(self, pdata):
+        pdata.pairwise_correlation(
+            classes="cellline", compute_sample_matrix=False, force=True
+        )
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is None
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True
+        )
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is not None
+        plt.close(fig)
+
+    def test_show_samples_cache_reused(self, pdata, capsys):
+        scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True, force=True
+        )
+        capsys.readouterr()
+        scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True
+        )
+        captured = capsys.readouterr()
+        assert "cached" in captured.out.lower()
+        plt.close("all")
+
+    def test_group_plot_reuses_cache_when_sample_matrix_present(self, pdata):
+        scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True, force=True
+        )
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is not None
+        scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=False, force=False
+        )
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is not None
+        plt.close("all")
+
+    def test_ticklabels_auto_max_samples_invalid(self, pdata):
+        with pytest.raises(ValueError, match="ticklabels_auto_max_samples"):
+            scplt.plot_pairwise_correlation(
+                pdata,
+                classes="cellline",
+                show_samples=True,
+                ticklabels_auto_max_samples=0,
+                force=True,
+            )
+
+    def test_force_recomputes(self, pdata):
+        scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", force=True
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_euclidean_vmin_vmax_auto(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", method="euclidean", force=True
+        )
+        im = next(c for c in ax.get_children() if hasattr(c, "get_clim"))
+        vmin, vmax = im.get_clim()
+        assert vmin >= -0.01
+        plt.close(fig)
+
+    def test_user_display_order(self, pdata):
+        scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        uniq = sorted(str(x) for x in pdata.prot.obs["cellline"].unique())
+        user_order = list(reversed(uniq))
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", order=user_order, force=False
+        )
+        labels = [t.get_text() for t in ax.get_xticklabels()]
+        assert labels == user_order
+        plt.close(fig)
+
+    def test_subset_mask_runs(self, pdata):
+        n = pdata.prot.n_obs
+        mask = np.zeros(n, dtype=bool)
+        mask[: max(1, n // 2)] = True
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", subset_mask=mask, force=True
+        )
+        plt.close(fig)
+
+    def test_show_annotation_legend_false(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_annotation_legend=False,
+            force=True,
+        )
+        assert ax.get_legend() is None
+        plt.close(fig)
+
 # test scplt.plot_volcano and related functions
 def mock_volcano_df():
     df = pd.DataFrame({
