@@ -459,6 +459,8 @@ class AnalysisMixin:
         if layer != "X" and layer not in adata.layers:
             raise ValueError(f"Layer '{layer}' not found in .{on}.")
 
+        _resolved_input = utils.resolve_input_layer(adata, layer)
+
         impute_data = adata.layers[layer] if layer != "X" else adata.X
         was_sparse = sparse.issparse(impute_data)
         impute_data = impute_data.toarray() if was_sparse else impute_data.copy()
@@ -682,13 +684,24 @@ class AnalysisMixin:
 
         print("\n".join(summary_lines))
 
-        adata.layers[layer_name] = sparse.csr_matrix(impute_data) if was_sparse else impute_data
+        actual_layer_name = utils.update_layer_provenance(
+            adata,
+            layer_name=layer_name,
+            op="impute",
+            input_layer=_resolved_input,
+            method=method,
+        )
+        adata.layers[actual_layer_name] = (
+            sparse.csr_matrix(impute_data) if was_sparse else impute_data
+        )
 
         if set_X:
-            self.set_X(layer=layer_name, on=on) # type: ignore[attr-defined], EditingMixin
+            self.set_X(layer=actual_layer_name, on=on)  # type: ignore[attr-defined], EditingMixin
 
-        self._history.append( # type: ignore[attr-defined]
-            f"{on}: Imputed layer '{layer}' using '{method}' (grouped by {classes if classes else 'ALL'}). Stored in '{layer_name}'."
+        self._history.append(  # type: ignore[attr-defined]
+            f"{on}: Imputed layer '{layer}' using '{method}' (grouped by {classes if classes else 'ALL'}). "
+            f"Stored in '{actual_layer_name}'."
+        )
         )
 
     def neighbor(self, on = 'protein', layer = "X", use_rep='X_pca', user_indent=0, **kwargs):
@@ -1570,15 +1583,28 @@ class AnalysisMixin:
             normalize_data = self._normalize_helper_directlfq(**kwargs)
 
             adata = self.prot  # directlfq always outputs protein-level intensities
-            adata.layers[layer_name] = sparse.csr_matrix(normalize_data) if was_sparse else normalize_data
+            _resolved_input = utils.resolve_input_layer(adata, layer)
+            actual_layer_name = utils.update_layer_provenance(
+                adata,
+                layer_name=layer_name,
+                op="normalize",
+                input_layer=_resolved_input,
+                method="directlfq",
+            )
+            adata.layers[actual_layer_name] = (
+                sparse.csr_matrix(normalize_data) if was_sparse else normalize_data
+            )
 
             if set_X:
-                self.set_X(layer=layer_name, on="protein")  # type: ignore[attr-defined]
+                self.set_X(layer=actual_layer_name, on="protein")  # type: ignore[attr-defined]
 
-            self._history.append(  # type: ignore[attr-defined]
-                f"protein: Normalized layer using directlfq (input_type={kwargs.get('input_type_to_use', 'default')}). Stored in `{layer_name}`."
+            self._append_history(  # type: ignore[attr-defined]
+                f"protein: Normalized layer using directlfq (input_type={kwargs.get('input_type_to_use', 'default')}). Stored in `{actual_layer_name}`."
             )
-            print(f"{format_log_prefix('result_only', indent=2)} directlfq normalization complete. Results are stored in layer '{layer_name}'.")
+            print(
+                f"{format_log_prefix('result_only', indent=2)} directlfq normalization complete. "
+                f"Results are stored in layer '{actual_layer_name}'."
+            )
             print(f"{format_log_prefix('warn_only',3)} Downstream imputation should be performed with the flag `use_zeros_as_nan` set to True due to directlfq output format returning NaNs as 0s.")
             return
     
@@ -1636,20 +1662,31 @@ class AnalysisMixin:
             summary_lines.insert(0, f"{format_log_prefix('result_only', indent=2)} Normalized {normalize_data.shape[0]} samples total.")
         print("\n".join(summary_lines))
 
-        adata.layers[layer_name] = sparse.csr_matrix(normalize_data) if was_sparse else normalize_data
+        _resolved_input = utils.resolve_input_layer(adata, layer)
+        actual_layer_name = utils.update_layer_provenance(
+            adata,
+            layer_name=layer_name,
+            op="normalize",
+            input_layer=_resolved_input,
+            method=method,
+        )
+        adata.layers[actual_layer_name] = (
+            sparse.csr_matrix(normalize_data) if was_sparse else normalize_data
+        )
 
         if set_X:
-            self.set_X(layer = layer_name, on = on) # type: ignore[attr-defined], EditingMixin
+            self.set_X(layer=actual_layer_name, on=on)  # type: ignore[attr-defined], EditingMixin
 
         # Determine if use_nonmissing note should be added
         note = ""
         if use_nonmissing and method in {'sum', 'mean', 'median', 'max'}:
             note = " (using only fully observed columns)"
 
-        self._history.append( # type: ignore[attr-defined], HistoryMixin
-            f"{on}: Normalized layer {layer} using {method}{note} (grouped by {classes}). Stored in `{layer_name}`."
-            )
-    
+        self._append_history(  # type: ignore[attr-defined], HistoryMixin
+            f"{on}: Normalized layer {layer} using {method}{note} (grouped by {classes}). "
+            f"Stored in `{actual_layer_name}`."
+        )
+
     def _normalize_helper(self, data, method, use_nonmissing, **kwargs):
         """
         Perform row-wise normalization using a selected method.
