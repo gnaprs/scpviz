@@ -347,7 +347,7 @@ def plot_significance(ax, y, h, x1=0, x2=1, col='k', pval='n.s.', fontsize=12):
     ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1, c=col)
     ax.text((x1+x2)*.5, y+h, sig, ha='center', va='bottom', color=col, fontsize=fontsize)
 
-def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palette=None, return_df=False, **kwargs):
+def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palette=None, return_df=False, extra_cols=["Accession", "Genes"], **kwargs):
     """
     Generate a box-and-whisker plot for the coefficient of variation (CV).
 
@@ -366,6 +366,7 @@ def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palett
         palette (dict or list, optional): Custom color palette for class groups.
             If None, defaults to `scviz` package color palette.
         return_df (bool): If True, returns the underlying DataFrame used for plotting.
+        extra_cols (list): Additional columns to include in returned dataframe.
         **kwargs: Additional keyword arguments passed to seaborn plotting functions.
 
     Returns:
@@ -402,12 +403,17 @@ def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palett
     adata = utils.get_adata(pdata, on)    
     classes_list = utils.get_classlist(adata, classes = classes, order = order)
     
+    ex_cols = [col for col in extra_cols if col in adata.var.columns]
+
     cv_data = []
     for class_value in classes_list:
         cv_col = f'CV: {class_value}'
         if cv_col in adata.var.columns:
             cv_values = adata.var[cv_col].values
-            cv_data.append(pd.DataFrame({'Class': class_value, 'CV': cv_values}))
+            row = {'Class': class_value, 'CV': cv_values}
+            for col in ex_cols:
+                row[col] = adata.var[col].values
+            cv_data.append(pd.DataFrame(row))
 
     if not cv_data:
         print(f"{utils.format_log_prefix('warn')} No valid CV subsets found — skipping plot.")
