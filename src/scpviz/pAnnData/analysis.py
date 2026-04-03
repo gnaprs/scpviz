@@ -1451,7 +1451,7 @@ class AnalysisMixin:
 
         if verbose:
             print(f"{format_log_prefix('result')} PCA GSEA complete.")
-            print(f"   • Results stored in: .{subpdata}.uns['{key_added}']['results]")
+            print(f"   • Results stored in: .{subpdata}.uns['{key_added}']['results']")
             print(f"   • Keys: {list(stored_results.keys())}")
 
     def ssgsea(self, on="protein", layer="X", gene_sets="GO_Biological_Process_2023", gene_col="Genes", 
