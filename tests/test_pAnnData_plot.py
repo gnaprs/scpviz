@@ -38,19 +38,19 @@ def _seed_mock_pca_gsea(pdata, on="protein"):
 def test_plot_pca_gsea_pathway_vectors_wrapper_smoke(pdata):
     _seed_mock_pca_gsea(pdata, on="protein")
     fig, ax = plt.subplots()
-    out = pdata.plot_pca_gsea_pathway_vectors(ax=ax, on="protein", plot_pc=[1, 2], top_n=2)
+    out = pdata.plot_pca_gsea_pathway_vectors(ax=ax, on="protein", plot_pc=[1, 2], n_vectors=2)
     assert isinstance(out, matplotlib.axes.Axes)
-    assert len(ax.patches) >= 1
+    assert len(ax.texts) >= 1
     plt.close(fig)
 
 def test_plot_pca_protein_vectors_wrapper_smoke(pdata):
     pdata.pca(on="protein")
     fig, ax = plt.subplots()
     out = pdata.plot_pca_protein_vectors(
-        ax=ax, on="protein", plot_pc=[1, 2], top_n=3, adjust_labels=False
+        ax=ax, on="protein", plot_pc=[1, 2], n_vectors=3, adjust_labels=False
     )
     assert isinstance(out, matplotlib.axes.Axes)
-    assert len(ax.patches) >= 1
+    assert len(ax.texts) >= 1
     plt.close(fig)
 
 

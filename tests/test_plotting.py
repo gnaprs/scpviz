@@ -548,11 +548,10 @@ def test_plot_pca_gsea_pathway_vectors_smoke(pdata):
         pdata=pdata,
         on="protein",
         plot_pc=[1, 2],
-        top_n=2,
+        n_vectors=2,
         fdr_cutoff=0.1,
     )
     assert _is_axes_container(out)
-    assert len(ax.patches) >= 1
     assert len(ax.texts) >= 1
     plt.close(fig)
 
@@ -564,11 +563,113 @@ def test_plot_pca_gsea_pathway_vectors_without_samples(pdata):
         pdata=pdata,
         on="protein",
         plot_pc=[1, 2],
-        top_n=2,
+        n_vectors=2,
         show_samples=False,
     )
     assert _is_axes_container(out)
     assert _count_artists(out) > 0
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_pathway_vectors_xlim_ylim(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=2,
+        xlim=(-5.0, 5.0),
+        ylim=(-4.0, 4.0),
+        adjust_labels=False,
+    )
+    assert ax.get_xlim() == pytest.approx((-5.0, 5.0))
+    assert ax.get_ylim() == pytest.approx((-4.0, 4.0))
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_pathway_vectors_namelist_and_cmap(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        namelist=["OXPHOS", "immune"],
+        cmap={"OXPHOS": "red"},
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_pathway_vectors_namelist_raises(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="namelist"):
+        scplt.plot_pca_gsea_pathway_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            namelist=["__NOT_A_PATHWAY__"],
+            adjust_labels=False,
+        )
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_pathway_vectors_n_vectors_list(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=[1, 1],
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    plt.close(fig)
+
+def test_plot_pca_gsea_pathway_vectors_namelist_plus_n_vectors_union(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    _, vec_df = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        namelist=["Synapse"],
+        n_vectors=2,
+        fdr_cutoff=0.1,
+        adjust_labels=False,
+        return_df=True,
+    )
+    assert vec_df.shape[0] >= 2
+    assert vec_df.iloc[0]["pathway_raw"] == "Synapse"
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_namelist_plus_n_vectors_union(pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    g0 = str(adata.var["Genes"].iloc[0]) if "Genes" in adata.var.columns else str(adata.var_names[0])
+    fig, ax = plt.subplots()
+    _, vec_df = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        namelist=[g0],
+        n_vectors=3,
+        adjust_labels=False,
+        return_df=True,
+    )
+    assert vec_df.shape[0] >= 2
+    assert vec_df.iloc[0]["gene"] == g0
     plt.close(fig)
 
 def test_plot_pca_protein_vectors_smoke(pdata):
@@ -579,27 +680,29 @@ def test_plot_pca_protein_vectors_smoke(pdata):
         pdata=pdata,
         on="protein",
         plot_pc=[1, 2],
-        top_n=4,
+        n_vectors=4,
         adjust_labels=False,
     )
     assert _is_axes_container(out)
-    assert len(ax.patches) >= 1
     assert len(ax.texts) >= 1
     plt.close(fig)
 
 
-def test_plot_pca_protein_vectors_return_df_and_include(pdata):
+def test_plot_pca_protein_vectors_return_df_and_namelist(pdata):
     pdata.pca(on="protein")
     fig, ax = plt.subplots()
     adata = pdata.prot
     pick = str(adata.var_names[0])
+    if "Genes" in adata.var.columns:
+        gene_label = str(adata.var["Genes"].iloc[0])
+    else:
+        gene_label = pick
     _, vec_df = scplt.plot_pca_protein_vectors(
         ax=ax,
         pdata=pdata,
         on="protein",
         plot_pc=[1, 2],
-        top_n=1,
-        include_genes={pick},
+        namelist=[gene_label],
         adjust_labels=False,
         return_df=True,
     )
@@ -608,16 +711,93 @@ def test_plot_pca_protein_vectors_return_df_and_include(pdata):
     plt.close(fig)
 
 
-def test_plot_pca_protein_vectors_top_n_must_be_positive(pdata):
+def test_plot_pca_protein_vectors_n_vectors_int_and_list(pdata):
     pdata.pca(on="protein")
     fig, ax = plt.subplots()
-    with pytest.raises(ValueError, match="top_n"):
+    out = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=10,
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    plt.close(fig)
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=[3, 2],
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_cmap_and_limits(pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    g = str(adata.var["Genes"].iloc[0]) if "Genes" in adata.var.columns else str(adata.var_names[0])
+    fig, ax = plt.subplots()
+    scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=3,
+        cmap={g: "red"},
+        xlim=(-5.0, 5.0),
+        ylim=(-4.0, 4.0),
+        adjust_labels=False,
+    )
+    assert ax.get_xlim() == pytest.approx((-5.0, 5.0))
+    assert ax.get_ylim() == pytest.approx((-4.0, 4.0))
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_namelist_empty_raises(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="namelist"):
         scplt.plot_pca_protein_vectors(
             ax=ax,
             pdata=pdata,
             on="protein",
             plot_pc=[1, 2],
-            top_n=None,
+            namelist=["__NOT_A_GENE__"],
+            adjust_labels=False,
+        )
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_n_vectors_bad_list_raises(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="length"):
+        scplt.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            n_vectors=[1, 2, 3],
+            adjust_labels=False,
+        )
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_n_vectors_must_be_positive(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="No proteins to plot"):
+        scplt.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            n_vectors=None,
             adjust_labels=False,
         )
     with pytest.raises(ValueError, match="at least 1"):
@@ -626,7 +806,7 @@ def test_plot_pca_protein_vectors_top_n_must_be_positive(pdata):
             pdata=pdata,
             on="protein",
             plot_pc=[1, 2],
-            top_n=0,
+            n_vectors=0,
             adjust_labels=False,
         )
     plt.close(fig)
@@ -690,7 +870,7 @@ def test_plot_pca_gsea_pathway_vectors_library_split_and_return_df(pdata):
         pdata=pdata,
         on="protein",
         plot_pc=[1, 2],
-        top_n=2,
+        n_vectors=2,
         return_df=True,
     )
     assert "library" in vec_df.columns

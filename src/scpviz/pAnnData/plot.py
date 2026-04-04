@@ -424,7 +424,7 @@ class PlotMixin:
         on="protein",
         key_added="pca_gsea",
         plot_pc=[1, 2],
-        top_n=12,
+        n_vectors=plotting.N_VECTORS_UNSET,
         fdr_cutoff=0.1,
         arrow_scale=0.25,
         pca_kwargs=None,
@@ -437,41 +437,48 @@ class PlotMixin:
         text_positions=None,
         lock_text_positions=False,
         top_n_mode="balanced",
-        include_pathways=None,
         exclude_pathways=None,
+        namelist=None,
+        cmap=None,
+        xlim=None,
+        ylim=None,
         return_df=False,
     ):
         """
-        Wrapper for `scpviz.plotting.plot_pca_gsea_pathway_vectors`.
+        Overlay PCA-GSEA pathways as arrows in a two-dimensional PCA sample space.
 
-        Draw PCA-GSEA pathways as arrows on a PCA scatter (or on empty PCA axes). NES on two PCs sets
-        each arrow direction; length is rescaled for display.
+        Delegates to ``scpviz.plotting.plot_pca_gsea_pathway_vectors`` with ``pdata=self``.
 
         Args:
             ax (matplotlib.axes.Axes): Target axis (2D).
-            on (str): ``"protein"`` or ``"peptide"``.
-            key_added (str): ``adata.uns`` key for PCA-GSEA results.
-            plot_pc (list of int): Two 1-based PCs.
-            top_n (int): Maximum pathways after ranking; must be >= 1.
-            fdr_cutoff (float or None): FDR threshold for eligibility and ``top_n`` ranking (default ``0.1``);
-                ``None`` disables. See ``scpviz.plotting.plot_pca_gsea_pathway_vectors``.
-            arrow_scale (float): Rescales arrow length relative to the axis span.
-            pca_kwargs (dict or None): Passed to ``plot_pca`` when ``show_samples=True``.
-            show_samples (bool): Whether to plot the sample PCA embedding first.
-            title_case_labels (bool): Format pathway labels for display.
-            force (bool): Re-run ``pca_gsea`` when True.
-            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` if it is run automatically.
-            adjust_labels (bool): Run ``adjust_text`` when True.
-            adjust_text_kwargs (dict or None): Extra kwargs for ``adjust_text``.
-            text_positions (dict or None): Optional fixed label coordinates.
-            lock_text_positions (bool): Keep manual positions fixed under ``adjust_text``.
-            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
-            include_pathways (str, iterable, or None): Restrict to these pathway names.
-            exclude_pathways (str, iterable, or None): Drop these pathway names.
-            return_df (bool): If True, return ``(ax, vector_df)``.
+            on (str): Data level, ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+            plot_pc (list of int): Exactly two 1-based PCs, e.g. ``[1, 2]``.
+            n_vectors (int, sequence, ``None``, or unset): Auto top-N on rows not in ``namelist``. Default ``12``
+                when ``namelist`` is unset; when ``namelist`` is set, default is no extra top-N unless passed.
+            fdr_cutoff (float or None): FDR threshold for the default ranking path; with ``namelist``,
+                pathways are shown even if they fail FDR, with a printed warning when applicable.
+            arrow_scale (float): Scale factor for arrow length relative to axis span.
+            pca_kwargs (dict or None): Additional arguments passed to ``plot_pca`` when ``show_samples=True``.
+            show_samples (bool): If True, plot samples first; if False, draw only axes, grid lines, and arrows.
+            title_case_labels (bool): If True, format pathway labels for display.
+            force (bool): If True, re-run ``pca_gsea`` for ``plot_pc``.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when results are auto-computed.
+            adjust_labels (bool): If True, run ``adjust_text`` to reduce label overlap.
+            adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
+            text_positions (dict or None): Optional manual label positions.
+            lock_text_positions (bool): If True, labels with entries in ``text_positions`` are not moved by
+                ``adjust_text``.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"``. Used only when ``n_vectors`` is an int.
+            exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+            namelist (list of str or None): Pathways to plot first; optional extra top-N from ``n_vectors`` on the rest.
+            cmap (dict or None): Per-pathway colors (raw, formatted, then case-insensitive keys).
+            xlim (tuple or None): X-axis limits applied before arrow scaling (releases fixed aspect first).
+            ylim (tuple or None): Y-axis limits, same stage as ``xlim``.
+            return_df (bool): If True, also return a DataFrame with NES, FDR, and label positions.
 
         Returns:
-            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
         """
         return plotting.plot_pca_gsea_pathway_vectors(
             ax=ax,
@@ -479,7 +486,7 @@ class PlotMixin:
             on=on,
             key_added=key_added,
             plot_pc=plot_pc,
-            top_n=top_n,
+            n_vectors=n_vectors,
             fdr_cutoff=fdr_cutoff,
             arrow_scale=arrow_scale,
             pca_kwargs=pca_kwargs,
@@ -492,8 +499,11 @@ class PlotMixin:
             text_positions=text_positions,
             lock_text_positions=lock_text_positions,
             top_n_mode=top_n_mode,
-            include_pathways=include_pathways,
             exclude_pathways=exclude_pathways,
+            namelist=namelist,
+            cmap=cmap,
+            xlim=xlim,
+            ylim=ylim,
             return_df=return_df,
         )
 
@@ -503,7 +513,7 @@ class PlotMixin:
         on="protein",
         plot_pc=(1, 2),
         gene_col="Genes",
-        top_n=20,
+        n_vectors=plotting.N_VECTORS_UNSET,
         arrow_scale=0.25,
         pca_kwargs=None,
         show_samples=True,
@@ -514,38 +524,108 @@ class PlotMixin:
         lock_text_positions=False,
         min_abs_loading_for_top_n=None,
         top_n_mode="balanced",
-        include_genes=None,
         exclude_genes=None,
+        namelist=None,
+        cmap=None,
+        xlim=None,
+        ylim=None,
         return_df=False,
     ):
         """
-        Wrapper for `scpviz.plotting.plot_pca_protein_vectors`.
+        Overlay protein PCA loadings as arrows in a two-dimensional sample PCA space.
 
-        Draw PCA feature loadings as arrows on a PCA scatter. Uses ``adata.uns['pca']['PCs']`` from
-        ``.pca()``; arrows are scaled for visibility like the PCA-GSEA pathway vector plot.
+        Delegates to ``scpviz.plotting.plot_pca_protein_vectors`` with ``pdata=self``. Arrows use feature
+        loadings from ``adata.uns['pca']['PCs']`` (from ``pAnnData.pca``), not GSEA NES. Geometry matches
+        ``plot_pca_gsea_pathway_vectors``: each arrow runs from the origin in the direction
+        ``(loading_on_PCx, loading_on_PCy)``, with length rescaled from the current axis limits for visibility.
+        Labels default to the ``gene_col`` column in ``.var`` when present, otherwise ``.var_names``.
 
         Args:
             ax (matplotlib.axes.Axes): Target axis (2D).
-            on (str): ``"protein"`` or ``"peptide"``.
-            plot_pc (tuple or list of int): Two 1-based PCs.
-            gene_col (str): ``.var`` column for labels; falls back to ``.var_names`` if missing.
-            top_n (int): Maximum proteins after ranking; must be >= 1.
-            arrow_scale (float): Rescales arrow length relative to the axis span.
-            pca_kwargs (dict or None): Passed to ``plot_pca`` when ``show_samples=True``.
-            show_samples (bool): Whether to plot the sample PCA embedding first.
-            title_case_labels (bool): Light formatting of gene text when True.
-            adjust_labels (bool): Run ``adjust_text`` when True.
-            adjust_text_kwargs (dict or None): Extra kwargs for ``adjust_text``.
-            text_positions (dict or None): Optional fixed label coordinates.
-            lock_text_positions (bool): Keep manual positions fixed under ``adjust_text``.
-            min_abs_loading_for_top_n (float or None): Minimum |loading| gate for ranking per PC.
-            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
-            include_genes (str, iterable, or None): Restrict to these gene or feature ids.
-            exclude_genes (str, iterable, or None): Drop these gene or feature ids.
-            return_df (bool): If True, return ``(ax, vector_df)``.
+            on (str): Data level, ``"protein"`` or ``"peptide"``.
+            plot_pc (tuple or list of int): Exactly two 1-based PCs.
+            gene_col (str): Column in ``.var`` for display labels; missing column falls back to ``.var_names``.
+            n_vectors (int, sequence, ``None``, or unset): Auto top-N on rows not in ``namelist``. Default ``20``
+                when ``namelist`` is unset; when ``namelist`` is set, default is no extra top-N unless passed.
+                ``min_abs_loading_for_top_n`` gates scores on the remainder.
+            arrow_scale (float): Scale factor for arrow length relative to axis span.
+            pca_kwargs (dict or None): Forwarded to ``plot_pca`` when ``show_samples=True``.
+            show_samples (bool): If True, draw the sample PCA scatter first; if False, only axes and arrows.
+            title_case_labels (bool): If True, lightly format gene text (underscores to spaces, title case).
+            adjust_labels (bool): If True, run ``adjust_text`` to reduce overlap.
+            adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
+            text_positions (dict or None): Manual label positions keyed by gene or formatted label.
+            lock_text_positions (bool): If True, manual positions are excluded from ``adjust_text`` motion.
+            min_abs_loading_for_top_n (float or None): If set, ranking scores on a PC are zero when
+                ``|loading|`` is below this threshold on that PC.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"`` (same selection logic as pathway vectors, using
+                absolute loadings instead of NES/FDR scores). Used only when ``n_vectors`` is an int.
+            exclude_genes (str, iterable, or None): Remove genes/features matching these strings (gene label or
+                ``.var_names`` feature id).
+            namelist (list of str or None): Gene labels (matrix index, exact ``str`` match) to include first;
+                combined with ``n_vectors`` on the remaining rows. Genes in ``exclude_genes`` are dropped.
+            cmap (dict or None): Map gene label (as in matrix or after ``title_case_labels`` formatting) to a
+                matplotlib color; lookup tries raw name, formatted label, then case-insensitive keys. Default
+                ``None`` draws arrows and labels in black.
+            xlim (tuple or None): If set, applied with ``ax.set_xlim(xlim)`` immediately after the PCA scatter
+                (or empty axes) and **before** arrow length scaling, so ``arrow_scale`` matches the visible range.
+                When either ``xlim`` or ``ylim`` is set, ``ax.set_aspect("auto")`` is called first so a fixed
+                data aspect from ``plot_pca`` (or ``show_samples=False``) does not block the limits.
+            ylim (tuple or None): If set, ``ax.set_ylim(ylim)`` at the same stage as ``xlim`` (same note).
+            return_df (bool): If True, return ``(ax, vector_df)`` with loadings and arrow/text coordinates.
 
         Returns:
-            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+        Example:
+            Top-loading genes on PC1 vs PC2 over the sample PCA scatter, returning arrow and text coordinates:
+                ```python
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots()
+                ax, vec = pdata.plot_pca_protein_vectors(
+                    ax,
+                    plot_pc=[1, 2],
+                    n_vectors=25,
+                    return_df=True,
+                )
+                ```
+
+            Split-axis selection: top loadings on PC1 and PC3 separately, then union:
+                ```python
+                fig, ax = plt.subplots()
+                pdata.plot_pca_protein_vectors(
+                    ax,
+                    plot_pc=[1, 3],
+                    n_vectors=[5, 3],
+                    adjust_labels=False,
+                )
+                ```
+
+            Explicit genes with colors and axis limits:
+                ```python
+                fig, ax = plt.subplots()
+                pdata.plot_pca_protein_vectors(
+                    ax,
+                    plot_pc=[1, 2],
+                    namelist=["TP53", "EGFR"],
+                    cmap={"TP53": "crimson", "egfr": "steelblue"},
+                    xlim=(-6, 6),
+                    ylim=(-5, 5),
+                )
+                ```
+
+            Loading arrows only (no sample points) for a compact biplot-style panel:
+                ```python
+                fig, ax = plt.subplots()
+                pdata.plot_pca_protein_vectors(
+                    ax,
+                    plot_pc=[1, 2],
+                    n_vectors=20,
+                    show_samples=False,
+                    adjust_labels=False,
+                )
+                ```
         """
         return plotting.plot_pca_protein_vectors(
             ax=ax,
@@ -553,7 +633,7 @@ class PlotMixin:
             on=on,
             plot_pc=plot_pc,
             gene_col=gene_col,
-            top_n=top_n,
+            n_vectors=n_vectors,
             arrow_scale=arrow_scale,
             pca_kwargs=pca_kwargs,
             show_samples=show_samples,
@@ -564,8 +644,11 @@ class PlotMixin:
             lock_text_positions=lock_text_positions,
             min_abs_loading_for_top_n=min_abs_loading_for_top_n,
             top_n_mode=top_n_mode,
-            include_genes=include_genes,
             exclude_genes=exclude_genes,
+            namelist=namelist,
+            cmap=cmap,
+            xlim=xlim,
+            ylim=ylim,
             return_df=return_df,
         )
 
