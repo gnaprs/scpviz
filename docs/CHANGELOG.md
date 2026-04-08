@@ -29,6 +29,8 @@
 
 - Update changelogs [skip ci] (8c0fd83…)
 
+- Update changelogs [skip ci] (2b5f382…)
+
 
 
 
@@ -43,6 +45,13 @@
 
 
 
+- Docs(citation): add CITATION.cff, closes [JOSS] Add CITATION.cff (f1d7bfe…)
+
+- Docs(makefile): add makefile, closes [JOSS] No Makefile/Justfile (198692f…)
+
+
+
+
 #### Fixed
 
 
@@ -52,6 +61,17 @@
 - Update deployment workflow to run only on push to docs on main branch (830bbb3…)
 
 - Fixed broken link to function hyperlink, added colab button (7662ea8…)
+
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update Paper PDF Draft (da1b895…)
 
 
 

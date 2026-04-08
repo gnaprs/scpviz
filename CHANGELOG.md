@@ -27,6 +27,8 @@ All notable changes to this project are documented here.
 
 - Update changelogs [skip ci] (8c0fd83…)
 
+- Update changelogs [skip ci] (2b5f382…)
+
 
 
 #### Documentation
@@ -39,6 +41,15 @@ All notable changes to this project are documented here.
 
 
 
+
+- Docs(citation): add CITATION.cff, closes [JOSS] Add CITATION.cff
+Fixes #32 (f1d7bfe…)
+
+- Docs(makefile): add makefile, closes [JOSS] No Makefile/Justfile
+Fixes #35 (198692f…)
+
+
+
 #### Fixed
 
 
@@ -48,6 +59,16 @@ All notable changes to this project are documented here.
 - Update deployment workflow to run only on push to docs on main branch (830bbb3…)
 
 - Fixed broken link to function hyperlink, added colab button (7662ea8…)
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update Paper PDF Draft (da1b895…)
 
 
 
