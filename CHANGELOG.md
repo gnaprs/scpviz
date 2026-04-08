@@ -31,6 +31,8 @@ All notable changes to this project are documented here.
 
 - Update changelogs [skip ci] (8f3d47a…)
 
+- Update changelogs [skip ci] (017730b…)
+
 
 
 #### Documentation
@@ -73,6 +75,10 @@ Fixes #35 (198692f…)
 - Update Paper PDF Draft (da1b895…)
 
 - Update Paper PDF Draft (01dbb0a…)
+
+- Update research impact statement regarding collaborative effort #36 (b3e540a…)
+
+- Update Paper PDF Draft (3d2700f…)
 
 
 
