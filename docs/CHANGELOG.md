@@ -6,6 +6,17 @@
 ### Unreleased <small>Unreleased</small> { id="Unreleased" }
 
 
+#### Build System
+
+
+##### (V0.5.9)
+
+
+- Bump version to 0.5.9 (8599fc8…)
+
+
+
+
 #### Chores
 
 
@@ -34,6 +45,8 @@
 - Update changelogs [skip ci] (8f3d47a…)
 
 - Update changelogs [skip ci] (017730b…)
+
+- Update changelogs [skip ci] (b5a4837…)
 
 
 
@@ -82,6 +95,10 @@
 - Update research impact statement regarding collaborative effort #36 (b3e540a…)
 
 - Update Paper PDF Draft (3d2700f…)
+
+- Update bib to remove local file paths #28 (1b11b77…)
+
+- Update Paper PDF Draft (148081f…)
 
 
 
