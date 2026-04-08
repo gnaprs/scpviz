@@ -29,6 +29,8 @@ All notable changes to this project are documented here.
 
 - Update changelogs [skip ci] (2b5f382…)
 
+- Update changelogs [skip ci] (8f3d47a…)
+
 
 
 #### Documentation
@@ -69,6 +71,8 @@ Fixes #35 (198692f…)
 
 
 - Update Paper PDF Draft (da1b895…)
+
+- Update Paper PDF Draft (01dbb0a…)
 
 
 
