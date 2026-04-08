@@ -54,7 +54,7 @@ Full function documentation for the `pAnnData` class and utility modules can be 
 
 ## Contributing
 
-If you'll like to contribute to `scpviz`, please see the [contributing guidelines](https://gnaprs.github.io/scpviz/dev/contributing/). We welcome contributions from the community to help improve, expand, and document the functionality of scpviz.
+If you'd like to contribute to `scpviz`, please see the [contributing guidelines](https://gnaprs.github.io/scpviz/dev/contributing/) and [code of conduct](https://gnaprs.github.io/scpviz/dev/CODE_OF_CONDUCT/). We welcome contributions from the community to help improve, expand, and document the functionality of scpviz.
 
 ## License
-`scpviz` was created by Marion Pang. It is licensed under the terms of the MIT license.
+`scpviz` was created by Marion Pang and contributors. It is licensed under the terms of the MIT license.
