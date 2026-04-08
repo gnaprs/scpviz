@@ -25,6 +25,8 @@ All notable changes to this project are documented here.
 
 - Update changelogs [skip ci] (fa78650…)
 
+- Update changelogs [skip ci] (8c0fd83…)
+
 
 
 #### Documentation
@@ -56,6 +58,13 @@ All notable changes to this project are documented here.
 
 
 - Fix formatting in single-cell tutorial header (73970d3…)
+
+
+
+##### (Readme)
+
+
+- Update contributing and license (cbb355b…)
 
 
 

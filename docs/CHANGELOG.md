@@ -27,6 +27,8 @@
 
 - Update changelogs [skip ci] (fa78650…)
 
+- Update changelogs [skip ci] (8c0fd83…)
+
 
 
 
@@ -61,6 +63,13 @@
 
 
 - Fix formatting in single-cell tutorial header (73970d3…)
+
+
+
+##### (Readme)
+
+
+- Update contributing and license (cbb355b…)
 
 
 
