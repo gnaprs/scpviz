@@ -23,6 +23,8 @@ All notable changes to this project are documented here.
 
 - Update changelogs [skip ci] (4eb539a…)
 
+- Update changelogs [skip ci] (fa78650…)
+
 
 
 #### Documentation
@@ -44,6 +46,16 @@ All notable changes to this project are documented here.
 - Update deployment workflow to run only on push to docs on main branch (830bbb3…)
 
 - Fixed broken link to function hyperlink, added colab button (7662ea8…)
+
+
+
+#### Style
+
+
+##### (Docs)
+
+
+- Fix formatting in single-cell tutorial header (73970d3…)
 
 
 
