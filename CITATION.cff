@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+title: >-
+  scpviz: A Python bioinformatics toolkit for Single-cell
+  Proteomics and multi-omics analysis
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+version: 0.5.8-alpha
+date-released: 2025-11-15
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.17362532
+repository-code: 'https://github.com/gnaprs/scpviz'
+url: 'https://gnaprs.github.io/scpviz/'
+license: MIT
+authors:
+  - family-names: Pang
+    given-names: Marion
+    orcid: "https://orcid.org/0000-0002-0158-2976"
+    affiliation: "Division of Biology and Biological Engineering, California Institute of Technology"
+  - family-names: Quan
+    given-names: Baiyi
+    orcid: "https://orcid.org/0000-0001-6313-4274"
+    affiliation: "Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology"
+  - family-names: Wang
+    given-names: Ting-Yu
+    orcid: "https://orcid.org/0000-0002-9014-6825"
+    affiliation: "Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology"
+  - family-names: Chou
+    given-names: Tsui-Fen
+    orcid: "https://orcid.org/0000-0003-2410-2186"
+    affiliation: "Division of Biology and Biological Engineering, California Institute of Technology; Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology"
+abstract: >
+  scpviz is a Python package for visualizing and analyzing single-cell proteomics
+  and multi-omics data. It extends the AnnData data structure to the domain of
+  proteomics through the pAnnData class, supporting a complete analysis pipeline
+  from raw peptide-level data to protein-level summaries and downstream
+  interpretation through differential expression, enrichment analysis, and
+  network analysis.
