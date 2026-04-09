@@ -1,4 +1,4 @@
-name: Ubuntu Py3.8
+name: Ubuntu Py3.10
 
 on:
   push:
@@ -19,4 +19,4 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     with:
       os: ubuntu-latest
-      python: "3.8"
+      python: "3.10"

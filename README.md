@@ -10,9 +10,7 @@
 | Python | Ubuntu | macOS | Windows |
 |--------|--------|--------|----------|
 | **3.11** | ![Ubuntu-3.11](https://github.com/gnaprs/scpviz/actions/workflows/ubuntu-3.11.yml/badge.svg) | ![macOS-3.11](https://github.com/gnaprs/scpviz/actions/workflows/macos-3.11.yml/badge.svg) | ![Windows-3.11](https://github.com/gnaprs/scpviz/actions/workflows/windows-3.11.yml/badge.svg) |
-| **3.8** | ![Ubuntu-3.8](https://github.com/gnaprs/scpviz/actions/workflows/ubuntu-3.8.yml/badge.svg) | Unsupported | ![Windows-3.8](https://github.com/gnaprs/scpviz/actions/workflows/windows-3.8.yml/badge.svg) |
-
-*macOS + Python 3.8 is unsupported due to issues with `scikit-misc` installation.*
+| **3.10** | ![Ubuntu-3.10](https://github.com/gnaprs/scpviz/actions/workflows/ubuntu-3.10.yml/badge.svg) | ![macOS-3.10](https://github.com/gnaprs/scpviz/actions/workflows/macos-3.10.yml/badge.svg) | ![Windows-3.10](https://github.com/gnaprs/scpviz/actions/workflows/windows-3.10.yml/badge.svg) |
 
 **Documentation:**  
 [![Docs CI](https://github.com/gnaprs/scpviz/actions/workflows/docs.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/docs.yml)
@@ -28,18 +26,21 @@ It extends the [AnnData](https://anndata.readthedocs.io/) ecosystem with proteom
 ## Getting started
 ### Installation
 
-`scpviz` requires Python 3.8 or later. It is distributed as a Python package and can be installed with `pip`.
+`scpviz` requires Python 3.10 or later. It is distributed as a Python package and can be installed with `pip`.
 
-    python3 -m pip install scpviz
+    pip install scpviz
 
 This will install all required dependencies, including `scanpy`, `anndata`, `pandas`, and common plotting libraries.
 
-For the most up-to-date version of scpviz, clone the repository and
-install the package using pip:
+For single-cell proteomics workflows (directLFQ normalization, Leiden clustering, Harmony batch correction, PIMMS imputation), install the `sc` extras:
 
-    conda create -n scpviz python=3.8 numpy pandas pip
-    conda activate scpviz
-    pip install git+https://github.com/gnaprs/scpviz.git@main --upgrade
+    pip install scpviz[sc]
+
+For the most up-to-date development version, clone the repository and install with pip:
+
+    git clone https://github.com/gnaprs/scpviz.git
+    cd scpviz
+    pip install -e .
 
 ### Quickstart
 

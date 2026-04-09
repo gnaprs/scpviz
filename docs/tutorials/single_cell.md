@@ -16,6 +16,12 @@
 
     - [Wang S. et al. (2025). *Benchmarking informatics workflows for data-independent acquisition single-cell proteomics.* Nature Communications.](https://www.nature.com/articles/s41467-025-65174-4)
 
+!!! info "Installation"
+    This tutorial uses single-cell-specific features that require optional dependencies. Install them with:
+    ```
+    pip install "scpviz[sc]"
+    ```
+
 In this tutorial we use a small example dataset derived from our recent preprint ([Sayan and Pang et al. 2025](https://doi.org/10.1101/2025.02.10.637505)). The dataset contains **single-cell proteomic measurements of astrocytes**, comparing injured versus uninjured cells.
 
 [![Download Dataset](https://img.shields.io/badge/download-report_sc.parquet-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/assets/report_sc.parquet)
@@ -336,8 +342,9 @@ In `scpviz`, this can be run using:
 pdata_sc_norm.impute(method="pimms_dae")
 ```
 
-!!! note
-    The `pimms` package may currently be difficult to install in some environments because of pip dependency resolver issues. If installation fails, minimum-value imputation remains a reasonable fallback for exploratory single-cell analysis.
+!!! warning "Known compatibility issue"
+    `pimms-learn` is an optional dependency available via `pip install "scpviz[sc]"` and requires Python ≥ 3.10.
+    However, `pimmslearn` currently has an internal incompatibility with **seaborn ≥ 0.13** (it uses a private API that was removed). PIMMS imputation may fail at runtime even if installation succeeds. If you encounter an `ImportError` for `_BarPlotter`, either manually downgrade seaborn to 0.12.2 or use minimum-value imputation as a reasonable fallback for exploratory analysis.
 
 ## Exploratory visualization
 

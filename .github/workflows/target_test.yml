@@ -17,5 +17,5 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,sc]"
       - run: pytest tests/test_pAnnData_import.py::test_import_pd_excel -v
