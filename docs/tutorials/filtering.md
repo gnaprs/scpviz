@@ -191,7 +191,7 @@ pdata_filtered = pdata.filter_prot_found(group="cellline", min_ratio=0.5, match_
 | 🟩 | ⚪ | 🟩 | ⚪ | ⚪ |  (0.5, 0.33) | ❌ (✅ if `match_any=True`) |
 | 🟩 | ⚪ | ⚪ | ⚪ | ⚪ | (0.25, 0) | ❌ |
 
-*For more information, see the API documentation for [filter_prot_found()](https://gnaprs.github.io/scpviz/reference/pAnnData/editing_mixins/#src.scpviz.pAnnData.filtering.FilterMixin.filter_prot_found)*
+*For more information, see the API documentation for [filter_prot_found()](https://gnaprs.github.io/scpviz/reference/pAnnData/filtering_mixin/#src.scpviz.pAnnData.filtering.FilterMixin.filter_prot_found)*
 
 ---
 
@@ -222,7 +222,7 @@ pdata.annotate_significant(classes=['group', 'treatment'])
 pdata_filtered = pdata.filter_prot_significant(group=["groupA_control", "groupB_treated"])
 ```
 
-*For more information, see the API documentation for [filter_prot_significant()](https://gnaprs.github.io/scpviz/reference/pAnnData/editing_mixins/#src.scpviz.pAnnData.filtering.FilterMixin.filter_prot_significant)*
+*For more information, see the API documentation for [filter_prot_significant()](https://gnaprs.github.io/scpviz/reference/pAnnData/filtering_mixin/#src.scpviz.pAnnData.filtering.FilterMixin.filter_prot_significant)*
 
 ## `filter_sample()`
 
@@ -339,7 +339,7 @@ Complex logical expressions such as `(A and B) or C` are supported.
 - `cleanup`: If `True` (default), remove proteins that become all-NaN or all-zero after sample filtering and synchronize RS/peptide matrices.  
   Set to `False` to retain all proteins (useful for downstream DE analyses requiring consistent feature alignment).
 
-*For more information, see the API documentation for [filter_sample()](https://gnaprs.github.io/scpviz/reference/pAnnData/editing_mixins/#src.scpviz.pAnnData.filtering.FilterMixin.filter_sample)*
+*For more information, see the API documentation for [filter_sample()](https://gnaprs.github.io/scpviz/reference/pAnnData/filtering_mixin/#src.scpviz.pAnnData.filtering.FilterMixin.filter_sample)*
 
 ---
 
@@ -378,4 +378,4 @@ pdata_filtered = pdata.filter_rs(min_unique_peptides_per_protein=2)
 
 ---
 
-*For more information, see the API documentation for [filter_rs()](https://gnaprs.github.io/scpviz/reference/pAnnData/editing_mixins/#src.scpviz.pAnnData.filtering.FilterMixin.filter_rs)*
+*For more information, see the API documentation for [filter_rs()](https://gnaprs.github.io/scpviz/reference/pAnnData/filtering_mixin/#src.scpviz.pAnnData.filtering.FilterMixin.filter_rs)*
