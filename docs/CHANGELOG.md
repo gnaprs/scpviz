@@ -6,6 +6,15 @@
 ### Unreleased <small>Unreleased</small> { id="Unreleased" }
 
 
+#### Chores
+
+
+
+- Update changelogs [skip ci] (5391347…)
+
+
+
+
 #### Tests
 
 
@@ -13,6 +22,8 @@
 
 
 - Debug test_import_pd_excel #30 (cd4c98c…)
+
+- Exclude macos py3.8 due to scikit installation error (7efb218…)
 
 
 

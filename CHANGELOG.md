@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 <summary><b>Unreleased</b></summary>
 
 
+#### Chores
+
+
+
+- Update changelogs [skip ci] (5391347…)
+
+
+
 #### Tests
 
 
@@ -11,6 +19,8 @@ All notable changes to this project are documented here.
 
 
 - Debug test_import_pd_excel #30 (cd4c98c…)
+
+- Exclude macos py3.8 due to scikit installation error (7efb218…)
 
 
 
