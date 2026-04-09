@@ -159,4 +159,6 @@ dev/recorder_dae.pkl
 dev/collab_training.pdf
 dev/dae_training.pdf
 dev/saveTest*
-dev/pdata_saved*
+dev/*.tar*
+dev/pdata_saved/*
+dev/cursor/*
