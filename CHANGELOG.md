@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 <summary><b>Unreleased</b></summary>
 
 
+#### Tests
+
+
+##### (Import)
+
+
+- Debug test_import_pd_excel #30 (cd4c98c…)
+
+
+
+
+</details>
+
+<details open>
+<summary><b>0.5.9</b> – 2026-04-08</summary>
+
+
 #### Build System
 
 
@@ -44,6 +61,8 @@ All notable changes to this project are documented here.
 - Update changelogs [skip ci] (017730b…)
 
 - Update changelogs [skip ci] (b5a4837…)
+
+- Update changelogs [skip ci] (e8b0949…)
 
 
 

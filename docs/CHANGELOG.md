@@ -6,6 +6,22 @@
 ### Unreleased <small>Unreleased</small> { id="Unreleased" }
 
 
+#### Tests
+
+
+##### (Import)
+
+
+- Debug test_import_pd_excel #30 (cd4c98c…)
+
+
+
+
+
+
+### 0.5.9 <small>April 08, 2026</small> { id="0.5.9" }
+
+
 #### Build System
 
 
@@ -47,6 +63,8 @@
 - Update changelogs [skip ci] (017730b…)
 
 - Update changelogs [skip ci] (b5a4837…)
+
+- Update changelogs [skip ci] (e8b0949…)
 
 
 
