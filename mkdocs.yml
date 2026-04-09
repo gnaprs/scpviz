@@ -1,5 +1,5 @@
 site_name: scpviz
-site_description: "Automatic documentation from sources, for MkDocs."
+site_description: "Single-cell Proteomics Visualization."
 site_url: https://gnaprs.github.io/scpviz/
 repo_url: "https://github.com/gnaprs/scpviz"
 repo_name: "gnaprs/scpviz"
@@ -146,35 +146,3 @@ nav:
   #     - Diagram: diagram.md
 
   - Author's website: https://gnaprs.github.io/
-# nav:
-# - Home:
-#   - Overview: index.md
-#   - Changelog: changelog.md
-#   - Credits: credits.md
-#   - License: license.md
-# - Usage:
-#   - usage/index.md
-#   - Theming: usage/theming.md
-#   - Handlers: usage/handlers.md
-#   - All handlers:
-#     - C: https://mkdocstrings.github.io/c/
-#     - Crystal: https://mkdocstrings.github.io/crystal/
-#     - Python: https://mkdocstrings.github.io/python/
-#     - Python (Legacy): https://mkdocstrings.github.io/python-legacy/
-#     - Shell: https://mkdocstrings.github.io/shell/
-#     - TypeScript: https://mkdocstrings.github.io/typescript/
-#     - VBA: https://pypi.org/project/mkdocstrings-vba
-#   - Guides:
-#     - Recipes: recipes.md
-#     - Troubleshooting: troubleshooting.md
-# - API reference: reference/mkdocstrings.md
-# - Development:
-#   - Contributing: contributing.md
-#   - Code of Conduct: code_of_conduct.md
-#   - Coverage report: coverage.md
-# - Insiders:
-#   - insiders/index.md
-#   - Getting started:
-#     - Installation: insiders/installation.md
-#     - Changelog: insiders/changelog.md
-# - Author's website: https://pawamoy.github.io/

@@ -182,16 +182,15 @@ def test_impute_knn_groupwise_raises(pdata_preprocessing):
     with pytest.raises(ValueError, match="KNN imputation is not supported for group-wise"):
         pdata.impute(classes='cellline',method="knn", n_neighbors=2)
 
-# pimms-learn safe import check
+# pimmslearn uses seaborn._BarPlotter (removed in seaborn>=0.13); skip if import fails
+_pimms_available = False
 try:
     import pimmslearn
-    import seaborn as sns
-    pimms_available = sns.__version__.startswith("0.12")
+    _pimms_available = True
 except Exception:
-    pimms_available = False
+    pass
 
-
-@pytest.mark.xfail(reason="pimms-learn not available due to seaborn<0.13 dependency conflict with scanpy.")
+@pytest.mark.skipif(not _pimms_available, reason="pimmslearn not importable (seaborn>=0.13 incompatibility in pimmslearn)")
 @pytest.mark.parametrize("method", ["pimms_dae", "pimms_vae"])
 def test_impute_pimms_vae_global(pdata, monkeypatch, method):
     """Test PIMMS DAE/VAE imputation using mocked AETransformer."""
@@ -225,7 +224,7 @@ def test_impute_pimms_vae_global(pdata, monkeypatch, method):
     expected = (2 ** 9.999) - 1
     assert np.allclose(dense[1, :3], expected)
 
-@pytest.mark.xfail(reason="pimms-learn not available due to seaborn<0.13 dependency conflict with scanpy.")
+@pytest.mark.skipif(not _pimms_available, reason="pimmslearn not importable (seaborn>=0.13 incompatibility in pimmslearn)")
 def test_impute_pimms_cf_global(pdata, monkeypatch):
     class MockCF:
         def __init__(self, *args, **kwargs):
@@ -373,17 +372,14 @@ def test_normalize_force_bad_rows(pdata_preprocessing, capsys):
     assert "Proceeding with normalization despite bad rows" in captured
     assert "X_norm_sum" in pdata.prot.layers
 
-@pytest.mark.xfail(reason="directlfq fails on some pandas versions (module 'pandas.core.strings' has no attribute 'StringMethods')")
 def test_normalize_directlfq(pdata):
     pdata.normalize(method='directlfq')
     assert 'X_norm_directlfq' in pdata.prot.layers
 
-@pytest.mark.xfail(reason="directlfq fails on some pandas versions (module 'pandas.core.strings' has no attribute 'StringMethods')")
 def test_normalize_directlfq_strict_true(pdata):
     pdata.normalize(method='directlfq', strict=True)
     assert 'X_norm_directlfq' in pdata.prot.layers
 
-@pytest.mark.xfail(reason="directlfq fails on some pandas versions (module 'pandas.core.strings' has no attribute 'StringMethods')")
 def test_normalize_directlfq_nopep_raises(pdata_nopep):
     """Test that directLFQ raises a clear error when peptide-level data is missing."""
     with pytest.raises(ValueError, match="Peptide-level data not found"):

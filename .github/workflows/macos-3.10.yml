@@ -1,0 +1,22 @@
+name: macOS Py3.10
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "src/**"
+      - "tests/**"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "src/**"
+      - "tests/**"
+
+jobs:
+  build:
+    uses: ./.github/workflows/python-package-template.yml
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    with:
+      os: macos-latest
+      python: "3.10"

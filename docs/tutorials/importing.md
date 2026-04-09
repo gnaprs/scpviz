@@ -1,5 +1,5 @@
 # Tutorial 1: Importing Data
-[![Download Notebook](https://img.shields.io/badge/download-quickstart__notebook-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/tutorials/importing.ipynb)
+[![Download Notebook](https://img.shields.io/badge/download-importing__tutorial-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/tutorials/importing.ipynb)
 [![Open In Colab](https://img.shields.io/badge/open%20in-colab-yellow?logo=googlecolab&style=flat-square)](https://colab.research.google.com/github/gnaprs/scpviz/blob/main/docs/tutorials/importing.ipynb)
 
 This tutorial shows how to import **DIA-NN** or **Proteome Discoverer (PD)** outputs into a `pAnnData` object.

@@ -4,6 +4,283 @@ All notable changes to this project are documented here.
 <summary><b>Unreleased</b></summary>
 
 
+#### Build System
+
+
+##### (Deps)
+
+
+- Restructure dependencies with optional extras and bump min Python to 3.10 #33 (12f5dbd…)
+
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (5391347…)
+
+- Update changelogs [skip ci] (37fc44b…)
+
+
+
+#### Tests
+
+
+##### (Import)
+
+
+- Debug test_import_pd_excel #30 (cd4c98c…)
+
+- Exclude macos py3.8 due to scikit installation error (7efb218…)
+
+
+
+
+</details>
+
+<details open>
+<summary><b>0.5.9</b> – 2026-04-08</summary>
+
+
+#### Build System
+
+
+##### (V0.5.9)
+
+
+- Bump version to 0.5.9 (8599fc8…)
+
+
+
+#### Chores
+
+
+##### (Todo)
+
+
+- Refactor todo list w priority and better oganization (e6d3c4b…)
+
+
+
+
+- Update changelogs [skip ci] (7a6cced…)
+
+- Update changelogs [skip ci] (ba29e77…)
+
+- Update changelogs [skip ci] (85a5de7…)
+
+- Update changelogs [skip ci] (4eb539a…)
+
+- Update changelogs [skip ci] (fa78650…)
+
+- Update changelogs [skip ci] (8c0fd83…)
+
+- Update changelogs [skip ci] (2b5f382…)
+
+- Update changelogs [skip ci] (8f3d47a…)
+
+- Update changelogs [skip ci] (017730b…)
+
+- Update changelogs [skip ci] (b5a4837…)
+
+- Update changelogs [skip ci] (e8b0949…)
+
+
+
+#### Documentation
+
+
+##### (Tutorial)
+
+
+- Update single cell tutorial to push deployment again (285510f…)
+
+
+
+
+- Docs(citation): add CITATION.cff, closes [JOSS] Add CITATION.cff
+Fixes #32 (f1d7bfe…)
+
+- Docs(makefile): add makefile, closes [JOSS] No Makefile/Justfile
+Fixes #35 (198692f…)
+
+
+
+#### Fixed
+
+
+##### (Docs)
+
+
+- Update deployment workflow to run only on push to docs on main branch (830bbb3…)
+
+- Fixed broken link to function hyperlink, added colab button (7662ea8…)
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update Paper PDF Draft (da1b895…)
+
+- Update Paper PDF Draft (01dbb0a…)
+
+- Update research impact statement regarding collaborative effort #36 (b3e540a…)
+
+- Update Paper PDF Draft (3d2700f…)
+
+- Update bib to remove local file paths #28 (1b11b77…)
+
+- Update Paper PDF Draft (148081f…)
+
+
+
+#### Style
+
+
+##### (Docs)
+
+
+- Fix formatting in single-cell tutorial header (73970d3…)
+
+
+
+##### (Readme)
+
+
+- Update contributing and license (cbb355b…)
+
+
+
+
+</details>
+
+<details open>
+<summary><b>0.5.8-alpha</b> – 2026-03-16</summary>
+
+
+#### Added
+
+
+##### (Plotting)
+
+
+- Update plot_abundance_boxgrid to more flexible plotting style, bug fixes (4276636…)
+
+- Update plot_abundance_boxgrid and add tests (2c1b0cd…)
+
+
+
+#### Build System
+
+
+##### (V0.5.8a)
+
+
+- Update to new patch with additional tutorials (42ac903…)
+
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (787c652…)
+
+- Update changelogs [skip ci] (f33ed77…)
+
+
+
+#### Documentation
+
+
+##### (Plotting)
+
+
+- Update examples for various plotting functions (cc43b62…)
+
+
+
+##### (Quickstart)
+
+
+- Update quickstart to include new plotting functions (d4f1d48…)
+
+
+
+##### (Tutorial)
+
+
+- Add wget downloads to importing ipynb (f9d34fa…)
+
+- Update single cell and quickstart tutorial (1a04522…)
+
+- Update single_cell.ipynb (b5eb1fb…)
+
+
+
+##### (Tutorials)
+
+
+- Complete importing tutorial (3534a19…)
+
+
+
+##### (Upload)
+
+
+- Upload test_input.csv (94ca178…)
+
+
+
+#### Fixed
+
+
+##### (Get_abundance)
+
+
+- Bug fix on get_abundance throwing error when passing in string instead of list (9b70b75…)
+
+
+
+##### (Tests)
+
+
+- Typos on errortype and assertion match (f0b9674…)
+
+
+
+#### Other
+
+
+#### Tests
+
+
+##### (Import)
+
+
+- Add test for pep xlsx import (6d67ccb…)
+
+
+
+##### (Plotting)
+
+
+- Update test names for plot_abundance_boxgrid (21933a5…)
+
+
+
+
+</details>
+
+<details open>
+<summary><b>0.5.7-alpha</b> – 2026-01-29</summary>
+
+
 #### Added
 
 
@@ -14,7 +291,85 @@ All notable changes to this project are documented here.
 
 
 
+##### (Directlfq)
+
+
+- Make strict/loose flag instead to replicate older behavior (d976225…)
+
+
+
+##### (Enrichment)
+
+
+- Allow category argument for plot_enrichment_svg (297e9f7…)
+
+
+
+##### (Filtering)
+
+
+- Add warning about underscores in class_type throwing error within annotate_found and annotate_significant (51b0664…)
+
+
+
+##### (Plot_abundance_boxgrid)
+
+
+- Add publication quality abundance plot function (2957b40…)
+
+
+
+##### (Plotting)
+
+
+- Add classes=None support to plot_abundance_boxgrid, also fixed flipped label error by enforcing order from start (27043ea…)
+
+- Add shift_legend() convenience function (53a95df…)
+
+- Add ax input for plot_abundance_boxgrid, update wrapper in pAnnData (2caf525…)
+
+- Add plot_volcano_adata to support transcriptomics plotting, add mark_volcano_by_significance for more flexibility with marks (e859a97…)
+
+- Add flexible plotting options to plot_pca and plot_umap (dc36d29…)
+
+- Add text adjustments to plot_volcano (4580a12…)
+
+- Text adjustments to mark_volcano and mark_volcano_significance (2c8219a…)
+
+- Add weighted option to plot_venn (4e516a4…)
+
+
+
+##### (Utils)
+
+
+- Add parse_filename_index to help with formatting imports (eb9da97…)
+
+- Add de_adata to support transcriptomics DE (e0cdb74…)
+
+- Add condition flag for parse_filename_index to parse subset of samples, added tests for condition (09ce308…)
+
+- Additional fixes to de_adata() (0a09fda…)
+
+
+
 #### Build System
+
+
+##### (.gitignore)
+
+
+- Add parquet file (eecb64d…)
+
+
+
+##### (Docs)
+
+
+- Enforce version type on mkdocstrings since new build broke render (36b3734…)
+
+- Fix versions of mkdocstrings (feec11a…)
+
 
 
 ##### (V0.5.3a)
@@ -24,7 +379,143 @@ All notable changes to this project are documented here.
 
 
 
+##### (V0.5.6a)
+
+
+- Update dependencies and bump to updated readme link (4239e51…)
+
+
+
+##### (V0.5.7a)
+
+
+- Update to new patch with plotting overhaul (9bfed9e…)
+
+- Update to new patch with plotting overhaul (c0a92bf…)
+
+
+
+#### CI
+
+
+##### (Codecov)
+
+
+- Update patch pass to 80% (809e06a…)
+
+- Patch pass to 70% (c19c842…)
+
+
+
+##### (Package)
+
+
+- Modify readme to show status matrix (5202a0e…)
+
+- Split ci tests into individual workflows (59dd2c9…)
+
+- Update with codecov token (24f61bf…)
+
+- Fix secrets passthrough to reusable workflow (70fd891…)
+
+
+
+##### (Pytest)
+
+
+- Update to test on macos and windows as well (66afe02…)
+
+
+
+#### Changed
+
+
+##### (Directlfq)
+
+
+- Default to strict (876a237…)
+
+
+
+##### (Enrichment)
+
+
+- Moved get_string_mappings() to utils to for ease of use for user, refactored enrichment mixin (b8cfc76…)
+
+
+
+##### (Git LFS)
+
+
+- Remove large tutorial parquet from LFS; keep small test parquet (5c46f16…)
+
+- Remove LFS flag from pytest workflow (b8b98c4…)
+
+- Move large parquet file to release and update download links in docs (dafcc43…)
+
+- Move small test parquet from LFS to local (c0170bf…)
+
+
+
+##### (Joss)
+
+
+- Update to new joss paper format (46e5048…)
+
+- Added state of field section (18d4a4b…)
+
+
+
+##### (Plotting)
+
+
+- Add _add_continuous_colorbar helper function, clean plot_pca and plot_umap code (60c724a…)
+
+- Update pca and umap to pass kwargs to scatter plot (fffa5e1…)
+
+- Enable label_x for box=True in plot_abundance_boxgrid (d789d43…)
+
+- Refactor volcano adata (0b2079d…)
+
+- Update docstrings, update references to old uniprot naming (64af394…)
+
+- Reorganize imports (56d478b…)
+
+- Overhaul plot_umap and plot_pca to use common _plot_embedding_scatter, revamp ellipse handling (026ef71…)
+
+- Return ax on plot_venn to match other plot functions, change test (5722d3c…)
+
+
+
+##### (Setup)
+
+
+- Add GLOBAL_DEBUG flag to suppress runtime warnings for user but allow at pytest logging (ad48d06…)
+
+
+
 #### Chores
+
+
+##### (Codecov)
+
+
+- Set success flag for ci (0f1f2bc…)
+
+
+
+##### (Plot_abundance)
+
+
+- Default to raw abundance with y-log scale (92beb20…)
+
+
+
+##### (Readme)
+
+
+- Update CI badge link in README.md (8ef019a…)
+
 
 
 
@@ -34,9 +525,30 @@ All notable changes to this project are documented here.
 
 - Update changelogs [skip ci] (525bdb9…)
 
+- Update changelogs [skip ci] (6c89f44…)
+
+- Update changelogs [skip ci] (fe0eb7b…)
+
+- Update changelogs [skip ci] (48a0c89…)
+
+- Update changelogs [skip ci] (2bc44af…)
+
+- Update changelogs [skip ci] (a9ebeff…)
+
+- Update changelogs [skip ci] (d9e026b…)
+
+- Update changelogs [skip ci] (f3bb302…)
+
 
 
 #### Documentation
+
+
+##### (Refactor)
+
+
+- Overhaul documentation layout for API pAnnData reference (df24ead…)
+
 
 
 
@@ -47,10 +559,69 @@ All notable changes to this project are documented here.
 #### Fixed
 
 
+##### (Analysis)
+
+
+- Suppress warnings about nanmean (3b2f505…)
+
+
+
+##### (Directlfq)
+
+
+- Handle bug with multi proteins associated with same peptide in output file producing NaNs output (e.g. 'P03995;P03995-2') (ef8a915…)
+
+- Move expansion to peptide level data so normalization algorithm maps to correct protein (f676b44…)
+
+
+
+##### (Docs)
+
+
+- Fix link to importing tutorial (541b849…)
+
+
+
+##### (Io)
+
+
+- Bug fix on _import_proteomeDiscoverer() where peptide has no matching protein (248e03d…)
+
+
+
+##### (Mkdocstrings)
+
+
+- Downgrade to v0.30.1 for now while we figure out handler error (7d7ba8c…)
+
+
+
 ##### (Plot_umap)
 
 
 - Fix force to propagate through umap, neighbors and pca (9092ebb…)
+
+
+
+##### (Plotting)
+
+
+- Bug fix for plot_abundance_boxgrid when xtick only exists for one class (4e267fd…)
+
+- Default plot_abundnace_boxgrid to dodge=False when classes is None (6290754…)
+
+- Fix GLOBAL_DEBUG flag to be updated at start of test_utils.py (4c84318…)
+
+- Allow n_comps or n_components (as per error message) to be passed to pca_params in plot_pca (0005636…)
+
+- Fix return on plot_venn to pass test (6d1709c…)
+
+
+
+##### (Summary)
+
+
+- Check and remove_unused_categories after filter, mostly for PD data (925e72d…)
 
 
 
@@ -61,13 +632,45 @@ All notable changes to this project are documented here.
 
 
 
+##### (Utils)
+
+
+- Add warning/hint about source of length mismatch error in format_class_filter (664bfdf…)
+
+- Fix for py3.8 compatibility (8163c5c…)
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update Paper PDF Draft (4644379…)
+
+- Update Paper PDF Draft (c371cd7…)
+
+- Update Paper PDF Draft (d65ce10…)
+
+
+
 #### Style
+
+
+##### (Analysis)
+
+
+- Remove extra blank lines (1897136…)
+
 
 
 ##### (Docs)
 
 
 - Change root_heading to true, remove others section (bb68f1d…)
+
+- Add tabs back to website for better navigation (45ba11f…)
 
 
 
@@ -78,6 +681,45 @@ All notable changes to this project are documented here.
 
 
 
+##### (Enrichment)
+
+
+- Add categories to docstring of plot_enrichment_svg (06858b2…)
+
+- Add catch for no enrichment result (85c0399…)
+
+
+
+##### (Filter_prot_found)
+
+
+- Add new line after rs message (7a4146b…)
+
+- Reorder automatic annotation message (9147fea…)
+
+
+
+##### (Filtering)
+
+
+- Refactor the print statements from filter_prot_found to match filter_prot_significant, fix style for filter_prot valid genes and unique profile (1660e0b…)
+
+
+
+##### (Plotting)
+
+
+- More verbose error message for errors in resolve_plot_colors (1f2dc63…)
+
+
+
+##### (Readme)
+
+
+- Update badges (f773576…)
+
+
+
 ##### (Rs)
 
 
@@ -85,15 +727,124 @@ All notable changes to this project are documented here.
 
 
 
+##### (Utils)
+
+
+- Fix formatting on example for get_string_mappings (7f38f7c…)
+
+
+
 #### Tests
+
+
+##### (Add files)
+
+
+- Add files for tests (5718f9e…)
+
+
+
+##### (Analysis)
+
+
+- Add mark xfail for failure due to potential package version mismatch (a7c808a…)
+
+
+
+##### (Boxgrid)
+
+
+- Fix boxgrid assertion error (c8c204f…)
+
+
+
+##### (De_adata)
+
+
+- Refactor raise error to earlier in check for method (41ba612…)
+
+
+
+##### (Directlfq)
+
+
+- Add tests for strict flag and no pep situation (cd05079…)
+
+
+
+##### (Enrichment)
+
+
+- Add test for helper _scalarize_taxon() within get_string_mappings (485b830…)
+
+
+
+##### (Filter_prot_found)
+
+
+- Add test for automated annotation with simple group (451ce0a…)
+
+
+
+##### (Impute)
+
+
+- Add test for use_zeros_as_nan flag (32fa2bd…)
+
+
+
+##### (PAnnData_plot)
+
+
+- Refactor base plot tests into test_pAnnData_plot file, centralize where to test pdata plotting functions (3c4c264…)
+
 
 
 ##### (Pimms)
 
 
+- Add tests for pimm imputation (d3a1832…)
+
 - Add skip for pimms-learn dependency issue (6485e2e…)
 
-- Add tests for pimm imputation (d3a1832…)
+
+
+##### (Plotting)
+
+
+- Add tests for plot_abundance_boxgrid (a42eb76…)
+
+- Add test for abundance_boxgrid classes = None case (121a9f5…)
+
+- Add test for abundance_boxgrid when show_n is true and parameterize box (e8aaf3b…)
+
+- Add test for plot_umap with classes as None (6bbbe6c…)
+
+- Add tests for shift_legend() (ed80cd9…)
+
+- Add mark xfail for known plt version error, add test for violin (c6a3854…)
+
+- Add test for plot_volcano_adata with no data (6791ad6…)
+
+
+
+##### (Umap)
+
+
+- Update larger perturbation on force_neighbors to pass test on py3.11 (more stable umap) (571149f…)
+
+- Remove assertion on neighbour due to different stabilities across python versions (60badf5…)
+
+
+
+##### (Utils)
+
+
+- Add tests to exception and error for parse_filename_index (2446b41…)
+
+- Add test for parse_filename_index (ae713de…)
+
+- Add tests for get_string_mappings() (a31e3cd…)
 
 
 

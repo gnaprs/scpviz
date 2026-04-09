@@ -2,7 +2,7 @@ name: Generate Full and Docs Changelog
 
 on:
   push:
-    branches: [ "main" ]
+    tags: [ "v*" ]
 
 jobs:
   changelog:
