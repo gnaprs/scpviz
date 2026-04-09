@@ -4,11 +4,23 @@ All notable changes to this project are documented here.
 <summary><b>Unreleased</b></summary>
 
 
+#### Build System
+
+
+##### (Deps)
+
+
+- Restructure dependencies with optional extras and bump min Python to 3.10 #33 (12f5dbd…)
+
+
+
 #### Chores
 
 
 
 - Update changelogs [skip ci] (5391347…)
+
+- Update changelogs [skip ci] (37fc44b…)
 
 
 
