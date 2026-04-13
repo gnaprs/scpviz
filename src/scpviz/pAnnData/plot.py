@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from typing import Any
 
 from scpviz import plotting
 
@@ -11,7 +14,7 @@ class PlotMixin:
             classes = 'index'
         sns.violinplot(data=df, x=classes, y=y, **kwargs)
 
-    def plot_rs(self, figsize=(10, 4)):
+    def plot_rs(self, figsize=(10, 4)) -> None:
         """
         Visualize connectivity in the RS (protein × peptide) matrix.
 
@@ -24,7 +27,7 @@ class PlotMixin:
             figsize (tuple): Size of the matplotlib figure (default: (10, 4)).
 
         Returns:
-            None
+            out (None): No return value; shows the figure interactively or closes it when using a non-interactive backend.
         """
         import matplotlib
         import matplotlib.pyplot as plt
@@ -60,7 +63,7 @@ class PlotMixin:
     def plot_abundance(self, ax=None, namelist=None, layer="X",
         on="protein", classes=None, return_df=False, order=None,
         palette=None, log=True, facet=None, height=4,
-        aspect=0.5, plot_points=True, x_label="gene", kind="auto", **kwargs,):
+        aspect=0.5, plot_points=True, x_label="gene", kind="auto", **kwargs: Any,):
         """
         Wrapper for `scpviz.plotting.plot_abundance`.
 
@@ -72,7 +75,6 @@ class PlotMixin:
 
         Args:
             ax (matplotlib.axes.Axes): Axis to plot on. Ignored if `facet` is used.
-            pdata (pAnnData): Input pAnnData object.
             namelist (list of str, optional): List of accessions or gene names to plot.
                 If None, all available features are considered.
             layer (str): Data layer to use for abundance values. Default is `'X'`.
@@ -96,7 +98,7 @@ class PlotMixin:
                 - `'violin'`: Always use violin + box + strip.
                 - `'bar'`: Always use barplot.
 
-            **kwargs: Additional keyword arguments passed to seaborn plotting functions.
+            **kwargs (Any): Additional keyword arguments passed to seaborn plotting functions.
 
         Returns:
             ax (matplotlib.axes.Axes or seaborn.FacetGrid):
@@ -181,7 +183,8 @@ class PlotMixin:
         fig (matplotlib.figure.Figure): The generated figure.
         axes (list of matplotlib.axes.Axes): One axis per gene.
         df (pandas.DataFrame, optional): Returned if ``return_df=True``.
-            
+
+    Note:
         Default customizations for keyword dictionaries:
 
         Boxplot styling (used when ``plot_type="box"``):
@@ -478,7 +481,7 @@ class PlotMixin:
             return_df (bool): If True, also return a DataFrame with NES, FDR, and label positions.
 
         Returns:
-            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
         """
         return plotting.plot_pca_gsea_pathway_vectors(
             ax=ax,
@@ -575,7 +578,7 @@ class PlotMixin:
             return_df (bool): If True, return ``(ax, vector_df)`` with loadings and arrow/text coordinates.
 
         Returns:
-            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
 
         Example:
             Top-loading genes on PC1 vs PC2 over the sample PCA scatter, returning arrow and text coordinates:
@@ -693,7 +696,7 @@ class PlotMixin:
             return_df (bool): If True, return ``(ax, bubble_df)``.
 
         Returns:
-            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
         """
         return plotting.plot_pca_gsea_bubble(
             ax=ax,
@@ -753,7 +756,7 @@ class PlotMixin:
             return_df (bool): If True, return ``(ax, heatmap_df)`` (see plotting function docstring).
 
         Returns:
-            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
         """
         return plotting.plot_pca_gsea_heatmap(
             ax=ax,
