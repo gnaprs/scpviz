@@ -43,21 +43,15 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
     - **PlotMixin**: Used to plot and visualize attributes of the pAnnData object, frequently for QC.
 
     Args:
-        prot (AnnData): Protein-level expression matrix, with `.obs` containing sample metadata and `.var` describing protein features.
+        prot (AnnData, optional): Protein-level expression matrix, with `.obs` containing sample metadata and `.var` describing protein features.
 
-        pep (AnnData): Peptide-level expression matrix, structured analogously to `prot`.
+        pep (AnnData, optional): Peptide-level expression matrix, structured analogously to `prot`.
 
         rs (np.ndarray or sparse.spmatrix, optional):
             Binary relational matrix (proteins × peptides), where non-zero entries indicate a parent-protein relationship.
 
-        summary (pd.DataFrame, optional):
-            Sample-level metadata table, merged from `.prot.obs` and `.pep.obs`, with support for additional metrics.
-
-        stats (dict, optional):
-            Dictionary for storing analysis outputs such as DE results, imputation metadata, and enrichment summaries.
-
-        history (list of str, optional):
-            Chronological list of user-invoked operations, automatically tracked for reproducibility.
+    Note:
+        ``summary``, ``stats``, and ``history`` are created internally (empty by default) and populated as you use the object; they are not constructor arguments.
 
     """
     def __init__(self, 
