@@ -1,0 +1,13 @@
+# Documentation-only environment (scpviz requires Python >= 3.10).
+# From the repository root.
+#
+# Conda:
+#   conda create -n scpviz-docs python=3.12 -y && conda activate scpviz-docs
+#
+# Then install:
+#   pip install -U pip
+#   pip install -r requirements-docs.txt
+#
+# Installs scpviz in editable mode plus the MkDocs / mkdocstrings stack
+# (see pyproject.toml [project.optional-dependencies] docs).
+-e .[docs]

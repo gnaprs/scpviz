@@ -14,7 +14,7 @@ requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -61,3 +61,15 @@ notebook = [
   "IPython>=7.31",
 ]
 dev = ["pytest","coverage","flake8","openpyxl","pytest-cov"]
+
+# MkDocs + mkdocstrings stack only (use a dedicated venv, e.g. venv-docs; includes editable scpviz for API autodoc).
+# mkdocs-material>=9.7.5 requires MkDocs<2 so builds stay valid if MkDocs 2.0 ships (breaking theme/plugin API).
+docs = [
+  "mkdocs-material>=9.7.5",
+  "mkdocstrings>=0.29.1,<0.31",
+  "mkdocstrings-python>=1.16.2,<2",
+  "mkdocs-literate-nav",
+  "mkdocs-section-index",
+  "pymdown-extensions",
+  "black",
+]
