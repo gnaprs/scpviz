@@ -1,28 +1,51 @@
-# ignore all .txt files
-# *.txt
+# ===== Project-specific ignores =====
 
-# ignore all files in these directories
-dist/
+# Directories
+.claude/
+.vscode/
 src/scpviz/__pycache__/
 tests/__pycache__/
 docs/inspiration
 docs/unfinished
-.vscode/
+dev/peptide_params
+dev/alphamap
+dev/pdata_saved/
+dev/cursor/
+
+# Dev file patterns
 dev/*.csv
 dev/*.tsv
-dev/scpviz_planning.docx
-dev/peptide_params
 dev/*.png
 dev/*.xlsx
-dev/windy*.py
+dev/*.tar*
+dev/win*.py
+dev/saveTest*
+
+# Specific files
+testing.ipynb
+dev/scpviz_planning.docx
 dev/cellstore_analysis.ipynb
 dev/dia-me code.zip
-dev/alphamap
-.coverage
-.coverage.*
-testing.ipynb
+dev/__assets__/Housekeeping_GenesHuman.csv
+dev/__assets__/Housekeeping_GenesMouse.csv
+dev/__assets__/MostStable_Human.csv
+dev/__assets__/MostStable_Mouse.csv
+dev/model_params_CF.json
+dev/recorder_dae.pkl
+dev/collab_training.pdf
+dev/dae_training.pdf
+dev/SWI-report.parquet
+docs/assets/diann_report.parquet
+docs/assets/scpviz_logo.ai
+peptide_matrix.aq_reformat.tsv
+peptide_matrix.aq_reformat.tsv.ion_intensities.tsv
+peptide_matrix.aq_reformat.tsv.protein_intensities.tsv
+peptide_matrix.aq_reformat.tsv.run_config.tsv
+src/scpviz/pAnnData/enrichment.py
+tests/test_diann_delimiter-hyphen.parquet
 
-# mkdocs ignores
+# ===== Standard Python ignores =====
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -139,26 +162,3 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-
-# other large files
-dev/__assets__/Housekeeping_GenesHuman.csv
-dev/__assets__/Housekeeping_GenesMouse.csv
-dev/__assets__/MostStable_Human.csv
-dev/__assets__/MostStable_Mouse.csv
-peptide_matrix.aq_reformat.tsv
-peptide_matrix.aq_reformat.tsv.ion_intensities.tsv
-peptide_matrix.aq_reformat.tsv.protein_intensities.tsv
-peptide_matrix.aq_reformat.tsv.run_config.tsv
-docs/assets/diann_report.parquet
-docs/assets/scpviz_logo.ai
-src/scpviz/pAnnData/enrichment.py
-dev/SWI-report.parquet
-tests/test_diann_delimiter-hyphen.parquet
-dev/model_params_CF.json
-dev/recorder_dae.pkl
-dev/collab_training.pdf
-dev/dae_training.pdf
-dev/saveTest*
-dev/*.tar*
-dev/pdata_saved/*
-dev/cursor/*
