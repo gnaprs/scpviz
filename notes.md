@@ -1,11 +1,11 @@
 # about versions
 1. For scikit-learn, need ver >1.2 so that we can handle sparse arrays in Imputer 
 
-# rebuild docs
-1. open cmd
-2. conda deactivate
-3. .\venv\Scripts\activate
-4. mkdocs serve
+# rebuild git bash
+`pip install -e ".[docs]"`    # after changing pyproject / first time
+1. open git bash
+2. conda activate scpviz-docs
+3. mkdocs serve
 
 # run coverage tests
 1. open powershell

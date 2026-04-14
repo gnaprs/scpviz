@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from typing import Any
 
 from scpviz import plotting
 
@@ -11,7 +14,7 @@ class PlotMixin:
             classes = 'index'
         sns.violinplot(data=df, x=classes, y=y, **kwargs)
 
-    def plot_rs(self, figsize=(10, 4)):
+    def plot_rs(self, figsize=(10, 4)) -> None:
         """
         Visualize connectivity in the RS (protein × peptide) matrix.
 
@@ -24,7 +27,7 @@ class PlotMixin:
             figsize (tuple): Size of the matplotlib figure (default: (10, 4)).
 
         Returns:
-            None
+            out (None): No return value; shows the figure interactively or closes it when using a non-interactive backend.
         """
         import matplotlib
         import matplotlib.pyplot as plt
@@ -60,7 +63,7 @@ class PlotMixin:
     def plot_abundance(self, ax=None, namelist=None, layer="X",
         on="protein", classes=None, return_df=False, order=None,
         palette=None, log=True, facet=None, height=4,
-        aspect=0.5, plot_points=True, x_label="gene", kind="auto", **kwargs,):
+        aspect=0.5, plot_points=True, x_label="gene", kind="auto", **kwargs: Any,):
         """
         Wrapper for `scpviz.plotting.plot_abundance`.
 
@@ -72,7 +75,6 @@ class PlotMixin:
 
         Args:
             ax (matplotlib.axes.Axes): Axis to plot on. Ignored if `facet` is used.
-            pdata (pAnnData): Input pAnnData object.
             namelist (list of str, optional): List of accessions or gene names to plot.
                 If None, all available features are considered.
             layer (str): Data layer to use for abundance values. Default is `'X'`.
@@ -96,7 +98,7 @@ class PlotMixin:
                 - `'violin'`: Always use violin + box + strip.
                 - `'bar'`: Always use barplot.
 
-            **kwargs: Additional keyword arguments passed to seaborn plotting functions.
+            **kwargs (Any): Additional keyword arguments passed to seaborn plotting functions.
 
         Returns:
             ax (matplotlib.axes.Axes or seaborn.FacetGrid):
@@ -181,7 +183,8 @@ class PlotMixin:
         fig (matplotlib.figure.Figure): The generated figure.
         axes (list of matplotlib.axes.Axes): One axis per gene.
         df (pandas.DataFrame, optional): Returned if ``return_df=True``.
-            
+
+    Note:
         Default customizations for keyword dictionaries:
 
         Boxplot styling (used when ``plot_type="box"``):
@@ -337,4 +340,438 @@ class PlotMixin:
             label_x=label_x, show_n=show_n, global_legend=global_legend,
             box_kwargs=box_kwargs, hline_kwargs=hline_kwargs, bar_kwargs=bar_kwargs, bar_error=bar_error,
             violin_kwargs=violin_kwargs, text_kwargs=text_kwargs, strip_kwargs=strip_kwargs,
+        )
+
+    def plot_pairwise_correlation(
+        self,
+        classes: str | list[str],
+        on: str = "protein",
+        layer: str = "X",
+        method: str = "pearson",
+        order: list | None = None,
+        show_samples: bool = False,
+        cmap: str = "RdBu_r",
+        vmin: float | None = None,
+        vmax: float | None = None,
+        annotation_cmap: str | dict | list = "default",
+        figsize: tuple | None = None,
+        text_size: int = 9,
+        colorbar_label: str | None = None,
+        annot: bool = False,
+        annot_fmt: str = ".2f",
+        annot_size: int = 7,
+        title: str | None = None,
+        force: bool = False,
+        subset_mask=None,
+        show_annotation_legend: bool = True,
+        legend_anchor_x: float = 0.3,
+        show_ticklabels: bool | None = None,
+        ticklabels_auto_max_samples: int = 20,
+    ):
+        """
+        Plot a pairwise proteome correlation heatmap across groups or samples in `.obs`.
+
+        Thin wrapper around :func:`scpviz.plotting.plot_pairwise_correlation`.
+        See that function's docstring for full parameter documentation.
+
+        Note:
+            The ``order`` argument lists **group labels** when ``show_samples=False``
+            (including combined strings such as ``"AS, kd"`` for multi-column ``classes``),
+            but lists **observation names** (``.prot.obs_names`` / ``.pep.obs_names``)
+            when ``show_samples=True``.
+
+        Returns:
+            fig (matplotlib.figure.Figure): The created figure.
+            ax (matplotlib.axes.Axes): The heatmap axes.
+
+        Example:
+            Sample-level heatmap with x-axis sample names forced on:
+            ```python
+            fig, ax = pdata.plot_pairwise_correlation(
+                classes="cellline",
+                show_samples=True,
+                show_ticklabels=True,
+            )
+            ```
+        """
+        return plotting.plot_pairwise_correlation(
+            pdata=self,
+            classes=classes,
+            on=on,
+            layer=layer,
+            method=method,
+            order=order,
+            show_samples=show_samples,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            annotation_cmap=annotation_cmap,
+            figsize=figsize,
+            text_size=text_size,
+            colorbar_label=colorbar_label,
+            annot=annot,
+            annot_fmt=annot_fmt,
+            annot_size=annot_size,
+            title=title,
+            force=force,
+            subset_mask=subset_mask,
+            show_annotation_legend=show_annotation_legend,
+            legend_anchor_x=legend_anchor_x,
+            show_ticklabels=show_ticklabels,
+            ticklabels_auto_max_samples=ticklabels_auto_max_samples,
+        )
+
+    def plot_pca_gsea_pathway_vectors(
+        self,
+        ax,
+        on="protein",
+        key_added="pca_gsea",
+        plot_pc=[1, 2],
+        n_vectors=plotting.N_VECTORS_UNSET,
+        fdr_cutoff=0.1,
+        arrow_scale=0.25,
+        pca_kwargs=None,
+        show_samples=True,
+        title_case_labels=True,
+        force=False,
+        gsea_kwargs=None,
+        adjust_labels=True,
+        adjust_text_kwargs=None,
+        text_positions=None,
+        lock_text_positions=False,
+        top_n_mode="balanced",
+        exclude_pathways=None,
+        namelist=None,
+        cmap=None,
+        xlim=None,
+        ylim=None,
+        return_df=False,
+    ):
+        """
+        Overlay PCA-GSEA pathways as arrows in a two-dimensional PCA sample space.
+
+        Delegates to ``scpviz.plotting.plot_pca_gsea_pathway_vectors`` with ``pdata=self``.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axis (2D).
+            on (str): Data level, ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+            plot_pc (list of int): Exactly two 1-based PCs, e.g. ``[1, 2]``.
+            n_vectors (int, sequence, ``None``, or unset): Auto top-N on rows not in ``namelist``. Default ``12``
+                when ``namelist`` is unset; when ``namelist`` is set, default is no extra top-N unless passed.
+            fdr_cutoff (float or None): FDR threshold for the default ranking path; with ``namelist``,
+                pathways are shown even if they fail FDR, with a printed warning when applicable.
+            arrow_scale (float): Scale factor for arrow length relative to axis span.
+            pca_kwargs (dict or None): Additional arguments passed to ``plot_pca`` when ``show_samples=True``.
+            show_samples (bool): If True, plot samples first; if False, draw only axes, grid lines, and arrows.
+            title_case_labels (bool): If True, format pathway labels for display.
+            force (bool): If True, re-run ``pca_gsea`` for ``plot_pc``.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when results are auto-computed.
+            adjust_labels (bool): If True, run ``adjust_text`` to reduce label overlap.
+            adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
+            text_positions (dict or None): Optional manual label positions.
+            lock_text_positions (bool): If True, labels with entries in ``text_positions`` are not moved by
+                ``adjust_text``.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"``. Used only when ``n_vectors`` is an int.
+            exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+            namelist (list of str or None): Pathways to plot first; optional extra top-N from ``n_vectors`` on the rest.
+            cmap (dict or None): Per-pathway colors (raw, formatted, then case-insensitive keys).
+            xlim (tuple or None): X-axis limits applied before arrow scaling (releases fixed aspect first).
+            ylim (tuple or None): Y-axis limits, same stage as ``xlim``.
+            return_df (bool): If True, also return a DataFrame with NES, FDR, and label positions.
+
+        Returns:
+            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+        """
+        return plotting.plot_pca_gsea_pathway_vectors(
+            ax=ax,
+            pdata=self,
+            on=on,
+            key_added=key_added,
+            plot_pc=plot_pc,
+            n_vectors=n_vectors,
+            fdr_cutoff=fdr_cutoff,
+            arrow_scale=arrow_scale,
+            pca_kwargs=pca_kwargs,
+            show_samples=show_samples,
+            title_case_labels=title_case_labels,
+            force=force,
+            gsea_kwargs=gsea_kwargs,
+            adjust_labels=adjust_labels,
+            adjust_text_kwargs=adjust_text_kwargs,
+            text_positions=text_positions,
+            lock_text_positions=lock_text_positions,
+            top_n_mode=top_n_mode,
+            exclude_pathways=exclude_pathways,
+            namelist=namelist,
+            cmap=cmap,
+            xlim=xlim,
+            ylim=ylim,
+            return_df=return_df,
+        )
+
+    def plot_pca_protein_vectors(
+        self,
+        ax,
+        on="protein",
+        plot_pc=(1, 2),
+        gene_col="Genes",
+        n_vectors=plotting.N_VECTORS_UNSET,
+        arrow_scale=0.25,
+        pca_kwargs=None,
+        show_samples=True,
+        title_case_labels=False,
+        adjust_labels=True,
+        adjust_text_kwargs=None,
+        text_positions=None,
+        lock_text_positions=False,
+        min_abs_loading_for_top_n=None,
+        top_n_mode="balanced",
+        exclude_genes=None,
+        namelist=None,
+        cmap=None,
+        xlim=None,
+        ylim=None,
+        return_df=False,
+    ):
+        """
+        Overlay protein PCA loadings as arrows in a two-dimensional sample PCA space.
+
+        Delegates to ``scpviz.plotting.plot_pca_protein_vectors`` with ``pdata=self``. Arrows use feature
+        loadings from ``adata.uns['pca']['PCs']`` (from ``pAnnData.pca``), not GSEA NES. Geometry matches
+        ``plot_pca_gsea_pathway_vectors``: each arrow runs from the origin in the direction
+        ``(loading_on_PCx, loading_on_PCy)``, with length rescaled from the current axis limits for visibility.
+        Labels default to the ``gene_col`` column in ``.var`` when present, otherwise ``.var_names``.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axis (2D).
+            on (str): Data level, ``"protein"`` or ``"peptide"``.
+            plot_pc (tuple or list of int): Exactly two 1-based PCs.
+            gene_col (str): Column in ``.var`` for display labels; missing column falls back to ``.var_names``.
+            n_vectors (int, sequence, ``None``, or unset): Auto top-N on rows not in ``namelist``. Default ``20``
+                when ``namelist`` is unset; when ``namelist`` is set, default is no extra top-N unless passed.
+                ``min_abs_loading_for_top_n`` gates scores on the remainder.
+            arrow_scale (float): Scale factor for arrow length relative to axis span.
+            pca_kwargs (dict or None): Forwarded to ``plot_pca`` when ``show_samples=True``.
+            show_samples (bool): If True, draw the sample PCA scatter first; if False, only axes and arrows.
+            title_case_labels (bool): If True, lightly format gene text (underscores to spaces, title case).
+            adjust_labels (bool): If True, run ``adjust_text`` to reduce overlap.
+            adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
+            text_positions (dict or None): Manual label positions keyed by gene or formatted label.
+            lock_text_positions (bool): If True, manual positions are excluded from ``adjust_text`` motion.
+            min_abs_loading_for_top_n (float or None): If set, ranking scores on a PC are zero when
+                ``|loading|`` is below this threshold on that PC.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"`` (same selection logic as pathway vectors, using
+                absolute loadings instead of NES/FDR scores). Used only when ``n_vectors`` is an int.
+            exclude_genes (str, iterable, or None): Remove genes/features matching these strings (gene label or
+                ``.var_names`` feature id).
+            namelist (list of str or None): Gene labels (matrix index, exact ``str`` match) to include first;
+                combined with ``n_vectors`` on the remaining rows. Genes in ``exclude_genes`` are dropped.
+            cmap (dict or None): Map gene label (as in matrix or after ``title_case_labels`` formatting) to a
+                matplotlib color; lookup tries raw name, formatted label, then case-insensitive keys. Default
+                ``None`` draws arrows and labels in black.
+            xlim (tuple or None): If set, applied with ``ax.set_xlim(xlim)`` immediately after the PCA scatter
+                (or empty axes) and **before** arrow length scaling, so ``arrow_scale`` matches the visible range.
+                When either ``xlim`` or ``ylim`` is set, ``ax.set_aspect("auto")`` is called first so a fixed
+                data aspect from ``plot_pca`` (or ``show_samples=False``) does not block the limits.
+            ylim (tuple or None): If set, ``ax.set_ylim(ylim)`` at the same stage as ``xlim`` (same note).
+            return_df (bool): If True, return ``(ax, vector_df)`` with loadings and arrow/text coordinates.
+
+        Returns:
+            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+        Example:
+            Top-loading genes on PC1 vs PC2 over the sample PCA scatter, returning arrow and text coordinates:
+                ```python
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots()
+                ax, vec = pdata.plot_pca_protein_vectors(
+                    ax,
+                    plot_pc=[1, 2],
+                    n_vectors=25,
+                    return_df=True,
+                )
+                ```
+
+            Split-axis selection: top loadings on PC1 and PC3 separately, then union:
+                ```python
+                fig, ax = plt.subplots()
+                pdata.plot_pca_protein_vectors(
+                    ax,
+                    plot_pc=[1, 3],
+                    n_vectors=[5, 3],
+                    adjust_labels=False,
+                )
+                ```
+
+            Explicit genes with colors and axis limits:
+                ```python
+                fig, ax = plt.subplots()
+                pdata.plot_pca_protein_vectors(
+                    ax,
+                    plot_pc=[1, 2],
+                    namelist=["TP53", "EGFR"],
+                    cmap={"TP53": "crimson", "egfr": "steelblue"},
+                    xlim=(-6, 6),
+                    ylim=(-5, 5),
+                )
+                ```
+
+            Loading arrows only (no sample points) for a compact biplot-style panel:
+                ```python
+                fig, ax = plt.subplots()
+                pdata.plot_pca_protein_vectors(
+                    ax,
+                    plot_pc=[1, 2],
+                    n_vectors=20,
+                    show_samples=False,
+                    adjust_labels=False,
+                )
+                ```
+        """
+        return plotting.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=self,
+            on=on,
+            plot_pc=plot_pc,
+            gene_col=gene_col,
+            n_vectors=n_vectors,
+            arrow_scale=arrow_scale,
+            pca_kwargs=pca_kwargs,
+            show_samples=show_samples,
+            title_case_labels=title_case_labels,
+            adjust_labels=adjust_labels,
+            adjust_text_kwargs=adjust_text_kwargs,
+            text_positions=text_positions,
+            lock_text_positions=lock_text_positions,
+            min_abs_loading_for_top_n=min_abs_loading_for_top_n,
+            top_n_mode=top_n_mode,
+            exclude_genes=exclude_genes,
+            namelist=namelist,
+            cmap=cmap,
+            xlim=xlim,
+            ylim=ylim,
+            return_df=return_df,
+        )
+
+    def plot_pca_gsea_bubble(
+        self,
+        ax,
+        on="protein",
+        key_added="pca_gsea",
+        pcs=None,
+        top_n=20,
+        fdr_cutoff=0.1,
+        size_scale=120.0,
+        cmap="coolwarm",
+        title_case_labels=True,
+        force=False,
+        gsea_kwargs=None,
+        top_n_mode="balanced",
+        include_pathways=None,
+        exclude_pathways=None,
+        return_df=False,
+    ):
+        """
+        Wrapper for `scpviz.plotting.plot_pca_gsea_bubble`.
+
+        Bubble chart of pathways by principal component: color is NES, size reflects FDR.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axis.
+            on (str): ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results.
+            pcs (list of int or None): PCs to show; ``None`` uses all stored PCs.
+            top_n (int): Cap on pathways after ranking; must be >= 1.
+            fdr_cutoff (float or None): FDR threshold (default ``0.1``); see plotting function docstring.
+            size_scale (float): Scales bubble area from ``-log10(FDR)``.
+            cmap (str or Colormap): Colormap for NES.
+            title_case_labels (bool): Format pathway tick labels.
+            force (bool): Re-run ``pca_gsea`` when True.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` if run automatically.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
+            include_pathways (str, iterable, or None): Restrict to these names.
+            exclude_pathways (str, iterable, or None): Drop these names.
+            return_df (bool): If True, return ``(ax, bubble_df)``.
+
+        Returns:
+            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+        """
+        return plotting.plot_pca_gsea_bubble(
+            ax=ax,
+            pdata=self,
+            on=on,
+            key_added=key_added,
+            pcs=pcs,
+            top_n=top_n,
+            fdr_cutoff=fdr_cutoff,
+            size_scale=size_scale,
+            cmap=cmap,
+            title_case_labels=title_case_labels,
+            force=force,
+            gsea_kwargs=gsea_kwargs,
+            top_n_mode=top_n_mode,
+            include_pathways=include_pathways,
+            exclude_pathways=exclude_pathways,
+            return_df=return_df,
+        )
+
+    def plot_pca_gsea_heatmap(
+        self,
+        ax,
+        on="protein",
+        key_added="pca_gsea",
+        pcs=None,
+        top_n=30,
+        fdr_cutoff=0.1,
+        cmap="coolwarm",
+        title_case_labels=True,
+        force=False,
+        gsea_kwargs=None,
+        top_n_mode="balanced",
+        include_pathways=None,
+        exclude_pathways=None,
+        return_df=False,
+    ):
+        """
+        Wrapper for `scpviz.plotting.plot_pca_gsea_heatmap`.
+
+        Heatmap of NES values (pathways × principal components) from PCA-GSEA results.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axis.
+            on (str): ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results.
+            pcs (list of int or None): PCs as columns; ``None`` uses all stored PCs.
+            top_n (int): Cap on pathways after ranking; must be >= 1.
+            fdr_cutoff (float or None): FDR threshold (default ``0.1``); see plotting function docstring.
+            cmap (str or Colormap): Heatmap colormap.
+            title_case_labels (bool): Format pathway labels on the axis.
+            force (bool): Re-run ``pca_gsea`` when True.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` if run automatically.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
+            include_pathways (str, iterable, or None): Restrict to these names.
+            exclude_pathways (str, iterable, or None): Drop these names.
+            return_df (bool): If True, return ``(ax, heatmap_df)`` (see plotting function docstring).
+
+        Returns:
+            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+        """
+        return plotting.plot_pca_gsea_heatmap(
+            ax=ax,
+            pdata=self,
+            on=on,
+            key_added=key_added,
+            pcs=pcs,
+            top_n=top_n,
+            fdr_cutoff=fdr_cutoff,
+            cmap=cmap,
+            title_case_labels=title_case_labels,
+            force=force,
+            gsea_kwargs=gsea_kwargs,
+            top_n_mode=top_n_mode,
+            include_pathways=include_pathways,
+            exclude_pathways=exclude_pathways,
+            return_df=return_df,
         )

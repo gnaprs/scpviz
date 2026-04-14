@@ -642,6 +642,7 @@ def _create_pAnnData_from_parts(
         pdata.prot.layers['X_raw'] = prot_X # type: ignore[attr-defined]
         pdata.prot.uns['X_raw_obs_names'] = list(prot_obs_names) # type: ignore[attr-defined]
         pdata.prot.uns['X_raw_var_names'] = list(prot_var_names)
+        pdata.prot.uns["current_X_layer"] = "X_raw"  # type: ignore[attr-defined]
         if X_mbr_prot is not None:
             pdata.prot.layers['X_mbr'] = X_mbr_prot # type: ignore[attr-defined]
         if X_qval_prot is not None:
@@ -662,6 +663,7 @@ def _create_pAnnData_from_parts(
         pdata.pep.layers['X_raw'] = pep_X # type: ignore[attr-defined]
         pdata.pep.uns['X_raw_obs_names'] = list(pep_obs_names) # type: ignore[attr-defined]
         pdata.pep.uns['X_raw_var_names'] = list(pep_var_names)
+        pdata.pep.uns["current_X_layer"] = "X_raw"  # type: ignore[attr-defined]
         if X_mbr_pep is not None:
             pdata.pep.layers['X_mbr'] = X_mbr_pep # type: ignore[attr-defined]
         if X_qval_pep is not None:

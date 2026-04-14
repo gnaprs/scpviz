@@ -441,6 +441,28 @@ def test_plot_abundance_boxgrid_multi_gene_axes_independent(pdata):
 # Tests for scplt.plot_pca
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (for 3D projection)
 
+def _seed_mock_pca_gsea(pdata, on="protein"):
+    pdata.pca(on=on)
+    adata = pdata.prot if on == "protein" else pdata.pep
+    adata.uns["pca_gsea"] = {
+        "results": {
+            "PC1": pd.DataFrame(
+                {
+                    "Term": ["OXPHOS", "Immune", "Synapse"],
+                    "NES": [1.8, -1.2, 0.6],
+                    "FDR q-val": [0.01, 0.03, 0.2],
+                }
+            ),
+            "PC2": pd.DataFrame(
+                {
+                    "Term": ["OXPHOS", "Immune", "Synapse"],
+                    "NES": [-0.9, 2.1, 0.2],
+                    "FDR q-val": [0.08, 0.005, 0.4],
+                }
+            ),
+        }
+    }
+
 # --- Basic 2D PCA plot ---
 def test_plot_pca_runs_without_error(pdata):
     fig, ax = plt.subplots()
@@ -516,6 +538,361 @@ def test_plot_pca_invalid_plot_pc(pdata, bad_pc):
     fig, ax = plt.subplots()
     with pytest.raises(AssertionError, match="plot_pc must be a list"):
         scplt.plot_pca(ax, pdata, plot_pc=bad_pc)
+    plt.close(fig)
+
+def test_plot_pca_gsea_pathway_vectors_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=2,
+        fdr_cutoff=0.1,
+    )
+    assert _is_axes_container(out)
+    assert len(ax.texts) >= 1
+    plt.close(fig)
+
+def test_plot_pca_gsea_pathway_vectors_without_samples(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=2,
+        show_samples=False,
+    )
+    assert _is_axes_container(out)
+    assert _count_artists(out) > 0
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_pathway_vectors_xlim_ylim(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=2,
+        xlim=(-5.0, 5.0),
+        ylim=(-4.0, 4.0),
+        adjust_labels=False,
+    )
+    assert ax.get_xlim() == pytest.approx((-5.0, 5.0))
+    assert ax.get_ylim() == pytest.approx((-4.0, 4.0))
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_pathway_vectors_namelist_and_cmap(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        namelist=["OXPHOS", "immune"],
+        cmap={"OXPHOS": "red"},
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_pathway_vectors_namelist_raises(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="namelist"):
+        scplt.plot_pca_gsea_pathway_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            namelist=["__NOT_A_PATHWAY__"],
+            adjust_labels=False,
+        )
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_pathway_vectors_n_vectors_list(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=[1, 1],
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    plt.close(fig)
+
+def test_plot_pca_gsea_pathway_vectors_namelist_plus_n_vectors_union(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    _, vec_df = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        namelist=["Synapse"],
+        n_vectors=2,
+        fdr_cutoff=0.1,
+        adjust_labels=False,
+        return_df=True,
+    )
+    assert vec_df.shape[0] >= 2
+    assert vec_df.iloc[0]["pathway_raw"] == "Synapse"
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_namelist_plus_n_vectors_union(pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    g0 = str(adata.var["Genes"].iloc[0]) if "Genes" in adata.var.columns else str(adata.var_names[0])
+    fig, ax = plt.subplots()
+    _, vec_df = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        namelist=[g0],
+        n_vectors=3,
+        adjust_labels=False,
+        return_df=True,
+    )
+    assert vec_df.shape[0] >= 2
+    assert vec_df.iloc[0]["gene"] == g0
+    plt.close(fig)
+
+def test_plot_pca_protein_vectors_smoke(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=4,
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    assert len(ax.texts) >= 1
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_return_df_and_namelist(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    adata = pdata.prot
+    pick = str(adata.var_names[0])
+    if "Genes" in adata.var.columns:
+        gene_label = str(adata.var["Genes"].iloc[0])
+    else:
+        gene_label = pick
+    _, vec_df = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        namelist=[gene_label],
+        adjust_labels=False,
+        return_df=True,
+    )
+    assert list(vec_df["feature"]) == [pick]
+    assert {"gene", "feature", "load_x", "load_y", "arrow_x", "text_x"}.issubset(vec_df.columns)
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_n_vectors_int_and_list(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=10,
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    plt.close(fig)
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=[3, 2],
+        adjust_labels=False,
+    )
+    assert _is_axes_container(out)
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_cmap_and_limits(pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    g = str(adata.var["Genes"].iloc[0]) if "Genes" in adata.var.columns else str(adata.var_names[0])
+    fig, ax = plt.subplots()
+    scplt.plot_pca_protein_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=3,
+        cmap={g: "red"},
+        xlim=(-5.0, 5.0),
+        ylim=(-4.0, 4.0),
+        adjust_labels=False,
+    )
+    assert ax.get_xlim() == pytest.approx((-5.0, 5.0))
+    assert ax.get_ylim() == pytest.approx((-4.0, 4.0))
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_namelist_empty_raises(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="namelist"):
+        scplt.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            namelist=["__NOT_A_GENE__"],
+            adjust_labels=False,
+        )
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_n_vectors_bad_list_raises(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="length"):
+        scplt.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            n_vectors=[1, 2, 3],
+            adjust_labels=False,
+        )
+    plt.close(fig)
+
+
+def test_plot_pca_protein_vectors_n_vectors_must_be_positive(pdata):
+    pdata.pca(on="protein")
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="No proteins to plot"):
+        scplt.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            n_vectors=None,
+            adjust_labels=False,
+        )
+    with pytest.raises(ValueError, match="at least 1"):
+        scplt.plot_pca_protein_vectors(
+            ax=ax,
+            pdata=pdata,
+            on="protein",
+            plot_pc=[1, 2],
+            n_vectors=0,
+            adjust_labels=False,
+        )
+    plt.close(fig)
+
+
+def test_plot_pca_gsea_bubble_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_bubble(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+    )
+    assert _is_axes_container(out)
+    assert _count_artists(out) > 0
+    plt.close(fig)
+
+def test_plot_pca_gsea_heatmap_smoke(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    out = scplt.plot_pca_gsea_heatmap(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+    )
+    assert _is_axes_container(out)
+    assert _count_artists(out) > 0
+    assert "pathway_loadings" in pdata.prot.uns["pca_gsea"]
+    plt.close(fig)
+
+def test_plot_pca_gsea_pathway_vectors_library_split_and_return_df(pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    adata.uns["pca_gsea"] = {
+        "results": {
+            "PC1": pd.DataFrame(
+                {
+                    "Term": ["KEGG_2026__DNA_REPLICATION", "Reactome_Pathways_2024__IMMUNE_RESPONSE"],
+                    "NES": [1.8, -1.2],
+                    "FDR q-val": [0.01, 0.03],
+                }
+            ),
+            "PC2": pd.DataFrame(
+                {
+                    "Term": ["KEGG_2026__DNA_REPLICATION", "Reactome_Pathways_2024__IMMUNE_RESPONSE"],
+                    "NES": [-0.9, 2.1],
+                    "FDR q-val": [0.08, 0.005],
+                }
+            ),
+        }
+    }
+    fig, ax = plt.subplots()
+    _, vec_df = scplt.plot_pca_gsea_pathway_vectors(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        plot_pc=[1, 2],
+        n_vectors=2,
+        return_df=True,
+    )
+    assert "library" in vec_df.columns
+    assert not vec_df["pathway"].str.contains("__").any()
+    assert set(vec_df["library"]) == {"KEGG_2026", "Reactome_Pathways_2024"}
+    plt.close(fig)
+
+def test_plot_pca_gsea_bubble_include_exclude_pathways(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots()
+    _, bubble_df = scplt.plot_pca_gsea_bubble(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        include_pathways=["Immune", "OXPHOS"],
+        exclude_pathways=["Immune"],
+        top_n=1,
+        title_case_labels=False,
+        return_df=True,
+    )
+    assert set(bubble_df["pathway_raw"]) == {"OXPHOS"}
     plt.close(fig)
 
 # test resolve_plot_color
@@ -726,6 +1103,237 @@ def test_plot_clustermap_invalid_on_raises(pdata):
     import pytest
     with pytest.raises(ValueError, match="must be 'prot' or 'pep'"):
         scplt.plot_clustermap(None, pdata, on="invalid")
+
+
+class TestPlotPairwiseCorrelation:
+    """Smoke tests for plot_pairwise_correlation (group + sample level)."""
+
+    def test_returns_fig_and_ax(self, pdata):
+        import matplotlib.figure
+        fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(ax, plt.Axes)
+        plt.close(fig)
+
+    def test_heatmap_has_image(self, pdata):
+        import matplotlib.image as mimage
+        fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        images = [c for c in ax.get_children() if isinstance(c, mimage.AxesImage)]
+        assert len(images) >= 1
+        plt.close(fig)
+
+    def test_correct_tick_count(self, pdata):
+        n_groups = int(pdata.prot.obs["cellline"].nunique())
+        fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        assert len(ax.get_xticks()) == n_groups
+        assert len(ax.get_yticks()) == 0  # row labels omitted; groups on x-axis only
+        plt.close(fig)
+
+    def test_all_methods_run(self, pdata):
+        for method in ("pearson", "spearman", "euclidean"):
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes="cellline", method=method, force=True
+            )
+            plt.close(fig)
+
+    def test_list_classes_runs(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes=["cellline", "treatment"], force=True
+        )
+        plt.close(fig)
+
+    def test_annot_runs(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", annot=True, force=True
+        )
+        plt.close(fig)
+
+    def test_figsize_override(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", figsize=(12, 12), force=True
+        )
+        w, h = fig.get_size_inches()
+        assert abs(w - 12) < 0.1 and abs(h - 12) < 0.1
+        plt.close(fig)
+
+    def test_custom_cmap(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", cmap="viridis", force=True
+        )
+        plt.close(fig)
+
+    def test_title_set(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", title="Test Title", force=True
+        )
+        assert fig._suptitle is not None
+        assert "Test Title" in fig._suptitle.get_text()
+        plt.close(fig)
+
+    def test_wrapper_method_runs(self, pdata):
+        import matplotlib.figure
+        fig, ax = pdata.plot_pairwise_correlation(classes="cellline", force=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+        plt.close(fig)
+
+    def test_show_samples_returns_fig_and_ax(self, pdata):
+        import matplotlib.figure
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True, force=True
+        )
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(ax, plt.Axes)
+        plt.close(fig)
+
+    def test_show_samples_matrix_size(self, pdata):
+        n_samples = pdata.prot.n_obs
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_samples=True,
+            show_ticklabels=True,
+            force=True,
+        )
+        assert len(ax.get_xticks()) == n_samples
+        plt.close(fig)
+
+    def test_show_samples_ticks_hidden_auto(self, pdata, capsys):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_samples=True,
+            show_ticklabels=None,
+            ticklabels_auto_max_samples=3,
+            force=True,
+        )
+        captured = capsys.readouterr()
+        out_low = captured.out.lower()
+        assert ("tick" in out_low) and ("hidden" in out_low or "threshold" in out_low)
+        assert len(ax.get_xticks()) == 0
+        plt.close(fig)
+
+    def test_show_samples_ticks_forced_on(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_samples=True,
+            show_ticklabels=True,
+            force=True,
+        )
+        assert len(ax.get_xticks()) == pdata.prot.n_obs
+        plt.close(fig)
+
+    def test_show_samples_ticks_forced_off(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_samples=True,
+            show_ticklabels=False,
+            force=True,
+        )
+        assert len(ax.get_xticks()) == 0
+        plt.close(fig)
+
+    def test_show_samples_list_classes(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes=["cellline", "treatment"],
+            show_samples=True,
+            force=True,
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_show_samples_triggers_recompute_if_sample_matrix_missing(self, pdata):
+        pdata.pairwise_correlation(
+            classes="cellline", compute_sample_matrix=False, force=True
+        )
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is None
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True
+        )
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is not None
+        plt.close(fig)
+
+    def test_show_samples_cache_reused(self, pdata, capsys):
+        scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True, force=True
+        )
+        capsys.readouterr()
+        scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True
+        )
+        captured = capsys.readouterr()
+        assert "cached" in captured.out.lower()
+        plt.close("all")
+
+    def test_group_plot_reuses_cache_when_sample_matrix_present(self, pdata):
+        scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=True, force=True
+        )
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is not None
+        scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", show_samples=False, force=False
+        )
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is not None
+        plt.close("all")
+
+    def test_ticklabels_auto_max_samples_invalid(self, pdata):
+        with pytest.raises(ValueError, match="ticklabels_auto_max_samples"):
+            scplt.plot_pairwise_correlation(
+                pdata,
+                classes="cellline",
+                show_samples=True,
+                ticklabels_auto_max_samples=0,
+                force=True,
+            )
+
+    def test_force_recomputes(self, pdata):
+        scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", force=True
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_euclidean_vmin_vmax_auto(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", method="euclidean", force=True
+        )
+        im = next(c for c in ax.get_children() if hasattr(c, "get_clim"))
+        vmin, vmax = im.get_clim()
+        assert vmin >= -0.01
+        plt.close(fig)
+
+    def test_user_display_order(self, pdata):
+        scplt.plot_pairwise_correlation(pdata, classes="cellline", force=True)
+        uniq = sorted(str(x) for x in pdata.prot.obs["cellline"].unique())
+        user_order = list(reversed(uniq))
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", order=user_order, force=False
+        )
+        labels = [t.get_text() for t in ax.get_xticklabels()]
+        assert labels == user_order
+        plt.close(fig)
+
+    def test_subset_mask_runs(self, pdata):
+        n = pdata.prot.n_obs
+        mask = np.zeros(n, dtype=bool)
+        mask[: max(1, n // 2)] = True
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata, classes="cellline", subset_mask=mask, force=True
+        )
+        plt.close(fig)
+
+    def test_show_annotation_legend_false(self, pdata):
+        fig, ax = scplt.plot_pairwise_correlation(
+            pdata,
+            classes="cellline",
+            show_annotation_legend=False,
+            force=True,
+        )
+        assert ax.get_legend() is None
+        plt.close(fig)
 
 # test scplt.plot_volcano and related functions
 def mock_volcano_df():

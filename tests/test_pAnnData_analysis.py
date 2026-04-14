@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
-from scpviz import pAnnData
+from scpviz import pAnnData, utils
 import scipy.sparse
 from copy import deepcopy
 
@@ -979,3 +979,775 @@ def test_clean_X_layer_argument(pdata):
 
     assert not np.isnan(data).any()
     assert np.any(data == 777)
+
+class DummyPrerankResult:
+    def __init__(self):
+        self.res2d = pd.DataFrame({
+            "Term": ["GO_Biological_Process_2025__PATHWAY_A", "KEGG_2026__PATHWAY_B"],
+            "NES": [1.5, -1.2],
+            "FDR q-val": [0.01, 0.05],
+        })
+
+class DummySsGSEAResult:
+    def __init__(self, sample_names):
+        rows = []
+        for s in sample_names:
+            rows.append({"Name": s, "Term": "PATHWAY_A", "ES": 0.8})
+            rows.append({"Name": s, "Term": "PATHWAY_B", "ES": -0.3})
+        self.res2d = pd.DataFrame(rows)
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_default_storage(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    # Ensure PCA exists
+    pdata.pca(on=on)
+
+    # Ensure gene column exists
+    adata.var["Genes"] = [f"GENE{i}" for i in range(adata.n_vars)]
+
+    def mock_prerank(*args, **kwargs):
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    pdata.pca_gsea(on=on)
+
+    assert "pca_gsea" in adata.uns
+    assert "params" in adata.uns["pca_gsea"]
+    assert "results" in adata.uns["pca_gsea"]
+    assert "rankings" in adata.uns["pca_gsea"]
+
+    r1 = adata.uns["pca_gsea"]["results"]["PC1"]
+    assert "library" in r1.columns
+    assert "pathway" in r1.columns
+    assert r1["library"].tolist() == ["GO_Biological_Process_2025", "KEGG_2026"]
+    assert r1["pathway"].tolist() == ["PATHWAY_A", "PATHWAY_B"]
+
+    assert "PC1" in adata.uns["pca_gsea"]["results"]
+    assert "PC2" in adata.uns["pca_gsea"]["results"]
+    assert "PC1" in adata.uns["pca_gsea"]["rankings"]
+    assert "PC2" in adata.uns["pca_gsea"]["rankings"]
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_selected_pcs(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    pdata.pca(on=on)
+    adata.var["Genes"] = [f"GENE{i}" for i in range(adata.n_vars)]
+
+    def mock_prerank(*args, **kwargs):
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    pdata.pca_gsea(on=on, pcs=[1])
+
+    assert "pca_gsea" in adata.uns
+    assert list(adata.uns["pca_gsea"]["results"].keys()) == ["PC1"]
+    assert list(adata.uns["pca_gsea"]["rankings"].keys()) == ["PC1"]
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_pcs_none_runs_all(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    pdata.pca(on=on)
+    adata.var["Genes"] = [f"GENE{i}" for i in range(adata.n_vars)]
+
+    def mock_prerank(*args, **kwargs):
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    n_pcs = adata.uns["pca"]["PCs"].shape[0]
+    pdata.pca_gsea(on=on, pcs=None)
+
+    expected_keys = [f"PC{i}" for i in range(1, n_pcs + 1)]
+    assert list(adata.uns["pca_gsea"]["results"].keys()) == expected_keys
+    assert list(adata.uns["pca_gsea"]["rankings"].keys()) == expected_keys
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_missing_gene_column_hard_stop(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    pdata.pca(on=on)
+    adata.var.drop(columns=["Genes"], errors="ignore", inplace=True)
+    adata.uns.pop("pca_gsea", None)
+
+    called = {"prerank": False}
+
+    def mock_prerank(*args, **kwargs):
+        called["prerank"] = True
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    pdata.pca_gsea(on=on)
+
+    assert "pca_gsea" not in adata.uns
+    assert called["prerank"] is False
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_pca_gsea_duplicate_genes_collapsed_by_max(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    pdata.pca(on=on)
+
+    # Force duplicate genes
+    genes = [f"GENE{i}" for i in range(adata.n_vars)]
+    if adata.n_vars >= 3:
+        genes[0] = "DUP"
+        genes[1] = "DUP"
+    adata.var["Genes"] = genes
+
+    # Force known PC1 loadings
+    pcs = adata.uns["pca"]["PCs"].copy()
+    pcs[0, 0] = 0.2
+    pcs[0, 1] = 0.9
+    adata.uns["pca"]["PCs"] = pcs
+
+    captured = {}
+
+    def mock_prerank(*args, **kwargs):
+        rnk = kwargs["rnk"]
+        captured["rnk"] = rnk.copy()
+        return DummyPrerankResult()
+
+    monkeypatch.setattr("gseapy.prerank", mock_prerank)
+
+    pdata.pca_gsea(on=on, pcs=[1])
+
+    assert "DUP" in captured["rnk"].index
+    assert captured["rnk"]["DUP"] == 0.9
+    assert captured["rnk"].index.tolist().count("DUP") == 1
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_ssgsea_default_storage(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+    adata.var["Genes"] = [f"GENE{i}" for i in range(adata.n_vars)]
+
+    def mock_ssgsea(*args, **kwargs):
+        return DummySsGSEAResult(sample_names=adata.obs_names.astype(str))
+
+    monkeypatch.setattr("gseapy.ssgsea", mock_ssgsea)
+
+    pdata.ssgsea(on=on)
+
+    assert "X_ssgsea" in adata.obsm
+    assert "ssgsea" in adata.uns
+    assert "params" in adata.uns["ssgsea"]
+    assert "long_results" in adata.uns["ssgsea"]
+    assert "pathway_names" in adata.uns["ssgsea"]
+
+    n = adata.n_obs
+    assert adata.obsm["X_ssgsea"].shape[0] == n
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_ssgsea_missing_gene_column_hard_stop(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+    adata.var.drop(columns=["Genes"], errors="ignore", inplace=True)
+    adata.obsm.pop("X_ssgsea", None)
+    adata.uns.pop("ssgsea", None)
+
+    called = {"ssgsea": False}
+
+    def mock_ssgsea(*args, **kwargs):
+        called["ssgsea"] = True
+        return DummySsGSEAResult(sample_names=adata.obs_names.astype(str))
+
+    monkeypatch.setattr("gseapy.ssgsea", mock_ssgsea)
+
+    pdata.ssgsea(on=on)
+
+    assert "X_ssgsea" not in adata.obsm
+    assert "ssgsea" not in adata.uns
+    assert called["ssgsea"] is False
+
+@pytest.mark.parametrize("on", ["protein", "peptide"])
+def test_ssgsea_duplicate_genes_collapsed_by_mean(monkeypatch, pdata, on):
+    if on == "protein":
+        adata_on = "prot"
+    else:
+        adata_on = "pep"
+
+    adata = getattr(pdata, adata_on)
+
+    # Create duplicate genes
+    genes = [f"GENE{i}" for i in range(adata.n_vars)]
+    if adata.n_vars >= 3:
+        genes[0] = "DUP"
+        genes[1] = "DUP"
+    adata.var["Genes"] = genes
+
+    # Force known values in first two duplicated rows
+    X = adata.X.toarray().copy()
+    X[:, 0] = 2.0
+    X[:, 1] = 6.0
+    adata.X = X
+
+    captured = {}
+
+    def mock_ssgsea(*args, **kwargs):
+        data = kwargs["data"]
+        captured["data"] = data.copy()
+        return DummySsGSEAResult(sample_names=adata.obs_names.astype(str))
+
+    monkeypatch.setattr("gseapy.ssgsea", mock_ssgsea)
+
+    pdata.ssgsea(on=on)
+
+    assert "DUP" in captured["data"].index
+    np.testing.assert_allclose(captured["data"].loc["DUP"].values, np.full(adata.n_obs, 4.0))
+    assert captured["data"].index.tolist().count("DUP") == 1
+
+# tests for pairwise_correlation
+
+class TestPairwiseCorrelation:
+
+    def test_stores_group_matrix(self, pdata):
+        """Group matrix stored in uns after calling pairwise_correlation."""
+        pdata.pairwise_correlation(classes="cellline")
+        assert "pairwise_corr" in pdata.prot.uns
+        result = pdata.prot.uns["pairwise_corr"]
+        assert "group_matrix" in result
+        df = result["group_matrix"]
+        assert isinstance(df, pd.DataFrame)
+        assert df.shape[0] == df.shape[1]
+        assert list(df.index) == list(df.columns)
+
+    def test_group_matrix_is_square_and_labeled(self, pdata):
+        """group_matrix index and columns match the groups in the classes column."""
+        pdata.pairwise_correlation(classes="cellline")
+        df = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        expected_groups = sorted(pdata.prot.obs["cellline"].unique().tolist())
+        assert list(df.index) == expected_groups
+        assert list(df.columns) == expected_groups
+
+    def test_default_order_is_alphabetical(self, pdata):
+        """Default group order is alphabetically sorted."""
+        pdata.pairwise_correlation(classes="cellline")
+        result = pdata.prot.uns["pairwise_corr"]
+        expected = sorted(pdata.prot.obs["cellline"].unique().tolist())
+        assert result["order"] == expected
+
+    def test_custom_order_respected(self, pdata):
+        """Custom order is stored and reflected in group_matrix index."""
+        groups = sorted(pdata.prot.obs["cellline"].unique().tolist())
+        custom_order = list(reversed(groups))
+        pdata.pairwise_correlation(classes="cellline", order=custom_order)
+        result = pdata.prot.uns["pairwise_corr"]
+        assert result["order"] == custom_order
+        assert list(result["group_matrix"].index) == custom_order
+
+    def test_order_unknown_values_warn_and_resolve(self, pdata, capsys):
+        """Unknown order entries are dropped with a warning; result still valid."""
+        pdata.pairwise_correlation(classes="cellline", order=["nonexistent_group"])
+        captured = capsys.readouterr()
+        assert "removing" in captured.out.lower()
+        result = pdata.prot.uns["pairwise_corr"]
+        expected = sorted(pdata.prot.obs["cellline"].unique().tolist())
+        assert result["order"] == expected
+
+    def test_order_partial_appends_omitted(self, pdata, capsys):
+        """Groups omitted from order are appended alphabetically after user order."""
+        groups = sorted(pdata.prot.obs["cellline"].unique().tolist())
+        assert len(groups) >= 2
+        partial = [groups[1]]
+        pdata.pairwise_correlation(classes="cellline", order=partial)
+        out = capsys.readouterr()
+        assert "appended" in out.out.lower()
+        result = pdata.prot.uns["pairwise_corr"]
+        assert result["order"] == partial + sorted([g for g in groups if g != groups[1]])
+
+    @pytest.mark.parametrize(
+        "extra_kw,exc_type,match_part",
+        [
+            pytest.param({"method": "cosine"}, ValueError, "method=", id="bad_method"),
+            pytest.param(
+                {"classes": "nonexistent_column"}, ValueError, "not found", id="bad_classes"
+            ),
+            pytest.param(
+                {"layer": "X_doesnotexist"}, KeyError, None, id="bad_layer"
+            ),
+        ],
+    )
+    def test_invalid_args_raise(self, pdata, extra_kw, exc_type, match_part):
+        """Unsupported method, missing classes column, or missing layer raises."""
+        kw = {"classes": "cellline", **extra_kw}
+        if match_part is not None:
+            with pytest.raises(exc_type, match=match_part):
+                pdata.pairwise_correlation(**kw)
+        else:
+            with pytest.raises(exc_type):
+                pdata.pairwise_correlation(**kw)
+
+    @pytest.mark.parametrize(
+        "method,expected_fill",
+        [
+            pytest.param("pearson", 1.0, id="pearson"),
+            pytest.param("spearman", 1.0, id="spearman"),
+            pytest.param("euclidean", 0.0, id="euclidean"),
+        ],
+    )
+    def test_group_matrix_diagonal(self, pdata, method, expected_fill):
+        """Correlation methods have 1 on diagonal; euclidean distance has 0."""
+        pdata.pairwise_correlation(classes="cellline", method=method)
+        df = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        diag = np.diag(df.values)
+        np.testing.assert_allclose(
+            diag, np.full(len(diag), expected_fill), atol=1e-6
+        )
+
+    @pytest.mark.parametrize("method", ["pearson", "spearman", "euclidean"])
+    def test_group_matrix_symmetric(self, pdata, method):
+        """Group-level pearson, spearman, and euclidean matrices are symmetric."""
+        pdata.pairwise_correlation(classes="cellline", method=method)
+        df = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        np.testing.assert_allclose(df.values, df.values.T, atol=1e-6)
+
+    def test_sample_matrix_none_by_default(self, pdata):
+        """sample_matrix is None when compute_sample_matrix=False."""
+        pdata.pairwise_correlation(classes="cellline")
+        assert pdata.prot.uns["pairwise_corr"]["sample_matrix"] is None
+
+    def test_sample_matrix_computed_when_requested(self, pdata):
+        """sample_matrix is a DataFrame when compute_sample_matrix=True."""
+        pdata.pairwise_correlation(classes="cellline", compute_sample_matrix=True)
+        result = pdata.prot.uns["pairwise_corr"]
+        sm = result["sample_matrix"]
+        assert isinstance(sm, pd.DataFrame)
+        assert sm.shape[0] == sm.shape[1] == pdata.prot.n_obs
+
+    def test_sample_matrix_euclidean_finite_with_missing_abundance(self, pdata):
+        """Euclidean sample matrix must stay finite when .X has NaNs (nan_euclidean)."""
+        pdata.pairwise_correlation(
+            classes="cellline", method="euclidean", compute_sample_matrix=True, force=True
+        )
+        sm = pdata.prot.uns["pairwise_corr"]["sample_matrix"]
+        assert np.isfinite(sm.values).all()
+
+    def test_sample_matrix_sorted_by_order(self, pdata):
+        """sample_matrix rows/columns are sorted to match group order."""
+        pdata.pairwise_correlation(classes="cellline", compute_sample_matrix=True)
+        result = pdata.prot.uns["pairwise_corr"]
+        sm = result["sample_matrix"]
+        order = result["order"]
+        obs = pdata.prot.obs
+        group_of_sample = obs["cellline"].to_dict()
+        indices_by_group = {g: [] for g in order}
+        for i, name in enumerate(sm.index):
+            indices_by_group[group_of_sample[name]].append(i)
+        prev_max = -1
+        for g in order:
+            idxs = indices_by_group[g]
+            assert min(idxs) > prev_max, f"Group '{g}' not contiguous/ordered in sample_matrix"
+            prev_max = max(idxs)
+
+    def test_force_recomputes(self, pdata):
+        """force=True recomputes even if uns key already present."""
+        pdata.pairwise_correlation(classes="cellline")
+        first_result = pdata.prot.uns["pairwise_corr"]["group_matrix"].copy()
+        pdata.pairwise_correlation(classes="cellline", force=True)
+        second_result = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        pd.testing.assert_frame_equal(first_result, second_result)
+
+    def test_cache_hit_no_recompute(self, pdata, capsys):
+        """Second call with same params prints cache hit and appends cache history."""
+        pdata.pairwise_correlation(classes="cellline")
+        n_after_first = len(pdata.history)
+        pdata.pairwise_correlation(classes="cellline")
+        captured = capsys.readouterr()
+        assert "already computed" in captured.out.lower() or "force=true" in captured.out.lower()
+        assert len(pdata.history) == n_after_first + 1
+        assert "cached" in pdata.history[-1].lower()
+
+    def test_different_params_triggers_recompute(self, pdata, capsys):
+        """Calling with different method triggers recompute with a warning."""
+        pdata.pairwise_correlation(classes="cellline", method="pearson")
+        pdata.pairwise_correlation(classes="cellline", method="spearman")
+        captured = capsys.readouterr()
+        assert "recomputing" in captured.out.lower() or "differ" in captured.out.lower()
+        assert pdata.prot.uns["pairwise_corr"]["method"] == "spearman"
+
+    def test_peptide_level(self, pdata):
+        """Works on peptide level (on='peptide')."""
+        pdata.pairwise_correlation(classes="cellline", on="peptide")
+        assert "pairwise_corr" in pdata.pep.uns
+        df = pdata.pep.uns["pairwise_corr"]["group_matrix"]
+        assert df.shape[0] == df.shape[1]
+
+    def test_stored_metadata(self, pdata):
+        """uns dict contains all expected metadata keys."""
+        pdata.pairwise_correlation(classes="cellline")
+        result = pdata.prot.uns["pairwise_corr"]
+        for key in (
+            "group_matrix",
+            "sample_matrix",
+            "classes",
+            "classes_list",
+            "separator",
+            "order",
+            "method",
+            "layer",
+            "compute_sample_matrix",
+            "n_features_used",
+            "n_features_dropped",
+            "subset_indices",
+        ):
+            assert key in result, f"Missing key: {key}"
+
+    def test_n_features_used_plus_dropped_equals_total(self, pdata):
+        """n_features_used + n_features_dropped should equal total features."""
+        pdata.pairwise_correlation(classes="cellline")
+        result = pdata.prot.uns["pairwise_corr"]
+        total = pdata.prot.n_vars
+        assert result["n_features_used"] + result["n_features_dropped"] == total
+
+    def test_history_appended(self, pdata):
+        """History entry is appended after running pairwise_correlation."""
+        before = len(pdata.history)
+        pdata.pairwise_correlation(classes="cellline")
+        assert len(pdata.history) > before
+        assert "pairwise_correlation" in pdata.history[-1].lower()
+
+    def test_no_pep_raises(self, pdata_nopep):
+        """Raises when on='peptide' but pep is None."""
+        with pytest.raises(ValueError):
+            pdata_nopep.pairwise_correlation(classes="cellline", on="peptide")
+
+    def test_subset_mask_smaller_sample_matrix(self, pdata):
+        """subset_mask limits samples in group and sample matrices."""
+        obs = pdata.prot.obs
+        mask = (obs["cellline"] == obs["cellline"].iloc[0]).to_numpy()
+        assert mask.sum() < pdata.prot.n_obs
+        pdata.pairwise_correlation(
+            classes="cellline", compute_sample_matrix=True, subset_mask=mask
+        )
+        result = pdata.prot.uns["pairwise_corr"]
+        assert result["subset_indices"] is not None
+        sm = result["sample_matrix"]
+        assert sm is not None
+        n_sub = int(mask.sum())
+        assert sm.shape == (n_sub, n_sub)
+        assert result["group_matrix"].shape[0] == 1
+
+    def test_subset_mask_bad_length_raises(self, pdata):
+        with pytest.raises(ValueError, match="subset_mask"):
+            pdata.pairwise_correlation(
+                classes="cellline", subset_mask=np.array([True, False])
+            )
+
+    # tests for list classes (get_samplenames / comma-space join)
+
+    def test_list_classes_runs(self, pdata):
+        """pairwise_correlation accepts a list of classes without error."""
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        assert "pairwise_corr" in pdata.prot.uns
+
+    def test_list_classes_combined_labels(self, pdata):
+        """group_matrix labels use get_samplenames comma-space join for 2+ columns."""
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        df = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        for label in df.index:
+            assert ", " in str(label), f"Expected combined label, got: {label!r}"
+
+    def test_list_classes_stores_classes_list(self, pdata):
+        """uns stores classes_list as the original list of column names."""
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        result = pdata.prot.uns["pairwise_corr"]
+        assert result["classes_list"] == ["cellline", "treatment"]
+
+    def test_string_classes_stores_classes_list_as_single_item(self, pdata):
+        """uns stores classes_list as a single-element list when classes is a str."""
+        pdata.pairwise_correlation(classes="cellline")
+        result = pdata.prot.uns["pairwise_corr"]
+        assert result["classes_list"] == ["cellline"]
+        assert result["separator"] is None
+
+    def test_stores_separator(self, pdata):
+        """uns stores comma-space separator for multi-column classes."""
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        assert pdata.prot.uns["pairwise_corr"]["separator"] == ", "
+
+    def test_list_classes_matrix_is_square(self, pdata):
+        """group_matrix is square when classes is a list."""
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        df = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        assert df.shape[0] == df.shape[1]
+
+    def test_list_classes_n_groups_correct(self, pdata):
+        """Number of groups matches unique combined labels from get_samplenames."""
+        expected_labels = sorted(
+            set(utils.get_samplenames(pdata.prot, ["cellline", "treatment"]))
+        )
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        df = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        assert list(df.index) == expected_labels
+
+    def test_list_classes_pearson_diagonal_is_one(self, pdata):
+        """Pearson diagonal is 1.0 for list classes."""
+        pdata.pairwise_correlation(classes=["cellline", "treatment"], method="pearson")
+        df = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        np.testing.assert_allclose(np.diag(df.values), np.ones(len(df)), atol=1e-6)
+
+    def test_list_classes_custom_order(self, pdata):
+        """Custom order is respected for list classes (combined labels)."""
+        combined = sorted(
+            set(utils.get_samplenames(pdata.prot, ["cellline", "treatment"]))
+        )
+        custom_order = list(reversed(combined))
+        pdata.pairwise_correlation(classes=["cellline", "treatment"], order=custom_order)
+        df = pdata.prot.uns["pairwise_corr"]["group_matrix"]
+        assert list(df.index) == custom_order
+
+    def test_list_classes_invalid_column_raises(self, pdata):
+        """Raises ValueError if any column in list classes is not in obs."""
+        with pytest.raises(ValueError, match="not found in adata.obs"):
+            pdata.pairwise_correlation(classes=["cellline", "nonexistent_col"])
+
+    def test_empty_list_classes_raises(self, pdata):
+        """Raises ValueError for empty list classes."""
+        with pytest.raises(ValueError, match="non-empty"):
+            pdata.pairwise_correlation(classes=[])
+
+    def test_cache_invalidated_str_to_list(self, pdata, capsys):
+        """Changing classes from str to list triggers recompute with a warning."""
+        pdata.pairwise_correlation(classes="cellline")
+        capsys.readouterr()
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        captured = capsys.readouterr()
+        assert "recomputing" in captured.out.lower() or "differ" in captured.out.lower()
+
+    def test_cache_invalidated_list_to_str(self, pdata, capsys):
+        """Changing classes from list to str triggers recompute with a warning."""
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        capsys.readouterr()
+        pdata.pairwise_correlation(classes="cellline")
+        captured = capsys.readouterr()
+        assert "recomputing" in captured.out.lower() or "differ" in captured.out.lower()
+
+    def test_cache_hit_list_classes(self, pdata, capsys):
+        """Cache hit works correctly when classes is a list."""
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        capsys.readouterr()
+        pdata.pairwise_correlation(classes=["cellline", "treatment"])
+        captured = capsys.readouterr()
+        assert "already computed" in captured.out.lower() or "force=true" in captured.out.lower()
+
+    def test_list_classes_sample_matrix(self, pdata):
+        """Sample matrix is computed correctly with list classes."""
+        pdata.pairwise_correlation(
+            classes=["cellline", "treatment"], compute_sample_matrix=True
+        )
+        sm = pdata.prot.uns["pairwise_corr"]["sample_matrix"]
+        assert isinstance(sm, pd.DataFrame)
+        assert sm.shape[0] == sm.shape[1] == pdata.prot.n_obs
+
+class TestLogTransform:
+    """log_transform(), provenance, and fixed output layer names."""
+
+    @pytest.mark.parametrize("base,expected_key", [(10, "X_log10"), ("e", "X_loge")])
+    def test_log10_and_loge_layers(self, pdata, base, expected_key):
+        pdata.log_transform(base=base, set_X=False)
+        assert expected_key in pdata.prot.layers
+
+    def test_stores_layer(self, pdata):
+        pdata.log_transform(set_X=False)
+        assert "X_log2" in pdata.prot.layers
+
+    def test_provenance_registered(self, pdata):
+        pdata.log_transform(set_X=False)
+        reg = pdata.prot.uns["layer_provenance"]
+        assert "X_log2" in reg
+        assert reg["X_log2"]["op"] == "log_transform"
+        assert reg["X_log2"]["input_layer"] == "X_raw"
+
+    def test_log10_base_metadata(self, pdata):
+        pdata.log_transform(base=10, set_X=False)
+        assert pdata.prot.uns["layer_provenance"]["X_log10"]["base"] == "10"
+
+    def test_double_log_warns(self, pdata, capsys):
+        pdata.log_transform(set_X=True)
+        capsys.readouterr()
+        pdata.log_transform(layer="X_log2", set_X=False)
+        captured = capsys.readouterr()
+        assert "already" in captured.out.lower() or "log" in captured.out.lower()
+
+    def test_set_X_updates_X(self, pdata):
+        pdata.log_transform(set_X=True)
+        X = (
+            pdata.prot.X.toarray()
+            if scipy.sparse.issparse(pdata.prot.X)
+            else pdata.prot.X
+        )
+        assert np.nanmedian(X) < 100
+
+    def test_set_X_false_leaves_X(self, pdata):
+        X_before = (
+            pdata.prot.X.toarray().copy()
+            if scipy.sparse.issparse(pdata.prot.X)
+            else pdata.prot.X.copy()
+        )
+        pdata.log_transform(set_X=False)
+        X_after = (
+            pdata.prot.X.toarray()
+            if scipy.sparse.issparse(pdata.prot.X)
+            else pdata.prot.X
+        )
+        np.testing.assert_array_equal(X_before, X_after)
+
+    def test_log2_values_correct(self, pdata):
+        raw = (
+            pdata.prot.X.toarray().copy()
+            if scipy.sparse.issparse(pdata.prot.X)
+            else pdata.prot.X.copy()
+        )
+        pdata.log_transform(base=2, pseudocount=1.0, set_X=False)
+        result = pdata.prot.layers["X_log2"]
+        result = result.toarray() if scipy.sparse.issparse(result) else result
+        np.testing.assert_allclose(result, np.log2(raw + 1.0), atol=1e-5)
+
+    def test_invalid_base_raises(self, pdata):
+        with pytest.raises(ValueError, match="base="):
+            pdata.log_transform(base=3)
+
+    def test_invalid_layer_raises(self, pdata):
+        with pytest.raises(KeyError):
+            pdata.log_transform(layer="X_doesnotexist")
+
+    def test_history_appended(self, pdata):
+        before = len(pdata.history)
+        pdata.log_transform(set_X=False)
+        assert len(pdata.history) > before
+
+    def test_peptide_level(self, pdata):
+        if pdata.pep is None:
+            pytest.skip("No peptide data in fixture")
+        pdata.log_transform(on="peptide", set_X=False)
+        assert "X_log2" in pdata.pep.layers
+
+    def test_collision_suffix_applied(self, pdata):
+        pdata.normalize(method="median", set_X=False)
+        pdata.log_transform(layer="X", set_X=False)
+        pdata.log_transform(layer="X_norm_median", set_X=False)
+        assert "X_log2" in pdata.prot.layers
+        assert "X_log2_1" in pdata.prot.layers
+
+class TestShowLayerProvenance:
+    def test_runs_without_error(self, pdata, capsys):
+        pdata.normalize(method="median", set_X=False)
+        pdata.log_transform(layer="X_norm_median", set_X=False)
+        pdata.show_layer_provenance("X_log2")
+        captured = capsys.readouterr()
+        assert "log_transform" in captured.out
+
+    def test_full_registry_no_layer_arg(self, pdata, capsys):
+        pdata.normalize(method="median", set_X=False)
+        pdata.show_layer_provenance()
+        captured = capsys.readouterr()
+        assert "normalize" in captured.out
+
+    def test_unknown_layer_warns(self, pdata, capsys):
+        pdata.normalize(method="median", set_X=False)
+        pdata.show_layer_provenance("X_does_not_exist")
+        captured = capsys.readouterr()
+        assert "not found" in captured.out.lower()
+
+    def test_empty_registry_info(self, pdata, capsys):
+        if "layer_provenance" in pdata.prot.uns:
+            del pdata.prot.uns["layer_provenance"]
+        pdata.show_layer_provenance()
+        captured = capsys.readouterr()
+        assert "no layer provenance" in captured.out.lower()
+        assert "[INFO]" in captured.out
+
+def test_provenance_chain_depth_after_chain(pdata):
+    """Full normalize → impute → log chain records resolved input layers."""
+    pdata.normalize(method="median")
+    pdata.impute(method="min", min_scale=0.1)
+    pdata.log_transform()
+
+    reg = pdata.prot.uns["layer_provenance"]
+
+    assert reg["X_norm_median"]["input_layer"] == "X_raw"
+    assert reg["X_impute_min"]["input_layer"] == "X_norm_median"
+    assert reg["X_log2"]["input_layer"] == "X_impute_min"
+
+def test_chain_walk_depth_greater_than_one(pdata, capsys):
+    """show_layer_provenance shows full chain including raw root."""
+    pdata.normalize(method="median")
+    pdata.impute(method="min", min_scale=0.1)
+    pdata.log_transform()
+    capsys.readouterr()
+    pdata.show_layer_provenance("X_log2")
+    captured = capsys.readouterr()
+    assert "[3]" in captured.out
+
+def test_explicit_layer_not_resolved(pdata):
+    """Explicit layer='X_norm_median' records that name as provenance input."""
+    pdata.normalize(method="median")
+    pdata.log_transform(layer="X_norm_median", set_X=False)
+    reg = pdata.prot.uns["layer_provenance"]
+    assert reg["X_log2"]["input_layer"] == "X_norm_median"
+
+def test_two_chains_from_same_raw(pdata):
+    """Two normalizations from X_raw both record X_raw as input."""
+    pdata.normalize(method="median")
+    pdata.normalize(method="sum", layer="X_raw")
+    reg = pdata.prot.uns["layer_provenance"]
+    assert reg["X_norm_median"]["input_layer"] == "X_raw"
+    assert reg["X_norm_sum"]["input_layer"] == "X_raw"
+
+def test_show_provenance_uses_current_X_layer(pdata, capsys):
+    pdata.normalize(method="median")
+    pdata.log_transform(layer="X_norm_median")
+    capsys.readouterr()
+    pdata.show_layer_provenance()
+    captured = capsys.readouterr()
+    assert "Current .X" in captured.out
+    assert "X_log2" in captured.out
+
+def test_show_provenance_skips_current_X_when_uns_missing(pdata, capsys):
+    """No current_X_layer key → no Current .X section (honest for legacy objects)."""
+    pdata.normalize(method="median", set_X=False)
+    del pdata.prot.uns["current_X_layer"]
+    capsys.readouterr()
+    pdata.show_layer_provenance()
+    captured = capsys.readouterr()
+    assert "Current .X" not in captured.out
+    assert "Other layers" in captured.out or "○" in captured.out

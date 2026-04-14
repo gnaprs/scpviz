@@ -87,6 +87,8 @@ plugins:
             separate_signature: true
             show_signature_annotations: true
             signature_crossrefs: false
+            docstring_options:
+              warn_missing_types: false
   - search
 
 extra_javascript:

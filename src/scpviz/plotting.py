@@ -32,6 +32,7 @@ Functions:
 
 Functions:
     plot_clustermap: Clustered heatmap of proteins/peptides × samples.
+    plot_pairwise_correlation: Group- or sample-level pairwise correlation / distance heatmap with annotation bars.
 
 ## Differential Expression and Volcano Plots
 
@@ -76,6 +77,7 @@ Functions:
 
 """
 
+import copy
 import re
 from matplotlib import markers
 import numpy as np
@@ -93,6 +95,7 @@ import matplotlib.collections as clt
 import matplotlib.cm as cm
 import matplotlib.patheffects as PathEffects
 import matplotlib.lines as mlines
+from matplotlib.gridspec import GridSpec
 
 import upsetplot
 from adjustText import adjust_text
@@ -344,7 +347,7 @@ def plot_significance(ax, y, h, x1=0, x2=1, col='k', pval='n.s.', fontsize=12):
     ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1, c=col)
     ax.text((x1+x2)*.5, y+h, sig, ha='center', va='bottom', color=col, fontsize=fontsize)
 
-def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palette=None, return_df=False, **kwargs):
+def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palette=None, return_df=False, extra_cols=["Accession", "Genes"], **kwargs):
     """
     Generate a box-and-whisker plot for the coefficient of variation (CV).
 
@@ -363,6 +366,7 @@ def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palett
         palette (dict or list, optional): Custom color palette for class groups.
             If None, defaults to `scviz` package color palette.
         return_df (bool): If True, returns the underlying DataFrame used for plotting.
+        extra_cols (list): Additional columns to include in returned dataframe.
         **kwargs: Additional keyword arguments passed to seaborn plotting functions.
 
     Returns:
@@ -399,12 +403,17 @@ def plot_cv(ax, pdata, classes=None, layer='X', on='protein', order=None, palett
     adata = utils.get_adata(pdata, on)    
     classes_list = utils.get_classlist(adata, classes = classes, order = order)
     
+    ex_cols = [col for col in extra_cols if col in adata.var.columns]
+
     cv_data = []
     for class_value in classes_list:
         cv_col = f'CV: {class_value}'
         if cv_col in adata.var.columns:
             cv_values = adata.var[cv_col].values
-            cv_data.append(pd.DataFrame({'Class': class_value, 'CV': cv_values}))
+            row = {'Class': class_value, 'CV': cv_values}
+            for col in ex_cols:
+                row[col] = adata.var[col].values
+            cv_data.append(pd.DataFrame(row))
 
     if not cv_data:
         print(f"{utils.format_log_prefix('warn')} No valid CV subsets found — skipping plot.")
@@ -1838,79 +1847,6 @@ def resolve_marker_shapes(adata, marker_shape, shape_cmap="default"):
 
     return markers, shape_legend, shape_map
 
-def _build_scatter_kwargs(
-    *,
-    base_kwargs,
-    color_key,
-    face_plot,
-    face_all,
-    face_cmap_resolved,
-    edge_key,
-    edge_plot,
-    edge_all,
-    edge_lw,
-    n
-):
-    """
-    Build kwargs for a single ax.scatter call (already subset-aligned).
-
-    Returns:
-        dict: kwargs for ax.scatter
-    """
-    kw = dict(base_kwargs)
-
-    # Face
-    if color_key is None:
-        kw.setdefault("c", ["grey"] * n)
-        kw.pop("cmap", None)
-    else:
-        kw["c"] = face_plot
-        kw["cmap"] = face_cmap_resolved
-
-    # Edge
-    if edge_key is None:
-        kw["edgecolors"] = "none"
-    else:
-        kw["edgecolors"] = edge_plot
-        kw["linewidths"] = edge_lw
-
-    return kw
-
-def _slice_scatter_kwargs(scatter_kwargs, m):
-    """
-    Slice array-like scatter kwargs for a subset mask m (boolean array).
-
-    Returns:
-        dict: kwargs safe to pass to ax.scatter for that group.
-    """
-    kw = dict(scatter_kwargs)
-
-    # Slice face colors if array-like
-    if "c" in kw and isinstance(kw["c"], (list, np.ndarray)):
-        c = np.asarray(kw["c"])
-        if c.shape[0] == m.shape[0]:
-            kw["c"] = c[m]
-
-    # Slice edgecolors safely:
-    # - edgecolors can be "none" / None / a single color string / an array of colors
-    if "edgecolors" in kw:
-        ec = kw["edgecolors"]
-
-        # scalar "off" cases
-        if ec is None or (isinstance(ec, str) and ec == "none"):
-            return kw
-
-        # scalar single color string (e.g. "black") -> do not slice
-        if isinstance(ec, str):
-            return kw
-
-        # array-like -> slice if aligned
-        ec_arr = np.asarray(ec)
-        if ec_arr.shape[0] == m.shape[0]:
-            kw["edgecolors"] = ec_arr[m]
-
-    return kw
-
 def _resolve_subset_mask(adata, subset_mask):
     n = adata.n_obs
     if subset_mask is None:
@@ -1936,34 +1872,6 @@ def _resolve_subset_mask(adata, subset_mask):
     if m.shape[0] != n:
         raise ValueError(f"subset_mask length {m.shape[0]} does not match n_obs {n}.")
     return m.astype(bool)
-
-def _add_continuous_colorbar(ax, color_mapped, cmap_resolved, label, text_size=10):
-    """Attach a colorbar if using continuous coloring."""
-    import matplotlib.cm as cm
-    import matplotlib.colors as mcolors
-    import numpy as np
-
-    if cmap_resolved is None or color_mapped is None:
-        return
-
-    vals = np.asarray(color_mapped)
-    if vals.size == 0:
-        return
-    if np.issubdtype(vals.dtype, np.number) is False:
-        return
-    
-    norm = mcolors.Normalize(vmin=np.min(vals), vmax=np.max(vals))
-    sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
-    sm.set_array([])
-    cb = ax.figure.colorbar(sm, ax=ax, pad=0.01)
-    cb.set_label(label, fontsize=text_size)
-
-def _legend_title_from_key(key):
-    if key is None:
-        return None
-    if isinstance(key, list):
-        return "/".join(str(c).capitalize() for c in key)
-    return str(key).capitalize()
 
 def _plot_confidence_ellipse(x, y, ax, n_std=2.4477, facecolor='none', edgecolor='black', alpha=0.2, **kwargs):
     from matplotlib.patches import Ellipse
@@ -2013,6 +1921,99 @@ def _plot_embedding_scatter(*, ax, adata, Xt, mask, obs_names_plot,
       - edge_color is categorical only
       - marker_shape is categorical only (marker splitting)
     """
+
+    def _build_scatter_kwargs(
+        *,
+        base_kwargs,
+        color_key,
+        face_plot,
+        face_all,
+        face_cmap_resolved,
+        edge_key,
+        edge_plot,
+        edge_all,
+        edge_lw,
+        n,
+    ):
+        """
+        Build kwargs for a single ax.scatter call (already subset-aligned).
+
+        Returns:
+            dict: kwargs for ax.scatter
+        """
+        kw = dict(base_kwargs)
+
+        if color_key is None:
+            kw.setdefault("c", ["grey"] * n)
+            kw.pop("cmap", None)
+        else:
+            kw["c"] = face_plot
+            kw["cmap"] = face_cmap_resolved
+
+        if edge_key is None:
+            kw["edgecolors"] = "none"
+        else:
+            kw["edgecolors"] = edge_plot
+            kw["linewidths"] = edge_lw
+
+        return kw
+
+    def _slice_scatter_kwargs(scatter_kwargs, m):
+        """
+        Slice array-like scatter kwargs for a subset mask m (boolean array).
+
+        Returns:
+            dict: kwargs safe to pass to ax.scatter for that group.
+        """
+        kw = dict(scatter_kwargs)
+
+        if "c" in kw and isinstance(kw["c"], (list, np.ndarray)):
+            c = np.asarray(kw["c"])
+            if c.shape[0] == m.shape[0]:
+                kw["c"] = c[m]
+
+        if "edgecolors" in kw:
+            ec = kw["edgecolors"]
+
+            if ec is None or (isinstance(ec, str) and ec == "none"):
+                return kw
+
+            if isinstance(ec, str):
+                return kw
+
+            ec_arr = np.asarray(ec)
+            if ec_arr.shape[0] == m.shape[0]:
+                kw["edgecolors"] = ec_arr[m]
+
+        return kw
+
+    def _add_continuous_colorbar(ax_cb, color_mapped, cmap_resolved, label, text_size=10):
+        """Attach a colorbar if using continuous coloring."""
+        import matplotlib.cm as cm
+        import matplotlib.colors as mcolors
+
+        if cmap_resolved is None or color_mapped is None:
+            return
+
+        vals = np.asarray(color_mapped)
+        if vals.size == 0:
+            return
+        if np.issubdtype(vals.dtype, np.number) is False:
+            return
+
+        norm = mcolors.Normalize(vmin=np.min(vals), vmax=np.max(vals))
+        sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
+        sm.set_array([])
+        cb = ax_cb.figure.colorbar(sm, ax=ax_cb, pad=0.01)
+        cb.set_label(label, fontsize=text_size)
+
+    def _legend_title_from_key(key):
+        if key is None:
+            return None
+        if isinstance(key, list):
+            return "/".join(str(c).capitalize() for c in key)
+        return str(key).capitalize()
+
     # resolve colors & marker
     face_mapped, face_cmap_resolved, face_legend = resolve_plot_colors(
         adata, color, cmap, layer=layer
@@ -2620,6 +2621,1984 @@ def plot_pca_scree(ax, pca):
     ax.set_ylabel('Variance Explained')
     
     return ax
+
+def _ensure_pca_gsea_payload(
+    pdata,
+    on="protein",
+    key_added="pca_gsea",
+    requested_pcs=None,
+    force=False,
+    gsea_kwargs=None,
+):
+    """
+    Ensure ``adata.uns[key_added]`` holds PCA-GSEA results, running ``pca_gsea`` if missing or forced.
+
+    Returns:
+        tuple: ``(adata, payload)`` after validating ``adata.uns[key_added]``.
+    """
+
+    def _get_pca_gsea_payload(pdata, on="protein", key_added="pca_gsea"):
+        """Return adata + validated pca_gsea payload."""
+        adata = utils.get_adata(pdata, on)
+        if key_added not in adata.uns:
+            raise KeyError(
+                f"{utils.format_log_prefix('error',2)} PCA GSEA key '{key_added}' not found in .uns."
+            )
+        payload = adata.uns[key_added]
+        if "results" not in payload:
+            raise KeyError(
+                f"{utils.format_log_prefix('error',2)} Missing 'results' in .uns['{key_added}']."
+            )
+        return adata, payload
+
+    adata = utils.get_adata(pdata, on)
+    needs_run = force or key_added not in adata.uns
+    if needs_run:
+        if requested_pcs is None:
+            raise ValueError("`requested_pcs` must be provided when auto-running pca_gsea.")
+        if force:
+            print(f"{utils.format_log_prefix('warn')} force=True: re-running pca_gsea on requested PCs {requested_pcs}.")
+        else:
+            print(f"{utils.format_log_prefix('info')} pca_gsea results not found; running pca_gsea on requested PCs {requested_pcs}.")
+        kwargs = dict(gsea_kwargs or {})
+        pdata.pca_gsea(on=on, pcs=[int(pc) for pc in requested_pcs], key_added=key_added, **kwargs)
+    return _get_pca_gsea_payload(pdata, on, key_added)
+
+def _build_pca_gsea_tables(payload, pcs=None):
+    """
+    Build long-format and pivot tables from a PCA-GSEA ``results`` dict.
+
+    Returns:
+        tuple: ``(long_df, matrix_df, fdr_df, missing_pc_keys)``. Pathway identifiers align with
+        ``pathway_raw`` / ``pathway`` / ``library`` columns in ``long_df``.
+    """
+    rows = []
+    results_dict = payload.get("results", {})
+    available_pc_keys = sorted(results_dict.keys(), key=lambda x: int(str(x).replace("PC", "")))
+    requested_pc_keys = available_pc_keys.copy()
+    if pcs is not None:
+        requested_pc_keys = [f"PC{int(pc)}" for pc in pcs]
+    available_selected = [pc for pc in available_pc_keys if pc in requested_pc_keys]
+    missing_pc_keys = [pc for pc in requested_pc_keys if pc not in available_pc_keys]
+    if len(available_selected) == 0:
+        raise ValueError("No matching PCs were found in pca_gsea results.")
+
+    for pc_key in available_selected:
+        df = results_dict[pc_key].copy()
+        if "Term" in df.columns:
+            pathway_raw = df["Term"].astype(str)
+        elif df.index.name is not None or not isinstance(df.index, pd.RangeIndex):
+            pathway_raw = pd.Index(df.index).astype(str)
+        else:
+            raise KeyError("Could not resolve pathway names (expected 'Term' column or pathway index).")
+
+        nes_col = "NES" if "NES" in df.columns else ("nes" if "nes" in df.columns else None)
+        if nes_col is None:
+            raise KeyError(f"Missing NES column in pca_gsea result for {pc_key}.")
+        fdr_col = "FDR q-val" if "FDR q-val" in df.columns else ("FDR" if "FDR" in df.columns else None)
+
+        if "pathway" in df.columns and "library" in df.columns:
+            pathway_short = df["pathway"].astype(str)
+            pathway_lib = df["library"].astype(str)
+        else:
+            pathway_short = pathway_raw.map(lambda x: str(x).split("__", 1)[1] if "__" in str(x) else str(x))
+            pathway_lib = pathway_raw.map(lambda x: str(x).split("__", 1)[0] if "__" in str(x) else "")
+        tmp = pd.DataFrame({
+            "pathway_raw": pathway_raw.values,
+            "pathway": pathway_short.values,
+            "library": pathway_lib.values,
+            "pc": pc_key,
+            "NES": pd.to_numeric(df[nes_col], errors="coerce").values,
+        })
+        if fdr_col is not None:
+            tmp["FDR q-val"] = pd.to_numeric(df[fdr_col], errors="coerce").values
+        else:
+            tmp["FDR q-val"] = np.nan
+        rows.append(tmp)
+
+    long_df = pd.concat(rows, axis=0, ignore_index=True).dropna(subset=["pathway_raw", "NES"])
+    matrix_df = long_df.pivot_table(index="pathway_raw", columns="pc", values="NES", aggfunc="first")
+    fdr_df = long_df.pivot_table(index="pathway_raw", columns="pc", values="FDR q-val", aggfunc="first")
+    matrix_df = matrix_df.reindex(columns=requested_pc_keys)
+    fdr_df = fdr_df.reindex(index=matrix_df.index, columns=requested_pc_keys)
+    return long_df, matrix_df, fdr_df, missing_pc_keys
+
+def _format_pathway_label(label):
+    """Convert enrichment labels like `DNA_REPLICATION` to `Dna Replication`."""
+    raw = str(label).strip()
+    text = raw.split("__", 1)[1] if "__" in raw else raw
+    text = text.replace("_", " ")
+    text = re.sub(r"\s+", " ", text)
+    return text.title()
+
+def _resolve_pca_gsea_namelist_pathways(matrix_df, long_df, namelist):
+    """
+    Map ``namelist`` strings to ``pathway_raw`` indices using **pathway raw (Term)** or **short pathway**
+    only (not library). Case-insensitive. Preserves ``matrix_df`` index order among matches.
+
+    Raises:
+        ValueError: If any namelist entry matches nothing, or no rows remain in ``matrix_df``.
+    """
+    meta = long_df[["pathway_raw", "pathway"]].drop_duplicates("pathway_raw")
+    dedup = []
+    seen_q = set()
+    for x in namelist:
+        s = str(x)
+        if s not in seen_q:
+            seen_q.add(s)
+            dedup.append(s)
+    pr_lower = meta["pathway_raw"].astype(str).str.lower()
+    pw_lower = meta["pathway"].astype(str).str.lower()
+    missing = []
+    matched_set = set()
+    for query in dedup:
+        ql = query.lower()
+        hits = meta.loc[(pr_lower == ql) | (pw_lower == ql), "pathway_raw"].astype(str).unique().tolist()
+        if not hits:
+            missing.append(query)
+        else:
+            matched_set.update(hits)
+    if missing:
+        raise ValueError(
+            "No pathways matched these `namelist` entries (matches `Term` / pathway_raw or short pathway "
+            f"name only, not library): {missing!r}. Check exact strings, e.g. "
+            "`utils.get_adata(pdata, on).uns[key_added]['results']['PC1']` (use your `on`, `key_added`, and PC key)."
+        )
+    ordered = [r for r in matrix_df.index if str(r) in matched_set]
+    if not ordered:
+        raise ValueError(
+            "No pathways from `namelist` remain after `exclude_pathways`. "
+            "Inspect `adata.uns[key_added]['results'][...]` for valid `Term` values."
+        )
+    return ordered
+
+
+def _apply_pathway_name_filters(long_df, matrix_df, fdr_df, include_pathways=None, exclude_pathways=None):
+    """Filter pathway rows by user include/exclude names (raw, short, or library)."""
+    if include_pathways is None and exclude_pathways is None:
+        return long_df, matrix_df, fdr_df
+
+    meta = long_df[["pathway_raw", "pathway", "library"]].drop_duplicates("pathway_raw")
+    meta = meta.set_index("pathway_raw")
+
+    def _to_set(x):
+        if x is None:
+            return None
+        if isinstance(x, str):
+            return {x}
+        return {str(v) for v in x}
+
+    include_set = _to_set(include_pathways)
+    exclude_set = _to_set(exclude_pathways)
+
+    selected = pd.Series(True, index=meta.index)
+    if include_set:
+        selected &= (
+            meta.index.to_series().isin(include_set)
+            | meta["pathway"].astype(str).isin(include_set)
+            | meta["library"].astype(str).isin(include_set)
+        )
+    if exclude_set:
+        selected &= ~(
+            meta.index.to_series().isin(exclude_set)
+            | meta["pathway"].astype(str).isin(exclude_set)
+            | meta["library"].astype(str).isin(exclude_set)
+        )
+
+    keep = meta.index[selected].tolist()
+    long_df = long_df[long_df["pathway_raw"].isin(keep)].copy()
+    matrix_df = matrix_df.loc[matrix_df.index.intersection(keep)]
+    fdr_df = fdr_df.reindex(index=matrix_df.index, columns=matrix_df.columns)
+    return long_df, matrix_df, fdr_df
+
+def _pathway_filter_by_fdr(matrix_df, fdr_df, fdr_cutoff):
+    """
+    Keep pathways that pass the FDR cutoff on at least one displayed PC.
+
+    If ``fdr_cutoff`` is ``None``, no rows are removed. Otherwise a pathway is kept if **any** column has
+    FDR ≤ ``fdr_cutoff``.
+    """
+    if fdr_cutoff is None:
+        return matrix_df
+    keep_mask = (fdr_df <= float(fdr_cutoff)).any(axis=1)
+    return matrix_df.loc[keep_mask]
+
+def _compute_pc_score_df(matrix_df, fdr_df, fdr_cutoff=0.1):
+    """
+    Per-PC ranking score: ``|NES| * -log10(FDR)``, optionally gated by ``fdr_cutoff``.
+
+    If ``fdr_cutoff`` is not ``None``, scores are zeroed on PCs where FDR exceeds the cutoff. ``None`` uses
+    all FDR values with no gate. Does not drop rows (use ``_pathway_filter_by_fdr`` with the same cutoff first).
+    """
+    fdr_safe = fdr_df.clip(lower=1e-300)
+    score_df = matrix_df.abs().mul(-np.log10(fdr_safe))
+    if fdr_cutoff is not None:
+        score_df = score_df.where(fdr_df <= float(fdr_cutoff), 0.0)
+    return score_df.fillna(0.0)
+
+def _validate_plot_top_n(top_n, *, what="items"):
+    """
+    Require a positive integer ``top_n`` for PCA-GSEA and protein vector plots (no ``None``).
+    """
+    if top_n is None:
+        raise ValueError(
+            f"`top_n` must be a positive integer; got None. Pass e.g. 12 or 50 to cap {what}, "
+            "or use `namelist` / `include_pathways` (bubble/heatmap) to restrict to a small set."
+        )
+    try:
+        n = int(top_n)
+    except (TypeError, ValueError) as err:
+        raise ValueError(f"`top_n` must be a positive integer; got {top_n!r}.") from err
+    if n < 1:
+        raise ValueError(f"`top_n` must be at least 1; got {n}.")
+    return n
+
+
+def _select_top_pathways(score_df, top_n, top_n_mode="balanced"):
+    """
+    Select top pathways from a PC-score table.
+    - balanced: split top_n approximately equally per PC (with dedupe).
+    - max_score: global ranking by max score across PCs.
+
+    ``top_n`` must be an integer >= 1 (validated at the public plot API).
+    """
+    n = int(top_n)
+    if n < 1:
+        raise ValueError("`top_n` must be at least 1.")
+
+    if top_n_mode == "max_score":
+        return score_df.max(axis=1).sort_values(ascending=False).head(n).index.tolist()
+
+    if top_n_mode != "balanced":
+        raise ValueError("`top_n_mode` must be either 'balanced' or 'max_score'.")
+
+    pcs = list(score_df.columns)
+    k = max(len(pcs), 1)
+    base = n // k
+    rem = n % k
+    quotas = {pc: base + (1 if i < rem else 0) for i, pc in enumerate(pcs)}
+
+    selected = []
+    count_by_pc = {pc: 0 for pc in pcs}
+    per_pc_rank = {pc: score_df[pc].sort_values(ascending=False).index.tolist() for pc in pcs}
+    for pc in pcs:
+        for pathway in per_pc_rank[pc]:
+            if pathway in selected:
+                continue
+            selected.append(pathway)
+            count_by_pc[pc] += 1
+            if count_by_pc[pc] >= quotas[pc]:
+                break
+
+    if len(selected) < n:
+        global_rank = score_df.max(axis=1).sort_values(ascending=False).index.tolist()
+        for pathway in global_rank:
+            if pathway in selected:
+                continue
+            selected.append(pathway)
+            if len(selected) >= n:
+                break
+
+    return selected[:n]
+
+
+# Use as default for ``n_vectors`` so "namelist only" does not also apply top-N unless the user passes ``n_vectors``.
+N_VECTORS_UNSET = object()
+
+
+def _resolve_protein_namelist_genes(matrix_df, namelist):
+    """
+    Map ``namelist`` to matrix row indices in list order (deduped). Match is exact on ``str(index)``.
+
+    Returns:
+        tuple: (ordered gene indices, set of those indices for excluding from top-N remainder).
+
+    Raises:
+        ValueError: If any namelist entry matches no row.
+    """
+    dedup = []
+    seen_q = set()
+    for x in namelist:
+        t = str(x)
+        if t not in seen_q:
+            seen_q.add(t)
+            dedup.append(t)
+    missing = []
+    ordered = []
+    resolver_set = set()
+    for name in dedup:
+        hits = [i for i in matrix_df.index if str(i) == name]
+        if not hits:
+            missing.append(name)
+        else:
+            g = hits[0]
+            if g not in resolver_set:
+                ordered.append(g)
+                resolver_set.add(g)
+    if missing:
+        raise ValueError(
+            f"No proteins matched these `namelist` entries: {missing!r}. "
+            "Check gene labels in the PCA loading table after `exclude_genes`."
+        )
+    return ordered, resolver_set
+
+
+def _validate_plot_n_vectors(n_vectors, *, what="proteins"):
+    """
+    Validate ``n_vectors`` for protein PCA vectors: a positive int or a length-2 sequence of positive ints.
+
+    Returns:
+        tuple: ``("single", n)`` or ``("split", (nx, ny))``.
+    """
+    if isinstance(n_vectors, (list, tuple)):
+        if len(n_vectors) != 2:
+            raise ValueError(
+                "`n_vectors` must be a positive int or a length-2 sequence of positive ints; "
+                f"got a sequence of length {len(n_vectors)}."
+            )
+        out = []
+        for i, v in enumerate(n_vectors):
+            try:
+                nv = int(v)
+            except (TypeError, ValueError) as err:
+                raise ValueError(f"`n_vectors[{i}]` must be a positive integer; got {v!r}.") from err
+            if nv < 1:
+                raise ValueError(f"`n_vectors[{i}]` must be at least 1; got {nv}.")
+            out.append(nv)
+        return ("split", tuple(out))
+    if n_vectors is None:
+        raise ValueError(
+            f"`n_vectors` must be a positive int or a length-2 sequence; got None. "
+            f"Pass e.g. 20 to cap {what}, use `namelist`, or pass both."
+        )
+    try:
+        n = int(n_vectors)
+    except (TypeError, ValueError) as err:
+        raise ValueError(
+            f"`n_vectors` must be a positive int or a length-2 sequence; got {n_vectors!r}."
+        ) from err
+    if n < 1:
+        raise ValueError(f"`n_vectors` must be at least 1; got {n}.")
+    return ("single", n)
+
+
+def _select_pca_protein_vectors_split(score_df, pcx, pcy, nx, ny):
+    """
+    Top ``nx`` genes by score on ``pcx``, top ``ny`` on ``pcy``, union with X order first.
+    """
+    rank_x = score_df[pcx].sort_values(ascending=False).index.tolist()
+    rank_y = score_df[pcy].sort_values(ascending=False).index.tolist()
+    top_x = rank_x[:nx]
+    selected = list(top_x)
+    seen = set(top_x)
+    for g in rank_y[:ny]:
+        if g not in seen:
+            selected.append(g)
+            seen.add(g)
+    return selected
+
+
+def _vector_color_from_cmap(cmap, raw_label, formatted_label):
+    """Resolve arrow/text color: exact raw, exact formatted, then case-insensitive key match."""
+    if not cmap:
+        return "black"
+    if raw_label in cmap:
+        return cmap[raw_label]
+    if formatted_label in cmap:
+        return cmap[formatted_label]
+    gl = str(raw_label).lower()
+    ll = str(formatted_label).lower()
+    ci = {str(k).lower(): v for k, v in cmap.items()}
+    if gl in ci:
+        return ci[gl]
+    if ll in ci:
+        return ci[ll]
+    return "black"
+
+
+def plot_pca_gsea_pathway_vectors(
+    ax,
+    pdata,
+    on="protein",
+    key_added="pca_gsea",
+    plot_pc=[1, 2],
+    n_vectors=N_VECTORS_UNSET,
+    fdr_cutoff=0.1,
+    arrow_scale=0.25,
+    pca_kwargs=None,
+    show_samples=True,
+    title_case_labels=True,
+    force=False,
+    gsea_kwargs=None,
+    adjust_labels=True,
+    adjust_text_kwargs=None,
+    text_positions=None,
+    lock_text_positions=False,
+    top_n_mode="balanced",
+    exclude_pathways=None,
+    namelist=None,
+    cmap=None,
+    xlim=None,
+    ylim=None,
+    return_df=False,
+):
+    """
+    Overlay PCA-GSEA pathways as arrows in a two-dimensional PCA sample space.
+
+    Each arrow encodes normalized enrichment scores (NES) on two principal components taken from
+    ``adata.uns[key_added]['results']`` (from ``pca_gsea``). Arrow endpoints are rescaled using the
+    current axis limits so pathways remain visible; they are not plotted in the same numeric units as
+    sample coordinates. When ``show_samples`` is True, the sample PCA scatter is drawn first via
+    ``plot_pca``.
+
+    Args:
+        ax (matplotlib.axes.Axes): Target axis (2D).
+        pdata (pAnnData): Input object.
+        on (str): Data level, ``"protein"`` or ``"peptide"``.
+        key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+        plot_pc (list of int): Exactly two 1-based PCs, e.g. ``[1, 2]``.
+        n_vectors (int, sequence, ``None``, or unset): Caps auto-selected pathways (after ``namelist`` rows).
+            Default when ``namelist`` is ``None`` is ``12``; when ``namelist`` is set, default is no extra
+            top-N unless you pass ``n_vectors`` explicitly. If an int (>= 1), uses ``top_n_mode`` on rows not
+            already chosen by ``namelist``. If ``[nx, ny]``, split-axis top union on that remainder.
+            Pass ``n_vectors=None`` with ``namelist`` to plot only listed pathways; pass ``n_vectors`` and
+            leave ``namelist`` unset for ranking-only.
+        fdr_cutoff (float or None): For **auto-selected** rows: ``_pathway_filter_by_fdr`` and score gating in
+            ``_compute_pc_score_df``. **Namelist** pathways skip the row FDR filter; a **warning** is printed
+            per named pathway when ``fdr_cutoff`` is not ``None`` and no plotted PC passes FDR.
+        arrow_scale (float): Scale factor for arrow length relative to axis span.
+        pca_kwargs (dict or None): Additional arguments passed to ``plot_pca`` when ``show_samples=True``.
+        show_samples (bool): If True, plot samples first; if False, draw only axes, grid lines, and arrows.
+        title_case_labels (bool): If True, format pathway labels for display (e.g. title case).
+        force (bool): If True, re-run ``pca_gsea`` for ``plot_pc``.
+        gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when results are auto-computed.
+        adjust_labels (bool): If True, run ``adjust_text`` to reduce label overlap.
+        adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
+        text_positions (dict or None): Optional manual label positions; keys are pathway raw or display
+            strings, values are ``(x, y)`` data coordinates.
+        lock_text_positions (bool): If True, labels with entries in ``text_positions`` are not moved by
+            ``adjust_text``.
+        top_n_mode (str): ``"balanced"`` or ``"max_score"``. Used only when ``n_vectors`` is an int.
+        exclude_pathways (str, iterable, or None): Remove pathways matching these names (raw Term, short
+            pathway, or library), same as before.
+        namelist (list of str or None): Pathways to always include first (matches ``Term`` / pathway_raw or short
+            pathway name only, **not** library). Shown even if they fail FDR; ``exclude_pathways`` still applies
+            first. Combined with ``n_vectors`` on the remaining rows (namelist first, then auto).
+        cmap (dict or None): Per-pathway colors; lookup raw ``Term``, formatted label, then case-insensitive keys.
+        xlim (tuple or None): Applied after scatter / empty axes, before arrow scaling (with ``ax.set_aspect("auto")``).
+        ylim (tuple or None): Same as ``xlim``.
+        return_df (bool): If True, also return a DataFrame with NES, FDR, and label positions.
+
+    Returns:
+        matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+    Note:
+        May attach ``payload["pathway_loadings"]`` for reuse in the same session.
+
+    TODO:
+        Add explicit FDR visual encoding on vector arrows (e.g., color or alpha by FDR).
+
+    Example:
+        Default overlay on PC1 vs PC2 with label de-cluttering and return coordinates for a second pass:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots()
+            ax, vec_df = scplt.plot_pca_gsea_pathway_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                adjust_text_kwargs={"expand": (1.3, 1.3)},
+                return_df=True,
+            )
+            ```
+
+        Reuse label positions from a previous run (e.g. after editing coordinates in ``vec_df``):
+            ```python
+            manual = {
+                row["pathway_raw"]: (row["text_x"], row["text_y"])
+                for _, row in vec_df.iterrows()
+            }
+            ax = scplt.plot_pca_gsea_pathway_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                text_positions=manual,
+                lock_text_positions=True,
+            )
+            ```
+    """
+    plot_pc = list(plot_pc)
+    if len(plot_pc) != 2:
+        raise ValueError("`plot_pc` must contain exactly two PCs for pathway vectors.")
+
+    _, payload = _ensure_pca_gsea_payload(
+        pdata=pdata,
+        on=on,
+        key_added=key_added,
+        requested_pcs=plot_pc,
+        force=force,
+        gsea_kwargs=gsea_kwargs,
+    )
+    long_df, matrix_df, fdr_df, missing_pc_keys = _build_pca_gsea_tables(payload=payload, pcs=plot_pc)
+    pcx, pcy = f"PC{int(plot_pc[0])}", f"PC{int(plot_pc[1])}"
+    if missing_pc_keys:
+        raise ValueError(
+            f"Requested PCs missing from pca_gsea results: {missing_pc_keys}. "
+            f"Please run pca_gsea on these PCs (or set force=True)."
+        )
+
+    long_df, matrix_df, fdr_df = _apply_pathway_name_filters(
+        long_df=long_df,
+        matrix_df=matrix_df,
+        fdr_df=fdr_df,
+        include_pathways=None,
+        exclude_pathways=exclude_pathways,
+    )
+
+    if n_vectors is N_VECTORS_UNSET:
+        n_vectors = None if namelist is not None else 12
+    if namelist is None and n_vectors is None:
+        raise ValueError("No pathways to plot: provide `n_vectors`, `namelist`, or both.")
+
+    named_resolver_order = []
+    named_resolver_set = set()
+    if namelist is not None:
+        named_resolver_order = _resolve_pca_gsea_namelist_pathways(matrix_df, long_df, namelist)
+        named_resolver_set = set(named_resolver_order)
+
+    named_plot_order = [
+        i
+        for i in named_resolver_order
+        if i in matrix_df.index and matrix_df.loc[i, [pcx, pcy]].notna().any()
+    ]
+
+    auto_order = []
+    if n_vectors is not None:
+        remainder = matrix_df.loc[~matrix_df.index.isin(named_resolver_set)]
+        remainder = _pathway_filter_by_fdr(
+            matrix_df=remainder[[pcx, pcy]], fdr_df=fdr_df.reindex(remainder.index)[[pcx, pcy]], fdr_cutoff=fdr_cutoff
+        )
+        remainder = remainder.dropna(subset=[pcx, pcy], how="all")
+        if not remainder.empty:
+            mode, nv = _validate_plot_n_vectors(n_vectors, what="pathways")
+            score_df = _compute_pc_score_df(
+                matrix_df=remainder[[pcx, pcy]],
+                fdr_df=fdr_df.reindex(remainder.index)[[pcx, pcy]],
+                fdr_cutoff=fdr_cutoff,
+            )
+            if mode == "single":
+                selected = _select_top_pathways(score_df=score_df, top_n=nv, top_n_mode=top_n_mode)
+            else:
+                nx, ny = nv
+                selected = _select_pca_protein_vectors_split(score_df, pcx, pcy, nx, ny)
+            auto_order = [r for r in selected if r not in set(named_plot_order)]
+
+    final_order = []
+    seen_f = set()
+    for i in named_plot_order:
+        if i not in seen_f:
+            final_order.append(i)
+            seen_f.add(i)
+    for i in auto_order:
+        if i not in seen_f:
+            final_order.append(i)
+            seen_f.add(i)
+
+    if not final_order:
+        raise ValueError("No pathways to plot: provide `n_vectors`, `namelist`, or both.")
+
+    if fdr_cutoff is not None and named_plot_order:
+        fc = float(fdr_cutoff)
+        for pr in named_plot_order:
+            fx = fdr_df.loc[pr, pcx]
+            fy = fdr_df.loc[pr, pcy]
+            passes = any(pd.notna(v) and float(v) <= fc for v in (fx, fy))
+            if not passes:
+                print(
+                    f"{utils.format_log_prefix('warn')} Pathway {str(pr)!r}: FDR on {pcx}={fx}, {pcy}={fy}; "
+                    f"cutoff={fdr_cutoff}. Showing anyway because `namelist` is explicit."
+                )
+
+    matrix_df = matrix_df.loc[final_order]
+    fdr_df = fdr_df.reindex(matrix_df.index)
+    long_df = long_df[long_df["pathway_raw"].isin(matrix_df.index)].copy()
+
+    meta_pw = long_df.drop_duplicates("pathway_raw").set_index("pathway_raw")
+    short_by_raw = meta_pw["pathway"]
+    lib_by_raw = meta_pw["library"]
+
+    def _pathway_display_name(pathway_raw_key):
+        short = short_by_raw.get(pathway_raw_key, np.nan)
+        if pd.isna(short):
+            raw_s = str(pathway_raw_key)
+            short = raw_s.split("__", 1)[1] if "__" in raw_s else raw_s
+        return str(short)
+
+    # Cache derived pathway loading tables for downstream reuse.
+    payload["pathway_loadings"] = {"matrix": matrix_df.copy(), "fdr_qval": fdr_df.copy(), "long": long_df.copy()}
+
+    if show_samples:
+        if pca_kwargs is None:
+            pca_kwargs = {}
+        plot_pca(ax=ax, pdata=pdata, on=on, plot_pc=plot_pc, **pca_kwargs)
+    else:
+        adata = utils.get_adata(pdata, on)
+        if "pca" not in adata.uns or "variance_ratio" not in adata.uns["pca"]:
+            raise ValueError("PCA metadata not found. Run `.pca()` before plotting pathway vectors with `show_samples=False`.")
+        var = adata.uns["pca"]["variance_ratio"]
+        ax.set_xlabel(f"PC{plot_pc[0]} ({var[int(plot_pc[0]) - 1] * 100:.2f}%)")
+        ax.set_ylabel(f"PC{plot_pc[1]} ({var[int(plot_pc[1]) - 1] * 100:.2f}%)")
+        ax.axhline(0, color="lightgray", linewidth=0.8, zorder=0)
+        ax.axvline(0, color="lightgray", linewidth=0.8, zorder=0)
+        ax.set_aspect("equal", adjustable="datalim")
+
+    if xlim is not None or ylim is not None:
+        ax.set_aspect("auto")
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+
+    xl = ax.get_xlim()
+    yl = ax.get_ylim()
+    xspan = xl[1] - xl[0]
+    yspan = yl[1] - yl[0]
+
+    coords = matrix_df[[pcx, pcy]].fillna(0.0).values
+    denom = np.max(np.abs(coords))
+    if denom == 0:
+        denom = 1.0
+    x_scale = float(arrow_scale) * xspan / denom
+    y_scale = float(arrow_scale) * yspan / denom
+
+    texts = []
+    text_rows = []
+    text_positions = text_positions or {}
+    for pathway, (vx, vy) in matrix_df[[pcx, pcy]].fillna(0.0).iterrows():
+        vx, vy = float(vx), float(vy)
+        x_end = vx * x_scale
+        y_end = vy * y_scale
+        label_txt = _format_pathway_label(pathway) if title_case_labels else str(pathway)
+        pos = text_positions.get(str(pathway), text_positions.get(label_txt, None))
+        text_x, text_y = (x_end, y_end) if pos is None else (float(pos[0]), float(pos[1]))
+        color = _vector_color_from_cmap(cmap, str(pathway), label_txt)
+        ax.annotate(
+            "",
+            xy=(x_end, y_end),
+            xytext=(0, 0),
+            arrowprops=dict(
+                arrowstyle="-|>",
+                color=color,
+                alpha=0.7,
+                lw=1.5,
+                mutation_scale=10,
+            ),
+        )
+        ax.update_datalim([(x_end, y_end), (0, 0)])
+        txt = ax.text(text_x, text_y, label_txt, fontsize=8, ha="left", va="bottom", color=color)
+        if not (lock_text_positions and pos is not None):
+            texts.append(txt)
+        text_rows.append({
+            "pathway_raw": str(pathway),
+            "pathway": label_txt,
+            "arrow_x": x_end,
+            "arrow_y": y_end,
+            "text_obj": txt,
+        })
+
+    ax.autoscale_view()
+
+    if adjust_labels and len(texts) > 0:
+        # By default, do not draw connector lines from text to arrow tips.
+        adjust_cfg = {"expand": (1.6, 1.6), "arrowprops": None}
+        if adjust_text_kwargs:
+            adjust_cfg.update(adjust_text_kwargs)
+        adjust_text(texts, ax=ax, **adjust_cfg)
+
+    vector_df = matrix_df[[pcx, pcy]].copy().rename(columns={pcx: "nes_x", pcy: "nes_y"})
+    vector_df["pc_x"] = pcx
+    vector_df["pc_y"] = pcy
+    vector_df["fdr_x"] = fdr_df.reindex(vector_df.index)[pcx].values
+    vector_df["fdr_y"] = fdr_df.reindex(vector_df.index)[pcy].values
+    vector_df["vector_norm"] = np.sqrt(vector_df["nes_x"] ** 2 + vector_df["nes_y"] ** 2)
+    vector_df["pathway_raw"] = vector_df.index.astype(str)
+    vector_df["library"] = vector_df["pathway_raw"].map(lib_by_raw)
+    miss_lib = vector_df["library"].isna()
+    if miss_lib.any():
+        vector_df.loc[miss_lib, "library"] = vector_df.loc[miss_lib, "pathway_raw"].map(
+            lambda x: x.split("__", 1)[0] if "__" in str(x) else ""
+        )
+    disp_series = vector_df["pathway_raw"].map(_pathway_display_name)
+    if title_case_labels:
+        vector_df["pathway"] = disp_series.map(_format_pathway_label)
+    else:
+        vector_df["pathway"] = disp_series
+    vector_df = vector_df.reset_index(drop=True)[
+        ["pathway", "pathway_raw", "library", "pc_x", "pc_y", "nes_x", "nes_y", "fdr_x", "fdr_y", "vector_norm"]
+    ]
+    text_pos_df = pd.DataFrame(
+        [
+            {
+                "pathway_raw": row["pathway_raw"],
+                "pathway": row["pathway"],
+                "arrow_x": row["arrow_x"],
+                "arrow_y": row["arrow_y"],
+                "text_x": row["text_obj"].get_position()[0],
+                "text_y": row["text_obj"].get_position()[1],
+            }
+            for row in text_rows
+        ]
+    )
+    vector_df = vector_df.merge(text_pos_df, on=["pathway", "pathway_raw"], how="left")
+
+    ax.set_title(f"PCA pathway vectors ({pcx} vs {pcy})")
+    if return_df:
+        return ax, vector_df
+    return ax
+
+
+def plot_pca_protein_vectors(
+    ax,
+    pdata,
+    on="protein",
+    plot_pc=(1, 2),
+    gene_col="Genes",
+    n_vectors=N_VECTORS_UNSET,
+    arrow_scale=0.25,
+    pca_kwargs=None,
+    show_samples=True,
+    title_case_labels=False,
+    adjust_labels=True,
+    adjust_text_kwargs=None,
+    text_positions=None,
+    lock_text_positions=False,
+    min_abs_loading_for_top_n=None,
+    top_n_mode="balanced",
+    exclude_genes=None,
+    namelist=None,
+    cmap=None,
+    xlim=None,
+    ylim=None,
+    return_df=False,
+):
+    """
+    Overlay protein PCA loadings as arrows in a two-dimensional sample PCA space.
+
+    Arrows use feature loadings from ``adata.uns['pca']['PCs']`` (from ``pAnnData.pca``), not GSEA NES.
+    Geometry matches ``plot_pca_gsea_pathway_vectors``: each arrow runs from the origin in the direction
+    ``(loading_on_PCx, loading_on_PCy)``, with length rescaled from the current axis limits for visibility.
+    Labels default to the ``gene_col`` column in ``.var`` when present, otherwise ``.var_names``.
+
+    Args:
+        ax (matplotlib.axes.Axes): Target axis (2D).
+        pdata (pAnnData): Input object.
+        on (str): Data level, ``"protein"`` or ``"peptide"``.
+        plot_pc (tuple or list of int): Exactly two 1-based PCs.
+        gene_col (str): Column in ``.var`` for display labels; missing column falls back to ``.var_names``.
+        n_vectors (int, sequence, ``None``, or unset): Caps **auto-selected** proteins (rows not already taken
+            by ``namelist``). Default when ``namelist`` is ``None`` is ``20``; when ``namelist`` is set, default
+            is no extra top-N unless you pass ``n_vectors`` explicitly. If an int (>= 1), uses ``top_n_mode``.
+            If ``[nx, ny]``, split-axis top union on that remainder. ``min_abs_loading_for_top_n`` gates scores
+            on the remainder the same way in int and split modes.
+        arrow_scale (float): Scale factor for arrow length relative to axis span.
+        pca_kwargs (dict or None): Forwarded to ``plot_pca`` when ``show_samples=True``.
+        show_samples (bool): If True, draw the sample PCA scatter first; if False, only axes and arrows.
+        title_case_labels (bool): If True, lightly format gene text (underscores to spaces, title case).
+        adjust_labels (bool): If True, run ``adjust_text`` to reduce overlap.
+        adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
+        text_positions (dict or None): Manual label positions keyed by gene or formatted label.
+        lock_text_positions (bool): If True, manual positions are excluded from ``adjust_text`` motion.
+        min_abs_loading_for_top_n (float or None): If set, ranking scores on a PC are zero when
+            ``|loading|`` is below this threshold on that PC.
+        top_n_mode (str): ``"balanced"`` or ``"max_score"`` (same selection logic as pathway vectors, using
+            absolute loadings instead of NES/FDR scores). Used only when ``n_vectors`` is an int.
+        exclude_genes (str, iterable, or None): Remove genes/features matching these strings (gene label or
+            ``.var_names`` feature id).
+        namelist (list of str or None): Gene labels (matrix row index, exact ``str`` match) to include **first**.
+            Duplicates in ``namelist`` are ignored for matching order. Combined with ``n_vectors`` on the
+            remaining rows (namelist first, then auto). Genes also listed in ``exclude_genes`` are dropped.
+        cmap (dict or None): Map gene label (as in matrix or after ``title_case_labels`` formatting) to a
+            matplotlib color; lookup tries raw name, formatted label, then case-insensitive keys. Default
+            ``None`` draws arrows and labels in black.
+        xlim (tuple or None): If set, applied with ``ax.set_xlim(xlim)`` immediately after the PCA scatter
+            (or empty axes) and **before** arrow length scaling, so ``arrow_scale`` matches the visible range.
+            When either ``xlim`` or ``ylim`` is set, ``ax.set_aspect("auto")`` is called first so a fixed
+            data aspect from ``plot_pca`` (or ``show_samples=False``) does not block the limits.
+        ylim (tuple or None): If set, ``ax.set_ylim(ylim)`` at the same stage as ``xlim`` (same note).
+        return_df (bool): If True, return ``(ax, vector_df)`` with loadings and arrow/text coordinates.
+
+    Returns:
+        matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+    Example:
+        Top-loading genes on PC1 vs PC2 over the sample PCA scatter, returning arrow and text coordinates:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots()
+            ax, vec = scplt.plot_pca_protein_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                n_vectors=25,
+                return_df=True,
+            )
+            ```
+
+        Split-axis selection: top loadings on PC1 and PC3 separately, then union:
+            ```python
+            fig, ax = plt.subplots()
+            scplt.plot_pca_protein_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 3],
+                n_vectors=[5, 3],
+                adjust_labels=False,
+            )
+            ```
+
+        Explicit genes with colors and axis limits:
+            ```python
+            fig, ax = plt.subplots()
+            scplt.plot_pca_protein_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                namelist=["TP53", "EGFR"],
+                cmap={"TP53": "crimson", "egfr": "steelblue"},
+                xlim=(-6, 6),
+                ylim=(-5, 5),
+            )
+            ```
+
+        Loading arrows only (no sample points) for a compact biplot-style panel:
+            ```python
+            fig, ax = plt.subplots()
+            scplt.plot_pca_protein_vectors(
+                ax,
+                pdata,
+                plot_pc=[1, 2],
+                n_vectors=20,
+                show_samples=False,
+                adjust_labels=False,
+            )
+            ```
+    """
+    plot_pc = list(plot_pc)
+    if len(plot_pc) != 2:
+        raise ValueError("`plot_pc` must contain exactly two PCs for protein loading vectors.")
+
+    def _build_pca_protein_loading_matrix(adata, plot_pc, gene_col="Genes"):
+        """
+        Build a gene-by-PC matrix of PCA loadings (one row per gene after collapsing duplicate labels).
+
+        Duplicate resolution matches ``enrichment_functional_pca``: for each gene label, keep the feature
+        row with the largest Euclidean norm in the loading plane spanned by the two requested PCs.
+
+        Returns:
+            tuple: ``(matrix_df, feature_by_gene, pcx_name, pcy_name)``. Loading columns use labels such as
+            ``PC1`` and ``PC2`` matching the requested ``plot_pc`` values.
+        """
+        if "pca" not in adata.uns or "PCs" not in adata.uns["pca"]:
+            raise ValueError("PCA loadings not found. Run `.pca()` on this data layer first.")
+        PCs = adata.uns["pca"]["PCs"]
+        n_comp, n_feat = PCs.shape
+        if n_feat != adata.n_vars:
+            raise ValueError(
+                f"PCA loading matrix width ({n_feat}) does not match number of variables ({adata.n_vars})."
+            )
+        pc_a, pc_b = int(plot_pc[0]), int(plot_pc[1])
+        for pc in (pc_a, pc_b):
+            if pc < 1 or pc > n_comp:
+                raise ValueError(
+                    f"Invalid PC {pc}: available PCs are 1..{n_comp}."
+                )
+        col_a, col_b = f"PC{pc_a}", f"PC{pc_b}"
+        lx = PCs[pc_a - 1, :]
+        ly = PCs[pc_b - 1, :]
+        if gene_col in adata.var.columns:
+            genes = adata.var[gene_col].astype(str)
+        else:
+            genes = pd.Series(adata.var_names.astype(str), index=adata.var_names)
+        df = pd.DataFrame(
+            {
+                "feature": adata.var_names.astype(str),
+                "gene": genes.values,
+                col_a: lx,
+                col_b: ly,
+            },
+            index=adata.var_names.astype(str),
+        )
+        df = df.dropna(subset=["gene"]).copy()
+        df["gene"] = df["gene"].astype(str)
+        df = df[df["gene"].str.len() > 0]
+        if df.empty:
+            raise ValueError("No genes with non-empty labels after resolving `.var` for PCA protein vectors.")
+        plane_norm = np.sqrt(df[col_a].astype(float) ** 2 + df[col_b].astype(float) ** 2)
+        df["_plane_norm"] = plane_norm
+        pick = df.groupby("gene", sort=False)["_plane_norm"].idxmax()
+        df = df.loc[pick].drop(columns="_plane_norm")
+        matrix_df = df.set_index("gene")[[col_a, col_b]]
+        feature_by_gene = df.set_index("gene")["feature"]
+        return matrix_df, feature_by_gene, col_a, col_b
+
+    def _apply_gene_name_filters(matrix_df, feature_by_gene, exclude_genes=None):
+        """
+        Filter protein rows by exclude list (gene label or ``.var_names`` feature id).
+
+        Returns:
+            tuple: Filtered ``(matrix_df, feature_by_gene)``.
+        """
+        if exclude_genes is None:
+            return matrix_df, feature_by_gene
+
+        def _to_set(x):
+            if isinstance(x, str):
+                return {x}
+            return {str(v) for v in x}
+
+        exclude_set = _to_set(exclude_genes)
+        selected = pd.Series(True, index=matrix_df.index)
+        feat = feature_by_gene.reindex(matrix_df.index)
+        selected &= ~(matrix_df.index.to_series().isin(exclude_set) | feat.astype(str).isin(exclude_set))
+        keep = matrix_df.index[selected]
+        matrix_df = matrix_df.loc[keep]
+        feature_by_gene = feature_by_gene.reindex(matrix_df.index)
+        return matrix_df, feature_by_gene
+
+    def _compute_protein_pc_score_df(matrix_df, min_abs_loading_for_top_n=None):
+        """
+        Compute per-PC scores from absolute loadings for ranking proteins.
+
+        Score on each PC is ``|loading|``. If ``min_abs_loading_for_top_n`` is set, entries below that
+        threshold are zeroed on that PC (similar in role to FDR gating for pathway ranking).
+        """
+        score_df = matrix_df.abs()
+        if min_abs_loading_for_top_n is not None:
+            m = float(min_abs_loading_for_top_n)
+            score_df = score_df.where(score_df >= m, 0.0)
+        return score_df.fillna(0.0)
+
+    adata = utils.get_adata(pdata, on)
+    matrix_df, feature_by_gene, pcx, pcy = _build_pca_protein_loading_matrix(
+        adata, plot_pc, gene_col=gene_col
+    )
+    matrix_df, feature_by_gene = _apply_gene_name_filters(
+        matrix_df,
+        feature_by_gene,
+        exclude_genes=exclude_genes,
+    )
+    if matrix_df.empty:
+        raise ValueError("No proteins available after gene name filters.")
+
+    if n_vectors is N_VECTORS_UNSET:
+        n_vectors = None if namelist is not None else 20
+    if namelist is None and n_vectors is None:
+        raise ValueError("No proteins to plot: provide `n_vectors`, `namelist`, or both.")
+
+    named_resolver_order = []
+    named_resolver_set = set()
+    if namelist is not None:
+        named_resolver_order, named_resolver_set = _resolve_protein_namelist_genes(matrix_df, namelist)
+
+    named_plot_order = [
+        g
+        for g in named_resolver_order
+        if g in matrix_df.index and matrix_df.loc[g, [pcx, pcy]].notna().any()
+    ]
+
+    auto_order = []
+    if n_vectors is not None:
+        remainder = matrix_df.loc[~matrix_df.index.isin(named_resolver_set)]
+        if not remainder.empty:
+            mode, nv = _validate_plot_n_vectors(n_vectors, what="proteins")
+            score_df = _compute_protein_pc_score_df(remainder[[pcx, pcy]], min_abs_loading_for_top_n)
+            if mode == "single":
+                selected = _select_top_pathways(score_df=score_df, top_n=nv, top_n_mode=top_n_mode)
+            else:
+                nx, ny = nv
+                selected = _select_pca_protein_vectors_split(score_df, pcx, pcy, nx, ny)
+            auto_order = [r for r in selected if r not in set(named_plot_order)]
+
+    final_order = []
+    seen_pf = set()
+    for g in named_plot_order:
+        if g not in seen_pf:
+            final_order.append(g)
+            seen_pf.add(g)
+    for g in auto_order:
+        if g not in seen_pf:
+            final_order.append(g)
+            seen_pf.add(g)
+
+    if not final_order:
+        raise ValueError("No proteins to plot: provide `n_vectors`, `namelist`, or both.")
+
+    matrix_df = matrix_df.loc[final_order]
+    feature_by_gene = feature_by_gene.reindex(matrix_df.index)
+
+    if show_samples:
+        if pca_kwargs is None:
+            pca_kwargs = {}
+        plot_pca(ax=ax, pdata=pdata, on=on, plot_pc=plot_pc, **pca_kwargs)
+    else:
+        if "pca" not in adata.uns or "variance_ratio" not in adata.uns["pca"]:
+            raise ValueError(
+                "PCA metadata not found. Run `.pca()` before plotting protein vectors with `show_samples=False`."
+            )
+        var = adata.uns["pca"]["variance_ratio"]
+        ax.set_xlabel(f"PC{plot_pc[0]} ({var[int(plot_pc[0]) - 1] * 100:.2f}%)")
+        ax.set_ylabel(f"PC{plot_pc[1]} ({var[int(plot_pc[1]) - 1] * 100:.2f}%)")
+        ax.axhline(0, color="lightgray", linewidth=0.8, zorder=0)
+        ax.axvline(0, color="lightgray", linewidth=0.8, zorder=0)
+        ax.set_aspect("equal", adjustable="datalim")
+
+    if xlim is not None or ylim is not None:
+        ax.set_aspect("auto")
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+
+    xl = ax.get_xlim()
+    yl = ax.get_ylim()
+    xspan = xl[1] - xl[0]   # full width of visible x range
+    yspan = yl[1] - yl[0]   # full height of visible y range
+
+    coords = matrix_df[[pcx, pcy]].fillna(0.0).values
+    denom = np.max(np.abs(coords))
+    if denom == 0:
+        denom = 1.0
+
+    x_scale = float(arrow_scale) * xspan / denom
+    y_scale = float(arrow_scale) * yspan / denom
+
+    texts = []
+    text_rows = []
+    text_positions = text_positions or {}
+    for gene, row in matrix_df[[pcx, pcy]].fillna(0.0).iterrows():
+        vx, vy = float(row[pcx]), float(row[pcy])
+        x_end = vx * x_scale
+        y_end = vy * y_scale
+        label_txt = str(gene)
+        if title_case_labels:
+            label_txt = label_txt.replace("_", " ").title()
+        pos = text_positions.get(str(gene), text_positions.get(label_txt, None))
+        text_x, text_y = (x_end, y_end) if pos is None else (float(pos[0]), float(pos[1]))
+        color = _vector_color_from_cmap(cmap, str(gene), label_txt)
+        ax.annotate(
+                    "",
+                    xy=(x_end, y_end),
+                    xytext=(0, 0),
+                    arrowprops=dict(
+                        arrowstyle="-|>",
+                        color=color,
+                        alpha=0.7,
+                        lw=1.5,
+                        mutation_scale=10,  # controls head size in points, like fontsize
+                    ),
+                )
+        ax.update_datalim([(x_end, y_end), (0, 0)])
+        txt = ax.text(text_x, text_y, label_txt, fontsize=8, ha="left", va="bottom", color=color)
+        if not (lock_text_positions and pos is not None):
+            texts.append(txt)
+        text_rows.append(
+            {
+                "gene": str(gene),
+                "arrow_x": x_end,
+                "arrow_y": y_end,
+                "text_obj": txt,
+            }
+        )
+
+    ax.autoscale_view()  # ensure the axes limits are updated to match the data
+
+    if adjust_labels and len(texts) > 0:
+        adjust_cfg = {"expand": (1.6, 1.6), "arrowprops": None}
+        if adjust_text_kwargs:
+            adjust_cfg.update(adjust_text_kwargs)
+        adjust_text(texts, ax=ax, **adjust_cfg)
+
+    vector_df = matrix_df[[pcx, pcy]].copy().rename(columns={pcx: "load_x", pcy: "load_y"})
+    vector_df["pc_x"] = pcx
+    vector_df["pc_y"] = pcy
+    vector_df["feature"] = feature_by_gene.reindex(matrix_df.index).astype(str).values
+    vector_df["vector_norm"] = np.sqrt(vector_df["load_x"] ** 2 + vector_df["load_y"] ** 2)
+    vector_df = vector_df.reset_index()
+    idx_col = vector_df.columns[0]
+    if idx_col != "gene":
+        vector_df = vector_df.rename(columns={idx_col: "gene"})
+
+    text_pos_df = pd.DataFrame(
+        [
+            {
+                "gene": row["gene"],
+                "arrow_x": row["arrow_x"],
+                "arrow_y": row["arrow_y"],
+                "text_x": row["text_obj"].get_position()[0],
+                "text_y": row["text_obj"].get_position()[1],
+            }
+            for row in text_rows
+        ]
+    )
+    vector_df = vector_df.merge(text_pos_df, on="gene", how="left")
+    vector_df = vector_df[
+        ["gene", "feature", "pc_x", "pc_y", "load_x", "load_y", "vector_norm", "arrow_x", "arrow_y", "text_x", "text_y"]
+    ]
+
+    ax.set_title(f"PCA protein loading vectors ({pcx} vs {pcy})")
+    if return_df:
+        return ax, vector_df
+    return ax
+
+def plot_pca_gsea_bubble(
+    ax,
+    pdata,
+    on="protein",
+    key_added="pca_gsea",
+    pcs=None,
+    top_n=20,
+    fdr_cutoff=0.1,
+    size_scale=120.0,
+    cmap="coolwarm",
+    title_case_labels=True,
+    force=False,
+    gsea_kwargs=None,
+    top_n_mode="balanced",
+    include_pathways=None,
+    exclude_pathways=None,
+    return_df=False,
+):
+    """
+    Plot PCA-GSEA results as a bubble chart (principal component versus pathway).
+
+    Bubble color encodes NES; bubble area reflects significance (``-log10(FDR)``). Rows and columns
+    are ordered by pathway and PC. If ``pcs`` is omitted, all PCs present in stored results are used.
+
+    Args:
+        ax (matplotlib.axes.Axes): Target axis.
+        pdata (pAnnData): Input object.
+        on (str): Data level, ``"protein"`` or ``"peptide"``.
+        key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+        pcs (list of int or None): 1-based PCs to include; ``None`` uses every PC in stored results.
+        top_n (int): Cap on distinct pathways after ranking; must be >= 1 (required).
+        fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``):
+            eligibility on at least one PC plus ``top_n`` ranking gate. ``None`` disables both.
+        size_scale (float): Multiplier for bubble area from ``-log10(FDR)``.
+        cmap (str or Colormap): Colormap for NES-centered coloring.
+        title_case_labels (bool): If True, format pathway tick labels for display.
+        force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
+        gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when auto-computing results.
+        top_n_mode (str): ``"balanced"`` or ``"max_score"`` (see ``plot_pca_gsea_pathway_vectors``).
+        include_pathways (str, iterable, or None): Keep only pathways matching these names.
+        exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+        return_df (bool): If True, return ``(ax, bubble_df)`` with plot coordinates and sizes.
+
+    Returns:
+        matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+    Example:
+        Bubble chart for the first three PCs, top 25 pathways by ranking, and return the table used for the plot:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(6, 8))
+            ax, df = scplt.plot_pca_gsea_bubble(
+                ax,
+                pdata,
+                pcs=[1, 2, 3],
+                top_n=25,
+                return_df=True,
+            )
+            ```
+
+        Stricter FDR cutoff (0.05) and title-case pathway labels on the y-axis:
+            ```python
+            fig, ax = plt.subplots(figsize=(5, 9))
+            scplt.plot_pca_gsea_bubble(
+                ax,
+                pdata,
+                pcs=[1, 2],
+                top_n=30,
+                fdr_cutoff=0.05,
+                title_case_labels=True,
+            )
+            ```
+    """
+    top_n = _validate_plot_top_n(top_n, what="pathways")
+    requested_pcs = pcs
+    if requested_pcs is None:
+        adata = utils.get_adata(pdata, on)
+        if key_added in adata.uns and "results" in adata.uns[key_added]:
+            requested_pcs = [int(str(k).replace("PC", "")) for k in adata.uns[key_added]["results"].keys()]
+    _, payload = _ensure_pca_gsea_payload(
+        pdata=pdata,
+        on=on,
+        key_added=key_added,
+        requested_pcs=requested_pcs,
+        force=force,
+        gsea_kwargs=gsea_kwargs,
+    )
+    long_df, matrix_df, fdr_df, missing_pc_keys = _build_pca_gsea_tables(payload=payload, pcs=pcs)
+    if missing_pc_keys:
+        print(
+            f"{utils.format_log_prefix('warn')} Requested PCs missing from existing pca_gsea results: {missing_pc_keys}. "
+            f"Showing NaN columns for unrun PCs. Rerun pca_gsea on these PCs (or set force=True)."
+        )
+
+    long_df, matrix_df, fdr_df = _apply_pathway_name_filters(
+        long_df=long_df,
+        matrix_df=matrix_df,
+        fdr_df=fdr_df,
+        include_pathways=include_pathways,
+        exclude_pathways=exclude_pathways,
+    )
+    matrix_df = _pathway_filter_by_fdr(matrix_df=matrix_df, fdr_df=fdr_df, fdr_cutoff=fdr_cutoff)
+    if matrix_df.empty:
+        raise ValueError("No pathways available after filtering for bubble plot.")
+    sel_pathways = matrix_df.index.tolist()
+    long_df = long_df[long_df["pathway_raw"].isin(sel_pathways)].copy()
+
+    score_df = _compute_pc_score_df(
+        matrix_df=matrix_df,
+        fdr_df=fdr_df.reindex(index=matrix_df.index, columns=matrix_df.columns),
+        fdr_cutoff=fdr_cutoff,
+    )
+    sel = _select_top_pathways(score_df=score_df, top_n=top_n, top_n_mode=top_n_mode)
+    long_df = long_df[long_df["pathway_raw"].isin(sel)].copy()
+
+    pathway_order = (
+        long_df.assign(abs_nes=long_df["NES"].abs())
+        .groupby("pathway_raw")["abs_nes"]
+        .max()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+    pc_order = sorted(long_df["pc"].unique(), key=lambda x: int(str(x).replace("PC", "")))
+    long_df["pc_i"] = long_df["pc"].map({pc: i for i, pc in enumerate(pc_order)})
+    long_df["pathway_i"] = long_df["pathway_raw"].map({p: i for i, p in enumerate(pathway_order)})
+
+    fdr_safe = long_df["FDR q-val"].fillna(1.0).clip(lower=1e-300, upper=1.0)
+    bubble_size = (-np.log10(fdr_safe)) * float(size_scale)
+    norm = mcolors.TwoSlopeNorm(vcenter=0)
+    scatter = ax.scatter(
+        long_df["pc_i"],
+        long_df["pathway_i"],
+        s=bubble_size,
+        c=long_df["NES"],
+        cmap=cmap,
+        norm=norm,
+        alpha=0.85,
+        edgecolors="black",
+        linewidths=0.3,
+    )
+
+    ax.set_xticks(np.arange(len(pc_order)))
+    ax.set_xticklabels(pc_order)
+    ax.set_yticks(np.arange(len(pathway_order)))
+    if title_case_labels:
+        ax.set_yticklabels([_format_pathway_label(x) for x in pathway_order])
+    else:
+        ax.set_yticklabels([str(x).split("__", 1)[1] if "__" in str(x) else str(x) for x in pathway_order])
+    ax.set_xlabel("Principal Component")
+    ax.set_ylabel("Pathway")
+    ax.set_title("PCA-GSEA bubble plot")
+    plt.colorbar(scatter, ax=ax, label="NES")
+
+    # Bubble size legend for -log10(FDR q-val)
+    fdr_reference = np.array([0.1, 0.05, 0.01])
+    legend_sizes = (-np.log10(fdr_reference.clip(min=1e-300))) * float(size_scale)
+    handles = [
+        ax.scatter([], [], s=s, facecolors="none", edgecolors="black", linewidths=0.6, label=f"-log10(FDR)={-np.log10(f):.1f}")
+        for s, f in zip(legend_sizes, fdr_reference)
+    ]
+    ax.legend(handles=handles, title="Bubble size", loc="upper left", bbox_to_anchor=(1.02, 1.0), frameon=True)
+
+    bubble_df = long_df.copy()
+    if title_case_labels:
+        bubble_df["pathway"] = bubble_df["pathway"].map(_format_pathway_label)
+    bubble_df["neg_log10_fdr"] = -np.log10(fdr_safe.values)
+    bubble_df["bubble_size"] = bubble_size.values
+    bubble_df = bubble_df[
+        ["pathway", "pathway_raw", "library", "pc", "NES", "FDR q-val", "neg_log10_fdr", "bubble_size", "pc_i", "pathway_i"]
+    ].rename(columns={"pc": "PC"})
+    if return_df:
+        return ax, bubble_df
+    return ax
+
+def plot_pca_gsea_heatmap(
+    ax,
+    pdata,
+    on="protein",
+    key_added="pca_gsea",
+    pcs=None,
+    top_n=30,
+    fdr_cutoff=0.1,
+    cmap="coolwarm",
+    title_case_labels=True,
+    force=False,
+    gsea_kwargs=None,
+    top_n_mode="balanced",
+    include_pathways=None,
+    exclude_pathways=None,
+    return_df=False,
+):
+    """
+    Plot a pathway-by-principal-component heatmap of PCA-GSEA NES values.
+
+    Cell color is NES; optional ``top_n`` trimming uses the same FDR-aware scoring as the bubble plot.
+    Missing PCs in stored results produce NaN columns and a warning.
+
+    Args:
+        ax (matplotlib.axes.Axes): Target axis.
+        pdata (pAnnData): Input object.
+        on (str): Data level, ``"protein"`` or ``"peptide"``.
+        key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+        pcs (list of int or None): 1-based PCs as columns; ``None`` uses all PCs in stored results.
+        top_n (int): Maximum pathways to retain after ranking; must be >= 1 (required).
+        fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``).
+        cmap (str or Colormap): Heatmap colormap (diverging around zero is typical).
+        title_case_labels (bool): If True, format pathway labels on the axis.
+        force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
+        gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when auto-computing results.
+        top_n_mode (str): ``"balanced"`` or ``"max_score"``.
+        include_pathways (str, iterable, or None): Keep only pathways matching these names.
+        exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+        return_df (bool): If True, return ``(ax, heatmap_df)`` with the NES matrix used for plotting
+            (pathway index may be formatted when ``title_case_labels=True``).
+
+    Returns:
+        matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+    Example:
+        Heatmap of NES for four PCs and the 40 top-ranked pathways:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(5, 10))
+            scplt.plot_pca_gsea_heatmap(ax, pdata, pcs=[1, 2, 3, 4], top_n=40)
+            ```
+
+        Diverging colormap with formatted pathway names on rows:
+            ```python
+            fig, ax = plt.subplots(figsize=(4, 12))
+            scplt.plot_pca_gsea_heatmap(
+                ax,
+                pdata,
+                pcs=[1, 2, 3],
+                top_n=50,
+                cmap="RdBu_r",
+                title_case_labels=True,
+            )
+            ```
+    """
+    top_n = _validate_plot_top_n(top_n, what="pathways")
+    requested_pcs = pcs
+    if requested_pcs is None:
+        adata = utils.get_adata(pdata, on)
+        if key_added in adata.uns and "results" in adata.uns[key_added]:
+            requested_pcs = [int(str(k).replace("PC", "")) for k in adata.uns[key_added]["results"].keys()]
+    _, payload = _ensure_pca_gsea_payload(
+        pdata=pdata,
+        on=on,
+        key_added=key_added,
+        requested_pcs=requested_pcs,
+        force=force,
+        gsea_kwargs=gsea_kwargs,
+    )
+    long_df, matrix_df, fdr_df, missing_pc_keys = _build_pca_gsea_tables(payload=payload, pcs=pcs)
+    if missing_pc_keys:
+        print(
+            f"{utils.format_log_prefix('warn')} Requested PCs missing from existing pca_gsea results: {missing_pc_keys}. "
+            f"Showing NaN columns for unrun PCs. Rerun pca_gsea on these PCs (or set force=True)."
+        )
+
+    long_df, matrix_df, fdr_df = _apply_pathway_name_filters(
+        long_df=long_df,
+        matrix_df=matrix_df,
+        fdr_df=fdr_df,
+        include_pathways=include_pathways,
+        exclude_pathways=exclude_pathways,
+    )
+    matrix_df = _pathway_filter_by_fdr(matrix_df=matrix_df, fdr_df=fdr_df, fdr_cutoff=fdr_cutoff)
+    matrix_df = matrix_df.dropna(how="all")
+    if matrix_df.empty:
+        raise ValueError("No pathways available after filtering for heatmap.")
+
+    score_df = _compute_pc_score_df(
+        matrix_df=matrix_df,
+        fdr_df=fdr_df.reindex(index=matrix_df.index, columns=matrix_df.columns),
+        fdr_cutoff=fdr_cutoff,
+    )
+    selected = _select_top_pathways(score_df=score_df, top_n=top_n, top_n_mode=top_n_mode)
+    matrix_df = matrix_df.loc[selected]
+
+    if title_case_labels:
+        matrix_plot = matrix_df.copy()
+        matrix_plot.index = [_format_pathway_label(x) for x in matrix_plot.index]
+    else:
+        matrix_plot = matrix_df
+
+    payload["pathway_loadings"] = {"matrix": matrix_df.copy(), "fdr_qval": fdr_df.copy(), "long": long_df.copy()}
+    sns.heatmap(matrix_plot, ax=ax, cmap=cmap, center=0, linewidths=0.2, cbar_kws={"label": "NES"})
+    ax.set_xlabel("Principal Component")
+    ax.set_ylabel("Pathway")
+    ax.set_title("PCA-GSEA pathway x PC heatmap")
+    if return_df:
+        return ax, matrix_plot.copy()
+    return ax
+
+
+def _pairwise_corr_subset_cache_key(mask: np.ndarray) -> tuple[int, ...] | None:
+    """Match :meth:`pairwise_correlation` ``subset_indices`` (None = all samples)."""
+    if mask.shape[0] == 0:
+        return None
+    if bool(np.all(mask)):
+        return None
+    return tuple(np.flatnonzero(mask).tolist())
+
+
+def plot_pairwise_correlation(
+    pdata,
+    classes: str | list[str],
+    on: str = "protein",
+    layer: str = "X",
+    method: str = "pearson",
+    order: list | None = None,
+    show_samples: bool = False,
+    cmap: str = "RdBu_r",
+    vmin: float | None = None,
+    vmax: float | None = None,
+    annotation_cmap: str | dict | list = "default",
+    figsize: tuple | None = None,
+    text_size: int = 9,
+    colorbar_label: str | None = None,
+    annot: bool = False,
+    annot_fmt: str = ".2f",
+    annot_size: int = 7,
+    title: str | None = None,
+    force: bool = False,
+    subset_mask: np.ndarray | pd.Series | list | None = None,
+    show_annotation_legend: bool = True,
+    legend_anchor_x: float = 0.3,
+    show_ticklabels: bool | None = None,
+    ticklabels_auto_max_samples: int = 20,
+):
+    """
+    Plot a pairwise protein/peptide abundance correlation heatmap across groups or samples in `.obs`.
+
+    Automatically runs :meth:`~scpviz.pAnnData.pAnnData.pairwise_correlation` if
+    results are not already cached (or if ``force=True``). The figure is created
+    internally; no ``ax`` argument is needed.
+
+    Cached analysis results are reused when ``classes``, ``method``, ``layer``, and
+    ``subset_mask`` (via the same key as ``pairwise_correlation``) match. If
+    ``show_samples=True`` but the cache lacks a sample matrix, analysis is rerun with
+    ``compute_sample_matrix=True``. Group-level plots may reuse a cache that already
+    includes a sample matrix (nothing is stripped). Display ``order`` is applied only
+    when drawing and does not require recomputation.
+
+    Args:
+        pdata: Input pAnnData object.
+        classes: `.obs` column(s) defining groups — passed to ``pairwise_correlation``.
+        on: ``"protein"`` or ``"peptide"`` (default ``"protein"``).
+        layer: Data layer (default ``"X"``).
+        method: ``"pearson"``, ``"spearman"``, or ``"euclidean"``.
+        order: Optional row/column order. Must match the matrix being plotted:
+
+            - ``show_samples=False``: group labels — for a single ``classes`` column,
+              values like ``"AS"``; for ``classes=[...]``, combined strings exactly as
+              produced by :func:`~scpviz.utils.get_samplenames` (e.g. ``"AS, kd"`` with
+              the stored comma-space separator).
+
+            - ``show_samples=True``: **observation names** only — i.e. entries of
+              ``adata.obs_names`` (however your object labels samples, e.g. PD import
+              sample IDs), **not** combined group strings. To order samples by group,
+              build a list of those obs names in the desired sequence (e.g. all
+              samples of one group, then the next).
+
+            If ``None``, uses storage order (group order from analysis, or sample order
+            used when computing the sample matrix).
+        show_samples: If False (default), plot the group × group matrix. If True,
+            plot the sample × sample matrix (requires ``compute_sample_matrix`` in cache
+            or triggers a run that computes it).
+        cmap: Matplotlib colormap for the heatmap.
+        vmin / vmax: Colormap limits; correlation methods default to ``[-1, 1]``.
+        annotation_cmap: ``"default"`` (independent palette per obs column), or a
+            single ``dict``, ``list``, or matplotlib cmap name shared across annotation bars.
+        figsize: ``(width, height)`` in inches; if ``None``, auto-estimated.
+        text_size: Base font size for ticks, colorbar, and legends.
+        colorbar_label: Override colorbar label.
+        annot: If True, write numeric values in each cell.
+        annot_fmt / annot_size: Cell annotation format and size.
+        title: Optional figure suptitle.
+        force: If True, recompute ``pairwise_correlation`` even if cache matches.
+        subset_mask: Boolean mask or boolean ``Series`` aligned to ``adata.obs``
+            (same semantics as :func:`plot_pca`). All-True is normalized to
+            ``None`` for cache parity with full-data analysis.
+        show_annotation_legend: If True (default), draw one legend per annotation
+            track in a dedicated GridSpec column right of the colorbar (obs column
+            names also appear on the left vertical bar axes; top bars stay unlabeled).
+        legend_anchor_x: Horizontal anchor for annotation legends inside the legend
+            column, in axes coordinates (``0`` = left edge of that column, ``1`` = right).
+            Larger values shift legends to the **right**, away from the colorbar, which
+            helps if they overlap the colorbar. Typical values to try: about ``0.15`` to
+            ``0.45`` (default ``0.3``). Ignored when ``show_annotation_legend`` is False.
+        show_ticklabels: When ``show_samples=True``, controls sample names on the
+            **x-axis** only (y-axis stays unlabeled to avoid clashing with annotation
+            bars). ``None`` (default) shows ticks if ``n_samples <= ticklabels_auto_max_samples``
+            and otherwise hides them and prints an info line. ``True`` / ``False`` force
+            on or off. Ignored when ``show_samples=False`` (group-level always shows
+            x-axis group labels).
+        ticklabels_auto_max_samples: When ``show_ticklabels is None`` and
+            ``show_samples=True``, sample names are shown only if the sample count is
+            at most this value (default ``20``). Must be >= 1.
+
+    Returns:
+        ``(fig, ax_heatmap)``.
+
+    Note:
+        Heatmap row (y) tick labels are always omitted (symmetric matrix; x-axis labels
+        carry sample or group names as applicable).
+        ``tight_layout`` may warn on some backends; layout is non-fatal if it fails.
+
+    Raises:
+        ValueError: If ``sample_matrix`` is missing when ``show_samples=True``, or if
+            ``ticklabels_auto_max_samples`` < 1.
+
+    Example:
+        Imports and group-level heatmap (``show_samples=False``, default). Uses cached
+        ``pairwise_correlation`` results when parameters match; pass ``force=True`` to
+        recompute after changing ``.X`` or normalization:
+            ```python
+            from scpviz import plotting as scplt
+
+            fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", method="pearson")
+            ```
+
+        Sample × sample heatmap (``show_samples=True``). Triggers or reuses analysis with
+        ``compute_sample_matrix=True``. Euclidean distances use NaN-aware geometry on raw
+        abundance rows; pick a sequential ``cmap`` (e.g. ``viridis``) for distances:
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata,
+                classes=["cellline", "treatment"],
+                show_samples=True,
+                method="euclidean",
+                cmap="viridis",
+            )
+            ```
+
+        Force sample names on the x-axis when there are many samples (auto-hide uses
+        ``ticklabels_auto_max_samples`` when ``show_ticklabels=None``):
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata,
+                classes="cellline",
+                show_samples=True,
+                show_ticklabels=True,
+            )
+            ```
+
+        **annotation_cmap** — ``"default"`` (omit or pass explicitly): independent
+        categorical palette per ``.obs`` column, built from sorted unique values:
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes=["cellline", "treatment"], annotation_cmap="default"
+            )
+            ```
+
+        **annotation_cmap** — ``dict`` mapping stringified ``.obs`` levels to colors; the
+        same dict is reused for every annotation column (cover all levels that appear):
+            ```python
+            ann = {"AS": "#E41A1C", "BE": "#377EB8", "kd": "#4DAF4A", "sc": "#984EA3"}
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes=["cellline", "treatment"], annotation_cmap=ann
+            )
+            ```
+
+        **annotation_cmap** — ``list`` of colors, assigned in sorted-level order **within
+        each** obs column (cycles if there are more levels than colors):
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes="cellline", annotation_cmap=["#FC9744", "#00AEE8", "#9D9D9D"]
+            )
+            ```
+
+        **annotation_cmap** — matplotlib colormap **name**: evenly spaced colors for each
+        column's sorted uniques:
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(pdata, classes="cellline", annotation_cmap="tab10")
+            ```
+
+        Custom row/column order without recomputing (labels must exist in the matrix).
+        For **group** heatmaps, use combined strings when ``classes`` is a list (e.g.
+        ``"AS, kd"``):
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes=["cellline", "treatment"],
+                order=["AS, kd", "BE, sc", "AS, sc", "BE, kd"],
+            )
+            ```
+
+        For **sample** heatmaps, ``order`` must be **observation names** (same strings as
+        ``pdata.prot.obs_names``), not ``"AS, kd"`` group tokens — for example reverse
+        or subset the index:
+            ```python
+            names = list(pdata.prot.obs_names)
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata,
+                classes=["cellline", "treatment"],
+                show_samples=True,
+                order=list(reversed(names)),
+            )
+            ```
+
+        Subset of samples (boolean mask or ``Series`` aligned to ``adata.obs_names``) and
+        no annotation legends:
+            ```python
+            mask = pdata.prot.obs["cellline"].eq("AS").to_numpy()
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes="treatment", subset_mask=mask, show_annotation_legend=False
+            )
+            ```
+
+        Small matrices — show numeric values in cells; adjust legend horizontal position if
+        it overlaps the colorbar:
+            ```python
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata, classes="cellline", annot=True, legend_anchor_x=0.45
+            )
+            ```
+    """
+    if ticklabels_auto_max_samples < 1:
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} ticklabels_auto_max_samples must be >= 1, "
+            f"got {ticklabels_auto_max_samples}."
+        )
+
+    adata = utils.get_adata(pdata, on)
+    mask = _resolve_subset_mask(adata, subset_mask)
+    subset_indices_key = _pairwise_corr_subset_cache_key(mask)
+    subset_for_pc = None if subset_indices_key is None else mask
+
+    prev = adata.uns.get("pairwise_corr")
+    if isinstance(prev, dict):
+        needs_sample_matrix = show_samples and not prev.get("compute_sample_matrix", False)
+    else:
+        needs_sample_matrix = bool(show_samples)
+
+    needs_recompute = (
+        force
+        or not isinstance(prev, dict)
+        or prev.get("classes") != classes
+        or prev.get("method") != method
+        or prev.get("layer") != layer
+        or prev.get("subset_indices") != subset_indices_key
+        or needs_sample_matrix
+    )
+
+    if needs_recompute:
+        pdata.pairwise_correlation(
+            classes=classes,
+            on=on,
+            layer=layer,
+            method=method,
+            order=None,
+            compute_sample_matrix=show_samples,
+            subset_mask=subset_for_pc,
+            force=force,
+        )
+    else:
+        print(
+            f"{utils.format_log_prefix('info')} Using cached pairwise_corr results. "
+            "Pass force=True to recompute."
+        )
+
+    result = adata.uns["pairwise_corr"]
+    classes_list = result["classes_list"]
+    separator = result["separator"]
+    method_used = result["method"]
+
+    if show_samples:
+        if result.get("sample_matrix") is None:
+            raise ValueError(
+                f"{utils.format_log_prefix('error')} sample_matrix is None — "
+                "rerun pairwise_correlation with compute_sample_matrix=True or call "
+                "plot_pairwise_correlation with show_samples=True (which requests it)."
+            )
+        matrix_df = result["sample_matrix"].copy()
+    else:
+        matrix_df = result["group_matrix"].copy()
+
+    _mat_kind = "sample" if show_samples else "group"
+    if order is not None:
+        if len(order) != len(set(order)):
+            raise ValueError(
+                f"{utils.format_log_prefix('error')} order contains duplicate {_mat_kind} labels."
+            )
+        missing = [x for x in order if x not in matrix_df.index]
+        if missing:
+            extra = ""
+            if show_samples:
+                extra = (
+                    " For sample-level plots, order must list observation names "
+                    "(prot/pep `.obs_names`), not combined group labels like 'AS, kd'. "
+                    "Use show_samples=False if you want to reorder by group label."
+                )
+            raise ValueError(
+                f"{utils.format_log_prefix('error')} order contains labels not in the "
+                f"{_mat_kind} matrix: {missing}.{extra}"
+            )
+        matrix_df = matrix_df.reindex(index=order, columns=order)
+        order_used = list(order)
+    else:
+        order_used = list(matrix_df.index)
+
+    n_groups = len(order_used)
+    n_ann = len(classes_list)
+
+    if show_samples:
+        if show_ticklabels is None:
+            _show_ticks = n_groups <= ticklabels_auto_max_samples
+            if not _show_ticks:
+                print(
+                    f"{utils.format_log_prefix('info')} {n_groups} samples — tick labels "
+                    f"hidden by default (threshold={ticklabels_auto_max_samples}). "
+                    "Pass show_ticklabels=True to force them on."
+                )
+        else:
+            _show_ticks = bool(show_ticklabels)
+    else:
+        _show_ticks = True
+
+    if figsize is None:
+        side = max(5.0, n_groups * 0.55)
+        ann_width = n_ann * 0.3
+        cbar_width = 0.5
+        legend_width = 1.5 if show_annotation_legend else 0.0
+        fig_w = side + ann_width * 2 + cbar_width + legend_width
+        fig_h = side + ann_width * 2
+        figsize = (fig_w, fig_h)
+        print(
+            f"{utils.format_log_prefix('info')} Auto-computed figsize={figsize}. "
+            "Pass figsize=(w, h) to override."
+        )
+
+    fig = plt.figure(figsize=figsize)
+    height_ratios = [0.04] * n_ann + [1.0]
+    if show_annotation_legend:
+        legend_col_ratio = 0.25
+        width_ratios = [0.04] * n_ann + [1.0, 0.04, legend_col_ratio]
+        ncols_gs = n_ann + 3
+    else:
+        width_ratios = [0.04] * n_ann + [1.0, 0.04]
+        ncols_gs = n_ann + 2
+    gs = GridSpec(
+        nrows=n_ann + 1,
+        ncols=ncols_gs,
+        figure=fig,
+        height_ratios=height_ratios,
+        width_ratios=width_ratios,
+        hspace=0.02,
+        wspace=0.05 if show_annotation_legend else 0.02,
+    )
+    ax_heatmap = fig.add_subplot(gs[n_ann, n_ann])
+    ax_cbar = fig.add_subplot(gs[n_ann, n_ann + 1])
+    ax_top = [fig.add_subplot(gs[i, n_ann]) for i in range(n_ann)]
+    ax_left = [fig.add_subplot(gs[n_ann, i]) for i in range(n_ann)]
+    if show_annotation_legend:
+        # One axis spanning the full legend column (plan's per-row 0.04-height cells would crush legends)
+        ax_leg_col = fig.add_subplot(gs[0 : n_ann + 1, n_ann + 2])
+        ax_leg_col.set_axis_off()
+    else:
+        ax_leg_col = None
+
+    _grey = "#bfbfbf"
+
+    def _ann_colors_for_column(col: str) -> dict:
+        unique_vals = sorted(adata.obs[col].astype(str).unique().tolist())
+        n_uv = len(unique_vals)
+        if annotation_cmap == "default":
+            pal = get_color("colors", n=n_uv)
+            return {v: pal[i] for i, v in enumerate(unique_vals)}
+        if isinstance(annotation_cmap, dict):
+            out: dict = {}
+            for v in unique_vals:
+                if v not in annotation_cmap:
+                    warnings.warn(
+                        f"annotation_cmap missing key {v!r} for column {col!r}; using grey.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    out[v] = _grey
+                else:
+                    out[v] = annotation_cmap[v]
+            return out
+        if isinstance(annotation_cmap, list):
+            if not annotation_cmap:
+                raise ValueError("annotation_cmap list must be non-empty.")
+            return {
+                v: annotation_cmap[i % len(annotation_cmap)]
+                for i, v in enumerate(unique_vals)
+            }
+        if isinstance(annotation_cmap, str):
+            cmap_obj = cm.get_cmap(annotation_cmap)
+            if n_uv == 0:
+                return {}
+            rgba = cmap_obj(np.linspace(0.0, 1.0, n_uv))
+            return {v: rgba[i] for i, v in enumerate(unique_vals)}
+        raise TypeError(
+            "annotation_cmap must be 'default', dict, non-empty list, or str (cmap name)."
+        )
+
+    ann_color_dicts = [_ann_colors_for_column(c) for c in classes_list]
+
+    n_parts = len(classes_list)
+    group_parts: list[list[str]] = []
+    if not show_samples:
+        if separator is not None:
+            for combined_label in order_used:
+                parts = str(combined_label).split(
+                    separator, maxsplit=max(0, n_parts - 1)
+                )
+                if len(parts) < n_parts:
+                    raise ValueError(
+                        f"{utils.format_log_prefix('error')} Cannot split combined label "
+                        f"{combined_label!r} into {n_parts} parts with separator {separator!r}."
+                    )
+                group_parts.append(parts)
+        else:
+            group_parts = [[str(g)] for g in order_used]
+
+    for i, col in enumerate(classes_list):
+        if show_samples:
+            group_col_labels = [
+                str(adata.obs.loc[sample_name, col]) for sample_name in order_used
+            ]
+        else:
+            col_idx = i
+            if separator is None:
+                group_col_labels = [str(g) for g in order_used]
+            else:
+                group_col_labels = [row[col_idx] for row in group_parts]
+
+        colors_for_bar = [ann_color_dicts[i][str(lbl)] for lbl in group_col_labels]
+        color_row = np.array([mcolors.to_rgba(c) for c in colors_for_bar])[np.newaxis, :, :]
+        ax_top[i].imshow(color_row, aspect="auto", interpolation="nearest")
+        ax_top[i].set_xticks([])
+        ax_top[i].set_yticks([])
+        for spine in ax_top[i].spines.values():
+            spine.set_visible(False)
+
+        color_col = np.array([mcolors.to_rgba(c) for c in colors_for_bar])[:, np.newaxis, :]
+        ax_left[i].imshow(color_col, aspect="auto", interpolation="nearest")
+        ax_left[i].set_xticks([0])
+        ax_left[i].set_xticklabels([col], fontsize=text_size - 1, rotation=90)
+        ax_left[i].xaxis.set_label_position("top")
+        ax_left[i].xaxis.tick_top()
+        ax_left[i].set_yticks([])
+        for spine in ax_left[i].spines.values():
+            spine.set_visible(False)
+
+    mat = np.asarray(matrix_df.values, dtype=float)
+    if not np.any(np.isfinite(mat)):
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} Heatmap matrix has no finite values "
+            "(often caused by NaNs in sample–sample distances or correlations)."
+        )
+    if vmin is None:
+        vmin = -1.0 if method_used in ("pearson", "spearman") else float(np.nanmin(mat))
+    if vmax is None:
+        vmax = 1.0 if method_used in ("pearson", "spearman") else float(np.nanmax(mat))
+
+    _cmap_base = cm.get_cmap(cmap)
+    try:
+        cmap_obj = _cmap_base.copy()
+    except AttributeError:
+        cmap_obj = copy.copy(_cmap_base)
+    cmap_obj.set_bad(color=(0.82, 0.82, 0.82, 1.0))
+    mat_show = np.ma.masked_invalid(mat)
+
+    im = ax_heatmap.imshow(
+        mat_show,
+        aspect="auto",
+        cmap=cmap_obj,
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+    if _show_ticks:
+        ax_heatmap.set_xticks(range(n_groups))
+        ax_heatmap.set_xticklabels(order_used, rotation=90, fontsize=text_size)
+    else:
+        ax_heatmap.set_xticks([])
+    ax_heatmap.set_yticks([])
+    ax_heatmap.tick_params(axis="x", which="both", length=0)
+
+    default_cbar_labels = {
+        "pearson": "Pearson r",
+        "spearman": "Spearman r",
+        "euclidean": "Euclidean distance",
+    }
+    clab = colorbar_label or default_cbar_labels.get(method_used, method_used)
+    cb = fig.colorbar(im, cax=ax_cbar)
+    cb.set_label(clab, fontsize=text_size)
+    cb.ax.tick_params(labelsize=text_size - 1)
+
+    if annot:
+        for row in range(n_groups):
+            for col_j in range(n_groups):
+                val = mat[row, col_j]
+                if not np.isfinite(val):
+                    continue
+                norm_val = (val - vmin) / (vmax - vmin + 1e-9)
+                tcol = "white" if norm_val < 0.5 else "black"
+                ax_heatmap.text(
+                    col_j,
+                    row,
+                    format(val, annot_fmt),
+                    ha="center",
+                    va="center",
+                    fontsize=annot_size,
+                    color=tcol,
+                )
+
+    if title:
+        fig.suptitle(title, fontsize=text_size + 1, y=1.01)
+
+    if show_annotation_legend and ax_leg_col is not None:
+        n_leg = len(classes_list)
+        for i, col in enumerate(classes_list):
+            handles = [
+                mpatches.Patch(color=ann_color_dicts[i][v], label=v)
+                for v in sorted(ann_color_dicts[i], key=lambda x: str(x))
+            ]
+            y_frac = 1.0 - (i + 0.5) / max(n_leg, 1)
+            leg = ax_leg_col.legend(
+                handles=handles,
+                title=col,
+                loc="center left",
+                bbox_to_anchor=(legend_anchor_x, y_frac),
+                bbox_transform=ax_leg_col.transAxes,
+                borderaxespad=0.0,
+                fontsize=text_size - 1,
+                title_fontsize=text_size,
+                frameon=False,
+            )
+            ax_leg_col.add_artist(leg)
+
+    try:
+        fig.tight_layout(rect=[0, 0, 1, 0.97] if title else [0, 0, 1, 1])
+    except Exception:
+        pass
+    return fig, ax_heatmap
+
 
 def plot_clustermap(ax, pdata, on='prot', classes=None, layer="X", x_label='accession', namelist=None, lut=None, log2=True,
                     cmap="coolwarm", figsize=(6, 10), force=False, impute=None, order=None, **kwargs):
@@ -4142,6 +6121,8 @@ def plot_venn(ax, pdata, classes, set_colors = 'default', weighted=False, return
         set_labels = list(upset_contents.keys())
         set_list = [set(value) for value in upset_contents.values()]
 
+    alpha = kwargs.pop('alpha', 0.5)
+
         # New API (matplotlib-venn ≥ 0.12)
     try:
         from matplotlib_venn.layout.venn2 import DefaultLayoutAlgorithm as Venn2Layout
@@ -4155,26 +6136,26 @@ def plot_venn(ax, pdata, classes, set_colors = 'default', weighted=False, return
 
     if weighted:
         venn_functions = {
-            2: lambda: (venn2(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, 
+            2: lambda: (venn2(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=alpha,
                                 layout_algorithm=(Venn2Layout(fixed_subset_sizes=fixed_subset_sizes) if fixed_subset_sizes is not None else None), **kwargs),
                         venn2_circles(subsets=fixed_subset_sizes if fixed_subset_sizes is not None else set_list, ax = ax, linewidth=1)),
-            3: lambda: (venn3(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5,
+            3: lambda: (venn3(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=alpha,
                                 layout_algorithm=(Venn3Layout(fixed_subset_sizes=fixed_subset_sizes) if fixed_subset_sizes is not None else None), **kwargs),
                         venn3_circles(subsets=fixed_subset_sizes if fixed_subset_sizes is not None else set_list, ax = ax, linewidth=1))
         }
     else:
         if USE_LAYOUT:
             venn_functions = {
-                2: lambda: (venn2(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, layout_algorithm=Venn2Layout(fixed_subset_sizes=(1,1,1)), **kwargs),
+                2: lambda: (venn2(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=alpha, layout_algorithm=Venn2Layout(fixed_subset_sizes=(1,1,1)), **kwargs),
                             venn2_circles(subsets=(1, 1, 1), ax = ax,  linewidth=1)),
-                3: lambda: (venn3(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, layout_algorithm=Venn3Layout(fixed_subset_sizes=(1,1,1,1,1,1,1)), **kwargs),
+                3: lambda: (venn3(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=alpha, layout_algorithm=Venn3Layout(fixed_subset_sizes=(1,1,1,1,1,1,1)), **kwargs),
                             venn3_circles(subsets=(1, 1, 1, 1, 1, 1, 1), ax = ax, linewidth=1))
             }
         else:
-            venn_functions = { 
-                2: lambda: (venn2_unweighted(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, **kwargs), 
-                            venn2_circles(subsets=(1, 1, 1), ax = ax, linewidth=1)), 
-                3: lambda: (venn3_unweighted(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=0.5, **kwargs), 
+            venn_functions = {
+                2: lambda: (venn2_unweighted(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=alpha, **kwargs),
+                            venn2_circles(subsets=(1, 1, 1), ax = ax, linewidth=1)),
+                3: lambda: (venn3_unweighted(set_list, ax = ax, set_labels=set_labels, set_colors=tuple(set_colors), alpha=alpha, **kwargs),
                             venn3_circles(subsets=(1, 1, 1, 1, 1, 1, 1), ax = ax, linewidth=1)) }
 
     if num_keys in venn_functions:

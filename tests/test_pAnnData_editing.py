@@ -27,11 +27,20 @@ def test_set_X_valid_layer(pdata_diann):
 
     np.testing.assert_allclose(x, y)
 
-
 def test_set_X_invalid_layer_raises(pdata_diann):
     with pytest.raises(ValueError, match="Layer .* not found"):
         pdata_diann.set_X(layer="nonexistent_layer", on="protein")
 
+def test_set_X_updates_current_X_layer(pdata):
+    """set_X() maintains current_X_layer in adata.uns (via normalize → set_X)."""
+    pdata.normalize(method="median")
+    assert pdata.prot.uns.get("current_X_layer") == "X_norm_median"
+
+def test_set_X_false_does_not_update_current_X_layer(pdata):
+    """set_X=False leaves current_X_layer unchanged."""
+    initial = pdata.prot.uns.get("current_X_layer")
+    pdata.normalize(method="median", set_X=False)
+    assert pdata.prot.uns.get("current_X_layer") == initial
 
 # -----------------------------
 # Tests for get_abundance
@@ -113,26 +122,94 @@ def test_export_creates_csv_files(pdata, tmp_path):
 # Tests for export_layer
 # -----------------------------
 
+def _dense_layer(pdata, layer_name="X_qval", on="protein"):
+    adata = pdata.prot if on == "protein" else pdata.pep
+    layer = adata.layers[layer_name]
+    return layer.toarray() if hasattr(layer, "toarray") else np.asarray(layer)
+
 def test_export_layer_basic(pdata_diann, tmp_path):
     fname = tmp_path / "X_qval_export.csv"
     pdata_diann.export_layer("X_qval", filename=str(fname), on="protein")
     df = pd.read_csv(fname, index_col=0)
     assert df.shape == pdata_diann.prot.shape
+    np.testing.assert_allclose(df.values, _dense_layer(pdata_diann))
 
-def test_export_layer_with_labels(pdata_diann, tmp_path):
-    # Use known obs/var names
+def test_export_layer_single_label(pdata_diann, tmp_path):
+    """One ``.obs`` column and one ``.var`` column as strings; flat CSV index/columns."""
     obs_col = pdata_diann.prot.obs.columns[0]
     var_col = "Genes" if "Genes" in pdata_diann.prot.var.columns else pdata_diann.prot.var.columns[0]
     fname = tmp_path / "X_qval_labeled.csv"
-    pdata_diann.export_layer("X_qval", filename=str(fname), on="protein", obs_names=obs_col, var_names=var_col)
+    pdata_diann.export_layer(
+        "X_qval", filename=str(fname), on="protein", obs_names=obs_col, var_names=var_col
+    )
     df = pd.read_csv(fname, index_col=0)
     assert df.shape == pdata_diann.prot.shape
+    np.testing.assert_allclose(df.values, _dense_layer(pdata_diann))
+    np.testing.assert_array_equal(
+        df.index.astype(str).values,
+        pdata_diann.prot.obs[obs_col].astype(str).values,
+    )
+    # Column labels duplicate ``Genes`` entries are mangled by CSV round-trip (``.1``, …).
+    assert len(df.columns) == pdata_diann.prot.n_vars
+
+def test_export_layer_multi_label(pdata_diann, tmp_path):
+    """Lists of ``.obs`` / ``.var`` columns → MultiIndex rows/columns and two header rows."""
+    obs_cols = ["name", "date"]
+    var_cols = ["Genes", "Global_Q_value"]
+    for c in obs_cols:
+        assert c in pdata_diann.prot.obs.columns
+    for c in var_cols:
+        assert c in pdata_diann.prot.var.columns
+
+    fname = tmp_path / "X_qval_multi.csv"
+    pdata_diann.export_layer(
+        "X_qval",
+        filename=str(fname),
+        on="protein",
+        obs_names=obs_cols,
+        var_names=var_cols,
+    )
+    df = pd.read_csv(fname, header=[0, 1], index_col=[0, 1])
+    assert df.shape == pdata_diann.prot.shape
+    assert df.index.nlevels == 2
+    assert df.columns.nlevels == 2
+    assert list(df.index.names) == obs_cols
+    assert list(df.columns.names) == var_cols
+    np.testing.assert_allclose(df.values, _dense_layer(pdata_diann))
 
 def test_export_layer_transpose(pdata_diann, tmp_path):
     fname = tmp_path / "X_qval_T.csv"
     pdata_diann.export_layer("X_qval", filename=str(fname), on="protein", transpose=True)
     df = pd.read_csv(fname, index_col=0)
     assert df.shape == (pdata_diann.prot.shape[1], pdata_diann.prot.shape[0])
+    np.testing.assert_allclose(df.values, _dense_layer(pdata_diann).T)
+
+def test_export_layer_transpose_multi_labels(pdata_diann, tmp_path):
+    """Transpose with MultiIndex on both axes: proteins as rows, samples as columns."""
+    obs_cols = ["name", "date"]
+    var_cols = ["Genes", "Global_Q_value"]
+    for c in obs_cols:
+        assert c in pdata_diann.prot.obs.columns
+    for c in var_cols:
+        assert c in pdata_diann.prot.var.columns
+
+    fname = tmp_path / "X_qval_T_multi.csv"
+    pdata_diann.export_layer(
+        "X_qval",
+        filename=str(fname),
+        on="protein",
+        obs_names=obs_cols,
+        var_names=var_cols,
+        transpose=True,
+    )
+    df = pd.read_csv(fname, header=[0, 1], index_col=[0, 1])
+    layer = _dense_layer(pdata_diann)
+    assert df.shape == (layer.shape[1], layer.shape[0])
+    assert df.index.nlevels == 2
+    assert df.columns.nlevels == 2
+    assert list(df.index.names) == var_cols
+    assert list(df.columns.names) == obs_cols
+    np.testing.assert_allclose(df.values, layer.T)
 
 # -----------------------------
 # Tests for export_morpheus
@@ -154,7 +231,6 @@ def test_export_morpheus_outputs_files(pdata, tmp_path):
 
     # df_obs should match obs (rows) or var (columns), depending on which file we parse
     assert df_matrix.shape == pdata.prot.X.toarray().shape
-
 
 # -----------------------------
 # Tests for set_rs

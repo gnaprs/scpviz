@@ -2,11 +2,14 @@ from matplotlib.pylab import f
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from scipy.stats import variation, ttest_ind, mannwhitneyu, wilcoxon
+from scipy.stats import variation, ttest_ind, mannwhitneyu, wilcoxon, spearmanr
+from scipy.spatial.distance import cdist
+from sklearn.metrics.pairwise import nan_euclidean_distances
 from scpviz import utils
 from scpviz.utils import format_log_prefix
 import warnings
 from scipy import sparse
+import gseapy as gp
 
 
 class AnalysisMixin:
@@ -37,6 +40,7 @@ class AnalysisMixin:
         pca: Run PCA on normalized expression matrix, handling NaN exclusion and reinsertion of features.
         clean_X: Replace NaNs in `.X` or a specified layer, optionally backing up the original.
         _normalize_helper: Internal helper to compute per-sample scaling across multiple normalization methods.
+        log_transform: Apply log transform with pseudocount; register layer provenance.
     """
 
     def cv(self, classes = None, on = 'protein', layer = "X", debug = False):
@@ -160,14 +164,6 @@ class AnalysisMixin:
         group2_string = _label(group2_dict)
         comparison_string = f'{group1_string} vs {group2_string}'
 
-        log_prefix = format_log_prefix("user")
-        n1, n2 = len(pdata_case1.prot), len(pdata_case2.prot)
-        print(f"{log_prefix} Running differential expression [protein]")
-        print(f"   🔸 Comparing groups: {comparison_string}")
-        print(f"   🔸 Group sizes: {n1} vs {n2} samples")
-        print(f"   🔸 Method: {method} | Fold Change: {fold_change_mode} | Layer: {layer}")
-        print(f"   🔸 P-value threshold: {pval} | Log2FC threshold: {log2fc}")
-
         # --- Get layer data ---
         data1 = utils.get_adata_layer(pdata_case1.prot, layer)
         data2 = utils.get_adata_layer(pdata_case2.prot, layer)
@@ -175,6 +171,30 @@ class AnalysisMixin:
         # Shape: (samples, features)
         data1 = np.asarray(data1)
         data2 = np.asarray(data2)
+
+        _layer_is_log = utils.infer_layer_is_log(layer, pdata_case1.prot)
+        _finite_de = data1[np.isfinite(data1)]
+        _median_val = float(np.nanmedian(_finite_de)) if _finite_de.size > 0 else 0.0
+
+        if not _layer_is_log and _median_val > 1e4:
+            print(
+                f"{format_log_prefix('warn')} Layer {layer!r} appears to contain "
+                f"non-log intensities (median={_median_val:.2e}). Statistical tests "
+                "assume approximately normal distributions — consider log_transform() "
+                "before DE analysis."
+            )
+
+        log_prefix = format_log_prefix("user")
+        n1, n2 = len(pdata_case1.prot), len(pdata_case2.prot)
+        print(f"{log_prefix} Running differential expression [protein]")
+        print(f"   🔸 Comparing groups: {comparison_string}")
+        print(f"   🔸 Group sizes: {n1} vs {n2} samples")
+        print(
+            f"   🔸 Layer: {layer} "
+            f"{'(log-transformed)' if _layer_is_log else '(non-log)'}"
+        )
+        print(f"   🔸 Method: {method} | Fold Change: {fold_change_mode}")
+        print(f"   🔸 P-value threshold: {pval} | Log2FC threshold: {log2fc}")
 
         # --- Compute fold change ---
         if fold_change_mode == 'mean':
@@ -186,8 +206,27 @@ class AnalysisMixin:
 
                 # Identify zeros or NaNs in either group
                 mask_invalid = (group1_mean == 0) | (group2_mean == 0) | np.isnan(group1_mean) | np.isnan(group2_mean)
-                log2fc_vals = np.log2(group1_mean / group2_mean)
-                log2fc_vals[mask_invalid] = np.nan
+
+                if _layer_is_log:
+                    rec = pdata_case1.prot.uns.get("layer_provenance", {}).get(layer, {})
+                    _base_val = str(rec.get("base", "2"))
+                    if _base_val in ("10",):
+                        log2fc_vals = (group1_mean - group2_mean) / np.log10(2)
+                        _base_label = "log10"
+                    elif _base_val in ("e",):
+                        log2fc_vals = (group1_mean - group2_mean) / np.log(2)
+                        _base_label = "loge"
+                    else:
+                        log2fc_vals = group1_mean - group2_mean
+                        _base_label = "log2"
+                    log2fc_vals[mask_invalid] = np.nan
+                    print(
+                        f"{format_log_prefix('info')} Layer {layer!r} is log-transformed "
+                        f"({_base_label}) — using mean difference for log2FC."
+                    )
+                else:
+                    log2fc_vals = np.log2(group1_mean / group2_mean)
+                    log2fc_vals[mask_invalid] = np.nan
 
                 n_invalid = np.sum(mask_invalid)
                 if n_invalid > 0:
@@ -456,6 +495,8 @@ class AnalysisMixin:
         if layer != "X" and layer not in adata.layers:
             raise ValueError(f"Layer '{layer}' not found in .{on}.")
 
+        _resolved_input = utils.resolve_input_layer(adata, layer)
+
         impute_data = adata.layers[layer] if layer != "X" else adata.X
         was_sparse = sparse.issparse(impute_data)
         impute_data = impute_data.toarray() if was_sparse else impute_data.copy()
@@ -679,13 +720,128 @@ class AnalysisMixin:
 
         print("\n".join(summary_lines))
 
-        adata.layers[layer_name] = sparse.csr_matrix(impute_data) if was_sparse else impute_data
+        actual_layer_name = utils.update_layer_provenance(
+            adata,
+            layer_name=layer_name,
+            op="impute",
+            input_layer=_resolved_input,
+            method=method,
+        )
+        adata.layers[actual_layer_name] = (
+            sparse.csr_matrix(impute_data) if was_sparse else impute_data
+        )
 
         if set_X:
-            self.set_X(layer=layer_name, on=on) # type: ignore[attr-defined], EditingMixin
+            self.set_X(layer=actual_layer_name, on=on)  # type: ignore[attr-defined], EditingMixin
 
-        self._history.append( # type: ignore[attr-defined]
-            f"{on}: Imputed layer '{layer}' using '{method}' (grouped by {classes if classes else 'ALL'}). Stored in '{layer_name}'."
+        self._history.append(  # type: ignore[attr-defined]
+            f"{on}: Imputed layer '{layer}' using '{method}' (grouped by {classes if classes else 'ALL'}). "
+            f"Stored in '{actual_layer_name}'."
+        )
+
+    def log_transform(
+        self,
+        on: str = "protein",
+        layer: str = "X",
+        base: int | float | str = 2,
+        pseudocount: float = 1.0,
+        set_X: bool = True,
+    ) -> None:
+        """
+        Log-transform intensities with a pseudocount and register layer provenance.
+
+        Output is stored under a short fixed name: ``X_log2``, ``X_log10``, or ``X_loge``.
+        If that name already exists with a different origin, a numeric suffix is applied
+        (see :func:`scpviz.utils.update_layer_provenance`).
+
+        Args:
+            on: ``\"protein\"`` / ``\"prot\"`` or ``\"peptide\"`` / ``\"pep\"``.
+            layer: Source layer (default ``\"X\"``).
+            base: ``2``, ``10``, ``\"e\"``, or ``numpy.e``.
+            pseudocount: Added before the logarithm (default ``1.0``).
+            set_X: If True, point ``.X`` at the new log layer.
+        """
+        if not self._check_data(on):  # type: ignore[attr-defined], ValidationMixin
+            return
+
+        adata = utils.get_adata(self, on)
+        SUPPORTED_BASES = {2: np.log2, 10: np.log10, "e": np.log, np.e: np.log}
+        if base not in SUPPORTED_BASES:
+            raise ValueError(
+                f"{format_log_prefix('error')} base={base!r} not supported. "
+                "Choose from: 2, 10, 'e', or numpy.e."
+            )
+        log_fn = SUPPORTED_BASES[base]
+
+        base_str = (
+            "e"
+            if base in ("e", np.e)
+            else (str(int(base)) if float(base) == int(float(base)) else str(base))
+        )
+        layer_name = f"X_log{base_str}"
+
+        if layer == "X":
+            raw_mx = adata.X
+            data = raw_mx.toarray() if sparse.issparse(raw_mx) else raw_mx.copy()
+        elif layer in adata.layers:
+            raw_mx = adata.layers[layer]
+            data = raw_mx.toarray() if sparse.issparse(raw_mx) else np.asarray(raw_mx)
+        else:
+            raise KeyError(
+                f"{format_log_prefix('error')} Layer {layer!r} not found in adata.layers."
+            )
+
+        _already_log = utils.infer_layer_is_log(layer, adata)
+        if _already_log:
+            print(
+                f"{format_log_prefix('warn')} Layer {layer!r} appears to already be "
+                "log-transformed (provenance registry or layer name). "
+                f"Proceeding — result stored under the resolved output layer name."
+            )
+
+        n_negative = int(np.sum(data < 0))
+        if n_negative > 0:
+            print(
+                f"{format_log_prefix('warn')} {n_negative} value(s) < 0 detected. "
+                f"Pseudocount ({pseudocount}) added — negative values become "
+                f"log({pseudocount}). Consider checking your normalization."
+            )
+
+        data_log = log_fn(data + pseudocount)
+
+        was_sparse = sparse.issparse(
+            adata.layers[layer] if layer != "X" else adata.X
+        )
+        _resolved_input = utils.resolve_input_layer(adata, layer)
+        actual_layer_name = utils.update_layer_provenance(
+            adata,
+            layer_name=layer_name,
+            op="log_transform",
+            input_layer=_resolved_input,
+            base=base_str,
+            pseudocount=pseudocount,
+        )
+        adata.layers[actual_layer_name] = (
+            sparse.csr_matrix(data_log) if was_sparse else data_log
+        )
+
+        on_norm = "protein" if on in ("protein", "prot") else "peptide"
+        subpdata = "prot" if on_norm == "protein" else "pep"
+        log_prefix = format_log_prefix("user")
+        print(f"{log_prefix} Log-transforming [{on_norm}] layer: {layer!r} → {actual_layer_name!r}")
+        print(f"     🔸 base: {base_str} log base (pseudocount {pseudocount})")
+        print(f"{format_log_prefix('result_only', indent=2)} Log transform complete. Results stored in:")
+        print(f"       • .{subpdata}.layers[{actual_layer_name!r}]")
+        if set_X:
+            print(f"       • .{subpdata}.X updated")
+        print(f"       • .{subpdata}.uns['layer_provenance'][{actual_layer_name!r}] updated")
+        
+        if set_X:
+            self.set_X(layer=actual_layer_name, on=on)  # type: ignore[attr-defined]
+
+        self._append_history(  # type: ignore[attr-defined]
+            f"{on_norm}: log_transform(base={base}, pseudocount={pseudocount}) on layer={layer!r}. "
+            f"Stored in {actual_layer_name!r}."
         )
 
     def neighbor(self, on = 'protein', layer = "X", use_rep='X_pca', user_indent=0, **kwargs):
@@ -959,6 +1115,21 @@ class AnalysisMixin:
         elif layer in adata.layers.keys():
             X = adata.layers[layer].toarray()
 
+        _layer_is_log_pca = utils.infer_layer_is_log(layer, adata)
+        _finite_pca = X[np.isfinite(X)]
+        if not _layer_is_log_pca and _finite_pca.size > 0 and np.nanmedian(_finite_pca) > 1e4:
+            print(
+                f"{format_log_prefix('info')} Layer {layer!r} appears to contain "
+                f"non-log intensities (median={np.nanmedian(_finite_pca):.2e}). "
+                "PCA will proceed with z-scoring (standard practice). Optionally "
+                "run pdata.log_transform() first for better low-abundance separation."
+            )
+        elif _layer_is_log_pca:
+            print(
+                f"{format_log_prefix('info')} Layer {layer!r} detected as log-transformed. "
+                "Using log-space values for PCA."
+            )
+
         log_prefix = format_log_prefix("user")
         print(f"{log_prefix} Performing PCA [{on}] using layer: {layer}, removing NaN features.")
         print(f"   🔸 BEFORE (samples × proteins): {X.shape}")
@@ -983,7 +1154,7 @@ class AnalysisMixin:
         
         subpdata = "prot" if on == 'protein' else "pep"
 
-        self._append_history(f'{on}: PCA fitted on {layer}, stored in obsm["X_pca"] and varm["PCs"]') # type: ignore[attr-defined], HistoryMixin
+        self._append_history(f'{on}: PCA fitted on {layer}, stored in obsm["X_pca"] and uns["pca"]["PCs"]') # type: ignore[attr-defined], HistoryMixin
         print(f"{format_log_prefix('result_only',indent=2)} PCA complete, fitted on {layer}. Results stored in:")
         print(f"       • .{subpdata}.obsm['X_pca']")
         print(f"       • .{subpdata}.uns['pca'] (includes PCs, variance, variance ratio)")
@@ -1049,6 +1220,350 @@ class AnalysisMixin:
         self._append_history(f'{on}: Harmony batch correction applied on key {key}, stored in obsm["X_pca_harmony"] and uns["umap"]') # type: ignore[attr-defined], HistoryMixin
         print(f"{format_log_prefix('result_only', indent=2)} Harmony batch correction complete. Results stored in:")
         print(f"       • obsm['X_pca_harmony'] (PCA coordinates)")
+
+    def pca_gsea(self, pcs=[1, 2], on="protein", gene_sets=(
+        "KEGG_2026,Reactome_Pathways_2024,WikiPathways_2024_Human,"
+        "GO_Biological_Process_2025,MSigDB_Hallmark_2020"
+    ), gene_col="Genes",
+        min_size=5, max_size=500, permutation_num=1000, weight=1, threads=4, seed=0,
+        key_added="pca_gsea", verbose=True, fdr_report_cutoffs=(0.05, 0.25), **kwargs,):
+        """
+        Run preranked GSEA on PCA loadings for selected principal components.
+
+        Args:
+            pcs (list[int] or None): Principal components to analyze, 1-indexed.
+                Defaults to [1, 2]. If None, run all available PCs.
+            on (str): Whether to use "protein" or "peptide" data.
+            gene_sets (str or dict): Enrichr library name(s) for GSEApy. Pass a comma-separated
+                string to merge multiple libraries; pathway keys are prefixed ``LIBRARY__term``
+                in merged results.
+            gene_col (str): Column in `.var` containing gene symbols.
+            min_size (int): Minimum gene set size.
+            max_size (int): Maximum gene set size.
+            permutation_num (int): Number of permutations for prerank.
+            weight (float): Weighting parameter for enrichment score.
+            threads (int): Number of threads for GSEApy.
+            seed (int): Random seed.
+            key_added (str): Key for storing results in `.uns`.
+            verbose (bool): Whether to print progress.
+            fdr_report_cutoffs (tuple[float, ...]): FDR thresholds for verbose per-PC reporting
+                (counts of terms with ``FDR q-val`` at or below each cutoff). Default ``(0.05, 0.25)``.
+                Pass an empty tuple to omit.
+            **kwargs: Additional keyword arguments passed to `gseapy.prerank()`.
+
+        Returns:
+            None
+
+        Note:
+            Each DataFrame in ``.{prot|pep}.uns[key_added]['results']`` includes gseapy columns
+            plus ``library`` and ``pathway`` parsed from ``Term`` when using merged libraries
+            (``LIBRARY__pathway_name``).
+        """
+        if not self._check_data(on):  # type: ignore[attr-defined]
+            return
+
+        if on == "protein":
+            adata = self.prot
+        elif on == "peptide":
+            adata = self.pep
+        else:
+            raise ValueError("`on` must be either 'protein' or 'peptide'.")
+
+        subpdata = "prot" if on == "protein" else "pep"
+
+        if "pca" not in adata.uns or "PCs" not in adata.uns["pca"]:
+            print(f"{format_log_prefix('warn')} PCA results not found in .{subpdata}.uns['pca'].")
+            print(f"{format_log_prefix('blank', 3)} Please run `.pca()` first, then rerun `pca_gsea()`.")
+            return
+
+        # additional helper functions
+        import logging
+        import io
+        from contextlib import contextmanager, redirect_stdout, redirect_stderr
+
+        @contextmanager
+        def _suppress_gseapy_output():
+            previous_disable = logging.root.manager.disable
+            sink = io.StringIO()
+            logging.disable(logging.ERROR)
+            try:
+                with redirect_stdout(sink), redirect_stderr(sink):
+                    yield
+            finally:
+                logging.disable(previous_disable)
+
+        def _percent_tied_values(values):
+            """Return percent of entries that are part of a duplicated value group."""
+            s = pd.Series(values)
+            if s.empty:
+                return 0.0
+            return 100 * s.duplicated(keep=False).sum() / len(s)
+        
+        def _build_pca_rank_df(adata, genes, loadings, use_abs_for_duplicates=False):
+            rank_df = pd.DataFrame({
+                "feature": adata.var_names.astype(str),
+                "gene": genes.values,
+                "loading": loadings,
+            }).dropna(subset=["gene"]).copy()
+
+            dup_genes = sorted(rank_df.loc[rank_df["gene"].duplicated(keep=False), "gene"].unique())
+
+            if len(dup_genes) > 0:
+                if use_abs_for_duplicates:
+                    idx = rank_df.groupby("gene")["loading"].agg(lambda x: x.abs().idxmax())
+                else:
+                    idx = rank_df.groupby("gene")["loading"].idxmax()
+                rank_df = rank_df.loc[idx].copy()
+
+            rank_df["abs_loading"] = rank_df["loading"].abs()
+            rank_df = rank_df.sort_values("loading", ascending=False).reset_index(drop=True)
+            return rank_df, dup_genes
+        
+        # ----------------------------------
+
+        genes = _gseapy_resolve_uppercase_genes(
+            adata,
+            gene_col=gene_col,
+        )
+
+        if genes is None:
+            context="PCA GSEA"
+            print(f"{format_log_prefix('warn')} `.var[{gene_col!r}]` not found.")
+            print(f"{format_log_prefix('blank',3)} {context} requires resolved gene symbols.")
+            print(f"{format_log_prefix('blank',3)} Please annotate gene names first, then rerun.")
+            return
+
+        pcs_all = adata.uns["pca"]["PCs"]
+        n_pcs_available = pcs_all.shape[0]
+
+        if pcs is None:
+            pcs = list(range(1, n_pcs_available + 1))
+            print(f"{format_log_prefix('warn')} `pcs=None` detected – running GSEA on all available PCs.")
+            print(f"{format_log_prefix('blank', 3)} This may take a long time, especially with many PCs or large gene set libraries.")
+
+        if not isinstance(pcs, (list, tuple, np.ndarray)):
+            raise ValueError("`pcs` must be a list of integers or None.")
+
+        pcs = [int(pc) for pc in pcs]
+
+        invalid_pcs = [pc for pc in pcs if pc < 1 or pc > n_pcs_available]
+        if invalid_pcs:
+            raise ValueError(
+                f"Invalid PCs requested: {invalid_pcs}. "
+                f"Available PCs are 1 to {n_pcs_available}."
+            )
+
+        # Precompute tied-loading percentages once per requested PC
+        _, dup_genes = _build_pca_rank_df(adata, genes, pcs_all[pcs[0] - 1, :], use_abs_for_duplicates=True)
+        tied_pct_by_pc = {}
+        for pc in pcs:
+            loadings = pcs_all[pc - 1, :]
+            rank_df_tmp, _ = _build_pca_rank_df(adata, genes, loadings, use_abs_for_duplicates=True)
+            rnk_tmp = rank_df_tmp.set_index("gene")["loading"]
+            tied_pct_by_pc[pc] = _percent_tied_values(rnk_tmp.values)
+
+        if verbose:
+            print(f"{format_log_prefix('user')} Running PCA GSEA [{on}] on PCs: {pcs}", flush=True)
+            print(f"   🔸 Gene set library: {gene_sets}")
+            print(f"   🔸 Gene column: {gene_col}")
+
+            if len(dup_genes) > 0:
+                preview = ", ".join(dup_genes[:10])
+                suffix = " ..." if len(dup_genes) > 10 else ""
+                print(f"{format_log_prefix('warn_only',2)} Duplicated genes ({len(dup_genes)}): {preview}{suffix}")
+                print(f"     Using maximum absolute loading for duplicated genes.")
+
+                base_params = dict(min_size=min_size, max_size=max_size, permutation_num=permutation_num, weight=weight, threads=threads, seed=seed)
+                params = {**base_params, **kwargs}
+                param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+
+                print(f"{format_log_prefix('api',2)} gseapy.prerank({param_str})")
+
+            tied_msg = ", ".join([f"PC{pc} {tied_pct_by_pc[pc]:.2f}%" for pc in pcs])
+            print(f"{format_log_prefix('info_only',3)} Tied prerank stats: {tied_msg}. GSEApy may order tied genes arbitrarily.")
+
+        stored_results = {}
+        stored_rankings = {}
+
+        for pc in pcs:
+            loadings = pcs_all[pc - 1, :]
+
+            rank_df, _ = _build_pca_rank_df(adata, genes, loadings, use_abs_for_duplicates=True)
+            rnk = rank_df.set_index("gene")["loading"]
+
+            if verbose:
+                print(
+                    f"{format_log_prefix('blank',3)}🔹 PC{pc}: "
+                    f"{len(loadings)} features -> "
+                    f"{rank_df.shape[0]} unique uppercase genes"
+                )
+
+            with _suppress_gseapy_output():
+                pre_res = gp.prerank(
+                    rnk=rnk,
+                    gene_sets=gene_sets,
+                    min_size=min_size,
+                    max_size=max_size,
+                    permutation_num=permutation_num,
+                    weight=weight,
+                    threads=threads,
+                    seed=seed,
+                    outdir=None,
+                    verbose=False,
+                    **kwargs,
+                )
+
+            res_df = _annotate_pca_gsea_result_df(pre_res.res2d.copy())
+            stored_results[f"PC{pc}"] = res_df
+            stored_rankings[f"PC{pc}"] = rank_df.copy()
+
+            if verbose:
+                msg = f"{format_log_prefix('result_only', 4)} PC{pc}: {res_df.shape[0]} enriched terms returned"
+                fdr_col = "FDR q-val"
+                if fdr_report_cutoffs and fdr_col in res_df.columns:
+                    s = pd.to_numeric(res_df[fdr_col], errors="coerce")
+                    parts = [f"n(FDR<={c})={int((s <= c).sum())}" for c in fdr_report_cutoffs]
+                    msg += "; " + ", ".join(parts)
+                elif fdr_report_cutoffs and fdr_col not in res_df.columns:
+                    msg += f"; (no '{fdr_col}' column for FDR counts)"
+                print(msg)
+
+        adata.uns[key_added] = {
+            "params": {
+                "pcs": pcs,
+                "gene_sets": gene_sets,
+                "gene_col": gene_col,
+                "min_size": min_size,
+                "max_size": max_size,
+                "permutation_num": permutation_num,
+                "weight": weight,
+                "threads": threads,
+                "seed": seed,
+                "on": on,
+            },
+            "results": stored_results,
+            "rankings": stored_rankings,
+        }
+
+        self._append_history(  # type: ignore[attr-defined]
+            f'{on}: PCA GSEA run on PCs {pcs}, stored in .{subpdata}.uns["{key_added}"]'
+        )
+
+        if verbose:
+            print(f"{format_log_prefix('result')} PCA GSEA complete.")
+            print(f"   • Results stored in: .{subpdata}.uns['{key_added}']['results']")
+            print(f"   • Keys: {list(stored_results.keys())}")
+
+    def ssgsea(self, on="protein", layer="X", gene_sets="GO_Biological_Process_2023", gene_col="Genes", 
+               min_size=5, max_size=500, threads=4, seed=0, key_added="ssgsea", verbose=True, **kwargs,):
+        """
+        Compute per-sample ssGSEA pathway scores.
+
+        Args:
+            on (str): Whether to use "protein" or "peptide" data.
+            layer (str): Data layer to use.
+            gene_sets (str or dict): Gene set library for GSEApy.
+            gene_col (str): Column in `.var` containing gene symbols.
+            min_size (int): Minimum gene set size.
+            max_size (int): Maximum gene set size.
+            threads (int): Number of threads for GSEApy.
+            seed (int): Random seed.
+            key_added (str): Base key for storing results.
+            verbose (bool): Whether to print progress.
+            **kwargs: Additional keyword arguments passed to `gseapy.ssgsea()`.
+
+        Returns:
+            None
+        """
+        if not self._check_data(on):  # type: ignore[attr-defined]
+            return
+
+        if on == 'protein':
+            adata = self.prot
+        elif on == 'peptide':
+            adata = self.pep
+        else:
+            raise ValueError("`on` must be either 'protein' or 'peptide'.")
+
+        genes = _gseapy_resolve_uppercase_genes(
+            adata,
+            gene_col=gene_col,
+        )
+        
+        if genes is None:
+            context="ssGSEA"
+            print(f"{format_log_prefix('warn')} `.var[{gene_col!r}]` not found.")
+            print(f"{format_log_prefix('blank',3)} {context} requires resolved gene symbols.")
+            print(f"{format_log_prefix('blank',3)} Please annotate gene names first, then rerun.")
+            return
+
+        X = utils.get_adata_layer(adata, layer=layer)
+        expr_df = pd.DataFrame(
+            X.T,
+            index=genes.values,
+            columns=adata.obs_names.astype(str),
+        )
+
+        expr_df = expr_df[~pd.isna(expr_df.index)].copy()
+
+        dup_genes = sorted(pd.Index(expr_df.index)[pd.Index(expr_df.index).duplicated(keep=False)].unique())
+        if len(dup_genes) > 0:
+            _print_duplicate_gene_warning(dup_genes, method_desc="mean abundance")
+            expr_df = expr_df.groupby(expr_df.index).mean()
+
+        log_prefix = format_log_prefix("user")
+        subpdata = "prot" if on == "protein" else "pep"
+
+        if verbose:
+            print(f"{log_prefix} Running ssGSEA [{on}] using layer: {layer}")
+            print(f"   🔸 Gene set library: {gene_sets}")
+            print(f"   🔸 Gene column: {gene_col}")
+            print(f"   🔸 Input matrix after cleanup (genes × samples): {expr_df.shape}")
+
+        ss = gp.ssgsea(
+            data=expr_df,
+            gene_sets=gene_sets,
+            min_size=min_size,
+            max_size=max_size,
+            threads=threads,
+            seed=seed,
+            outdir=None,
+            verbose=False,
+            **kwargs,
+        )
+
+        res_df = ss.res2d.copy()
+
+        # GSEApy ssGSEA returns long-form results with:
+        # Name = sample, Term = pathway, ES = enrichment score
+        score_df = res_df.pivot(index="Term", columns="Name", values="ES").T
+        score_df = score_df.reindex(adata.obs_names.astype(str))
+
+        adata.obsm[f"X_{key_added}"] = score_df
+        adata.uns[key_added] = {
+            "params": {
+                "layer": layer,
+                "gene_sets": gene_sets,
+                "gene_col": gene_col,
+                "min_size": min_size,
+                "max_size": max_size,
+                "threads": threads,
+                "seed": seed,
+                "on": on,
+            },
+            "long_results": res_df,
+            "pathway_names": list(score_df.columns),
+        }
+
+        self._append_history(  # type: ignore[attr-defined]
+            f'{on}: ssGSEA run on {layer}, stored in .{subpdata}.obsm["X_{key_added}"] and .{subpdata}.uns["{key_added}"]'
+        )
+
+        if verbose:
+            print(f"{format_log_prefix('result_only', indent=2)} ssGSEA complete. Results stored in:")
+            print(f"       • .{subpdata}.obsm['X_{key_added}'] (samples × pathways)")
+            print(f"       • .{subpdata}.uns['{key_added}']")
+            print(f"       • Pathways scored: {score_df.shape[1]}")
 
     def nanmissingvalues(self, on = 'protein', limit = 0.5):
         """
@@ -1223,15 +1738,28 @@ class AnalysisMixin:
             normalize_data = self._normalize_helper_directlfq(**kwargs)
 
             adata = self.prot  # directlfq always outputs protein-level intensities
-            adata.layers[layer_name] = sparse.csr_matrix(normalize_data) if was_sparse else normalize_data
+            _resolved_input = utils.resolve_input_layer(adata, layer)
+            actual_layer_name = utils.update_layer_provenance(
+                adata,
+                layer_name=layer_name,
+                op="normalize",
+                input_layer=_resolved_input,
+                method="directlfq",
+            )
+            adata.layers[actual_layer_name] = (
+                sparse.csr_matrix(normalize_data) if was_sparse else normalize_data
+            )
 
             if set_X:
-                self.set_X(layer=layer_name, on="protein")  # type: ignore[attr-defined]
+                self.set_X(layer=actual_layer_name, on="protein")  # type: ignore[attr-defined]
 
-            self._history.append(  # type: ignore[attr-defined]
-                f"protein: Normalized layer using directlfq (input_type={kwargs.get('input_type_to_use', 'default')}). Stored in `{layer_name}`."
+            self._append_history(  # type: ignore[attr-defined]
+                f"protein: Normalized layer using directlfq (input_type={kwargs.get('input_type_to_use', 'default')}). Stored in `{actual_layer_name}`."
             )
-            print(f"{format_log_prefix('result_only', indent=2)} directlfq normalization complete. Results are stored in layer '{layer_name}'.")
+            print(
+                f"{format_log_prefix('result_only', indent=2)} directlfq normalization complete. "
+                f"Results are stored in layer '{actual_layer_name}'."
+            )
             print(f"{format_log_prefix('warn_only',3)} Downstream imputation should be performed with the flag `use_zeros_as_nan` set to True due to directlfq output format returning NaNs as 0s.")
             return
     
@@ -1289,20 +1817,31 @@ class AnalysisMixin:
             summary_lines.insert(0, f"{format_log_prefix('result_only', indent=2)} Normalized {normalize_data.shape[0]} samples total.")
         print("\n".join(summary_lines))
 
-        adata.layers[layer_name] = sparse.csr_matrix(normalize_data) if was_sparse else normalize_data
+        _resolved_input = utils.resolve_input_layer(adata, layer)
+        actual_layer_name = utils.update_layer_provenance(
+            adata,
+            layer_name=layer_name,
+            op="normalize",
+            input_layer=_resolved_input,
+            method=method,
+        )
+        adata.layers[actual_layer_name] = (
+            sparse.csr_matrix(normalize_data) if was_sparse else normalize_data
+        )
 
         if set_X:
-            self.set_X(layer = layer_name, on = on) # type: ignore[attr-defined], EditingMixin
+            self.set_X(layer=actual_layer_name, on=on)  # type: ignore[attr-defined], EditingMixin
 
         # Determine if use_nonmissing note should be added
         note = ""
         if use_nonmissing and method in {'sum', 'mean', 'median', 'max'}:
             note = " (using only fully observed columns)"
 
-        self._history.append( # type: ignore[attr-defined], HistoryMixin
-            f"{on}: Normalized layer {layer} using {method}{note} (grouped by {classes}). Stored in `{layer_name}`."
-            )
-    
+        self._append_history(  # type: ignore[attr-defined], HistoryMixin
+            f"{on}: Normalized layer {layer} using {method}{note} (grouped by {classes}). "
+            f"Stored in `{actual_layer_name}`."
+        )
+
     def _normalize_helper(self, data, method, use_nonmissing, **kwargs):
         """
         Perform row-wise normalization using a selected method.
@@ -1492,6 +2031,351 @@ class AnalysisMixin:
 
         return aligned.T.to_numpy()
 
+    def pairwise_correlation(
+        self,
+        classes: str | list[str],
+        on: str = "protein",
+        layer: str = "X",
+        method: str = "pearson",
+        order: list | None = None,
+        compute_sample_matrix: bool = False,
+        force: bool = False,
+        subset_mask: np.ndarray | list | None = None,
+    ) -> None:
+        """
+        Compute pairwise proteome correlations across groups defined by `.obs` metadata.
+
+        For each group label (one column, or combined labels from multiple columns),
+        computes the mean expression profile (nanmean), drops features with NaN in any
+        group, then computes an (n_groups × n_groups) correlation or distance matrix.
+        Optionally also computes a sample-level matrix.
+        Results are stored in `adata.uns["pairwise_corr"]`.
+
+        Args:
+            classes (str or list of str): One `.obs` column name, or a list of column
+                names, defining sample groups (same convention as `normalize()` and
+                `plot_pca()`). Multiple columns are combined per sample using
+                :func:`~scpviz.utils.get_samplenames` (comma-space join, same as
+                group-wise ``normalize``).
+            on (str): Whether to use `"protein"` or `"peptide"` data (default: `"protein"`).
+            layer (str): Data layer to use. `"X"` uses `.X`; any other value uses
+                `.layers[layer]`. Default: `"X"`.
+            method (str): Correlation/distance metric. One of:
+                `"pearson"`, `"spearman"`, `"euclidean"`. Default: `"pearson"`.
+            order (list or None): Preferred ordering of group labels. Unknown values
+                are dropped (with a warning); groups not listed are appended after,
+                sorted alphabetically (with a warning). If None, order is sorted
+                alphabetically.
+            compute_sample_matrix (bool): If True, also compute an (n_samples × n_samples)
+                matrix sorted to match the resolved group order. Default: False.
+            force (bool): If True, recompute even if results are cached in
+                `adata.uns["pairwise_corr"]`. Default: False.
+            subset_mask (array-like or None): Boolean mask of length `n_obs` selecting
+                samples to include. If None, all samples are used.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If `classes` is invalid or missing from `.obs`, `method` is
+                invalid, or `subset_mask` has the wrong shape or is all-False.
+            KeyError: If `layer` is not `"X"` and not in `adata.layers`.
+
+        Note:
+            Features where **any** group mean is NaN are dropped (complete cases only).
+            A cache hit still appends a history entry noting that cached results were used.
+            For multi-column ``classes``, combined labels use a comma-space separator;
+            see ``uns['pairwise_corr']['separator']`` and ``classes_list`` for plotting.
+
+        Example:
+            Combined cell line and treatment (labels like ``"AS, kd"``)::
+
+                pdata.pairwise_correlation(
+                    classes=["cellline", "treatment"],
+                    method="pearson",
+                )
+        """
+        if not self._check_data(on):  # type: ignore[attr-defined], ValidationMixin
+            pass
+
+        adata = utils.get_adata(self, on)
+        on_norm = "protein" if on in ("protein", "prot") else "peptide"
+        subpdata = "prot" if on_norm == "protein" else "pep"
+
+        _classes_list: list[str] = [classes] if isinstance(classes, str) else list(classes)
+        if not _classes_list:
+            raise ValueError(
+                f"{format_log_prefix('error')} classes must be a non-empty string or "
+                "list of strings."
+            )
+        _missing_cols = [c for c in _classes_list if c not in adata.obs.columns]
+        if _missing_cols:
+            raise ValueError(
+                f"{format_log_prefix('error')} classes column(s) not found in "
+                f"adata.obs: {_missing_cols}"
+            )
+        _separator: str | None = ", " if len(_classes_list) > 1 else None
+
+        if method not in ("pearson", "spearman", "euclidean"):
+            raise ValueError(
+                f"{format_log_prefix('error')} method={method!r} is not supported. "
+                "Choose from: 'pearson', 'spearman', 'euclidean'."
+            )
+
+        subset_indices: tuple[int, ...] | None
+        if subset_mask is None:
+            subset_indices = None
+        else:
+            sm = np.asarray(subset_mask, dtype=bool)
+            if sm.ndim != 1 or sm.size != adata.n_obs:
+                raise ValueError(
+                    f"{format_log_prefix('error')} subset_mask must be a 1D boolean "
+                    f"array of length n_obs={adata.n_obs}."
+                )
+            if not np.any(sm):
+                raise ValueError(
+                    f"{format_log_prefix('error')} subset_mask selects zero samples."
+                )
+            subset_indices = tuple(np.flatnonzero(sm).tolist())
+
+        if layer != "X" and layer not in adata.layers:
+            raise KeyError(
+                f"{format_log_prefix('error')} Layer {layer!r} not found in adata.layers."
+            )
+
+        X_full = utils.get_adata_layer(adata, layer)
+        X_full = np.asarray(X_full)
+
+        _layer_is_log_pw = utils.infer_layer_is_log(layer, adata)
+        _finite_pw = X_full[np.isfinite(X_full)]
+        if not _layer_is_log_pw and _finite_pw.size > 0 and np.nanmedian(_finite_pw) > 1e4:
+            print(
+                f"{format_log_prefix('info')} Layer {layer!r} appears to contain "
+                f"non-log intensities (median={np.nanmedian(_finite_pw):.2e}). "
+                "Pairwise correlations on non-log data are dominated by highly abundant "
+                "proteins. Consider normalize() then log_transform(), then rerun with "
+                "the resulting log layer."
+            )
+        elif _layer_is_log_pw:
+            print(
+                f"{format_log_prefix('info')} Layer {layer!r} detected as log-transformed. "
+                "Using log-space values for correlation."
+            )
+
+        raw_labels = utils.get_samplenames(adata, classes)
+        obs_labels = pd.Series(
+            raw_labels, index=adata.obs_names, name="_combined_class"
+        )
+
+        if subset_indices is not None:
+            row_sel = np.array(subset_indices, dtype=int)
+            X = X_full[row_sel]
+            obs_names_used = adata.obs_names[row_sel]
+            obs_labels = obs_labels.iloc[row_sel]
+        else:
+            X = X_full
+            obs_names_used = adata.obs_names
+
+        unique_groups = pd.unique(obs_labels).tolist()
+        if len(unique_groups) == 0:
+            raise ValueError(
+                f"{format_log_prefix('error')} No groups found for classes={_classes_list!r} "
+                "after applying subset_mask."
+            )
+
+        ug_set = set(unique_groups)
+        if order is None:
+            final_order = sorted(unique_groups)
+        else:
+            invalid_in_order = [v for v in order if v not in ug_set]
+            if invalid_in_order:
+                print(
+                    f"{format_log_prefix('warn')} order contains values not present in "
+                    f"combined labels from {_classes_list!r}; removing: {invalid_in_order}"
+                )
+            seen: set = set()
+            valid_user: list = []
+            for v in order:
+                if v not in ug_set or v in seen:
+                    continue
+                seen.add(v)
+                valid_user.append(v)
+            omitted = sorted(ug_set - set(valid_user))
+            if omitted:
+                print(
+                    f"{format_log_prefix('warn')} groups not listed in order will be "
+                    f"appended after your order (alphabetically): {omitted}"
+                )
+            final_order = valid_user + omitted
+
+        prev = adata.uns.get("pairwise_corr")
+        cache_hit = False
+        if (
+            not force
+            and isinstance(prev, dict)
+            and prev.get("classes") == classes
+            and prev.get("method") == method
+            and prev.get("layer") == layer
+            and prev.get("compute_sample_matrix") == compute_sample_matrix
+            and prev.get("subset_indices") == subset_indices
+            and prev.get("order") == final_order
+        ):
+            cache_hit = True
+
+        if cache_hit:
+            print(
+                f"{format_log_prefix('info')} Pairwise correlation already computed "
+                f"(classes={classes!r}, method={method}). Use force=True to recompute."
+            )
+            self._append_history(  # type: ignore[attr-defined], HistoryMixin
+                f'{on_norm}: pairwise_correlation — used last cached result '
+                f'(classes={classes!r}, method={method}, layer={layer}).'
+            )
+            return
+
+        if not force and isinstance(prev, dict):
+            print(
+                f"{format_log_prefix('warn')} Recomputing pairwise correlation: "
+                "parameters differ from cached result."
+            )
+
+        n_groups = len(final_order)
+        group_means = np.zeros((n_groups, X.shape[1]), dtype=float)
+        for i, g in enumerate(final_order):
+            mask = (obs_labels == g).to_numpy()
+            rows = X[mask, :]
+            if rows.shape[0] == 0:
+                group_means[i, :] = np.nan
+            else:
+                group_means[i, :] = np.nanmean(rows, axis=0)
+
+        nan_mask = np.isnan(group_means).any(axis=0)
+        group_means_clean = group_means[:, ~nan_mask]
+        n_features_used = int(group_means_clean.shape[1])
+        n_features_dropped = int(nan_mask.sum())
+
+        if n_groups < 2:
+            if method == "euclidean":
+                group_corr_arr = np.zeros((1, 1), dtype=float)
+            else:
+                group_corr_arr = np.ones((1, 1), dtype=float)
+        elif method == "pearson":
+            group_corr_arr = np.corrcoef(group_means_clean)
+        elif method == "spearman":
+            sp = spearmanr(group_means_clean.T).statistic
+            sp = np.asarray(sp)
+            if sp.ndim == 0:
+                group_corr_arr = np.array([[1.0, float(sp)], [float(sp), 1.0]])
+            else:
+                group_corr_arr = sp
+        else:
+            group_corr_arr = cdist(
+                group_means_clean, group_means_clean, metric="euclidean"
+            )
+
+        group_corr_df = pd.DataFrame(
+            group_corr_arr, index=final_order, columns=final_order
+        )
+
+        sample_corr_df = None
+        if compute_sample_matrix:
+            sorted_obs_names: list = []
+            for group in final_order:
+                sorted_obs_names.extend(
+                    obs_labels[obs_labels == group].index.tolist()
+                )
+            if subset_indices is not None:
+                _allowed = set(obs_names_used)
+                assert all(n in _allowed for n in sorted_obs_names), (
+                    "pairwise_correlation: sample-matrix obs names must stay within "
+                    "subset_mask; obs_labels should remain sliced after subset_indices."
+                )
+            row_ix = adata.obs_names.get_indexer(sorted_obs_names)
+            X_sorted = X_full[row_ix]
+            X_sorted_clean = X_sorted[:, ~nan_mask]
+            if method == "pearson":
+                sample_corr_df = pd.DataFrame(X_sorted_clean).T.corr(method="pearson")
+                sample_corr_df.index = sorted_obs_names
+                sample_corr_df.columns = sorted_obs_names
+            elif method == "spearman":
+                sample_corr_df = pd.DataFrame(X_sorted_clean).T.corr(method="spearman")
+                sample_corr_df.index = sorted_obs_names
+                sample_corr_df.columns = sorted_obs_names
+            else:
+                # cdist treats NaNs as NaN output; raw abundance rows usually have missing
+                # values, which yields an all-NaN matrix and a blank heatmap. Use nan-aware
+                # Euclidean distance between sample vectors (sklearn).
+                dist = nan_euclidean_distances(X_sorted_clean)
+                sample_corr_df = pd.DataFrame(
+                    dist, index=sorted_obs_names, columns=sorted_obs_names
+                )
+
+        adata.uns["pairwise_corr"] = {
+            "group_matrix": group_corr_df,
+            "sample_matrix": sample_corr_df,
+            "classes": classes,
+            "classes_list": _classes_list,
+            "separator": _separator,
+            "order": final_order,
+            "method": method,
+            "layer": layer,
+            "compute_sample_matrix": compute_sample_matrix,
+            "n_features_used": n_features_used,
+            "n_features_dropped": n_features_dropped,
+            "subset_indices": subset_indices,
+        }
+
+        _classes_display = classes if isinstance(classes, str) else list(classes)
+        self._append_history(  # type: ignore[attr-defined], HistoryMixin
+            f"{on_norm}: pairwise_correlation on classes={_classes_display!r}, "
+            f"method={method}, layer={layer}"
+            + (
+                f", subset_indices={subset_indices}"
+                if subset_indices is not None
+                else ""
+            )
+        )
+
+        print(
+            f"{format_log_prefix('user')} Computing pairwise correlation [{on_norm}] "
+            f"using layer: {layer}"
+        )
+        _fp_fc = format_log_prefix("filter_conditions")
+        if isinstance(classes, str):
+            print(f"{_fp_fc}classes: {classes}")
+        else:
+            print(f"{_fp_fc}classes: {list(classes)}")
+        for _col in _classes_list:
+            _u = pd.unique(adata.obs[_col])
+            _head = [str(_v) for _v in _u[:5]]
+            _more = len(_u) - 5
+            _suffix = f" (+{_more} more)" if _more > 0 else ""
+            print(f"{_fp_fc}{_col}: {', '.join(_head)}{_suffix}")
+        print(f"{_fp_fc}method: {method}")
+        order_preview = " | ".join(str(x) for x in final_order)
+        print(
+            f"{_fp_fc}order (N={len(final_order)}): "
+            f"{order_preview}"
+        )
+        print(
+            f"{_fp_fc}Features: {n_features_used} used / "
+            f"{adata.n_vars} total ({n_features_dropped} dropped — NaN in ≥1 group mean)"
+        )
+        _ng = len(final_order)
+        print(
+            f"{format_log_prefix('result_only', indent=2)} Pairwise correlation complete. "
+            "Results stored in:"
+        )
+        print(f"       • .{subpdata}.uns['pairwise_corr']")
+        if compute_sample_matrix and sample_corr_df is not None:
+            _ns = int(sample_corr_df.shape[0])
+            print(
+                f"       • Group matrix: ({_ng} × {_ng}) | "
+                f"Sample matrix: ({_ns} × {_ns})"
+            )
+        else:
+            print(f"       • Group matrix: ({_ng} × {_ng})")
+
     def clean_X(self, on='prot', inplace=True, set_to=0, layer=None, to_sparse=False, backup_layer="X_preclean", verbose=True):
         """
         Replace NaNs in `.X` or a specified layer with a given value (default: 0).
@@ -1559,3 +2443,50 @@ class AnalysisMixin:
                 print(f"{format_log_prefix('result')} Returning cleaned matrix: {nan_count} NaNs replaced with {set_to}.")
             return X_clean 
 
+# helper functions for analysis methods
+def _annotate_pca_gsea_result_df(res_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add ``library`` and ``pathway`` columns from gseapy ``Term`` when using merged Enrichr
+    libraries (``LIBRARY__pathway_name``). Leaves ``Term`` unchanged.
+    """
+    if "Term" not in res_df.columns:
+        return res_df
+    out = res_df.copy()
+    term = out["Term"].astype(str)
+    lib = term.map(lambda x: x.split("__", 1)[0] if "__" in x else "")
+    pw = term.map(lambda x: x.split("__", 1)[1] if "__" in x else x)
+    idx = list(out.columns).index("Term") + 1
+    out.insert(idx, "library", lib.values)
+    out.insert(idx + 1, "pathway", pw.values)
+    return out
+
+def _gseapy_resolve_uppercase_genes(adata, gene_col="Genes"):
+    """
+    For use with gseapy prerank and ssgsea functions. Resolves gene symbols from `.var[gene_col]`, uppercase them, and return as a Series.
+
+    Hard-stops with a warning if gene names are unavailable.
+    """
+    if gene_col not in adata.var.columns:
+        return None
+
+    genes = adata.var[gene_col].copy()
+
+    # Normalize empties to NaN
+    genes = genes.replace("", np.nan)
+    genes = genes.replace("nan", np.nan)
+
+    # Uppercase non-missing values
+    genes = genes.astype("object")
+    genes = genes.where(genes.isna(), genes.astype(str).str.upper())
+
+    return genes
+
+def _print_duplicate_gene_warning(dup_genes, method_desc="mean"):
+    """Print a warning listing duplicated gene symbols and chosen collapse method."""
+    if len(dup_genes) == 0:
+        return
+
+    dup_text = ", ".join(dup_genes)
+    print(f"{format_log_prefix('warn')} Found duplicated gene symbols.")
+    print(f"{format_log_prefix('blank',3)} Duplicated genes ({len(dup_genes)}): {dup_text}")
+    print(f"{format_log_prefix('blank',3)} Using {method_desc} for duplicated genes.")

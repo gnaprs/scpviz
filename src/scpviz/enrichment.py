@@ -7,6 +7,7 @@ Delegates to `scpviz.pAnnData.enrichment`.
 
 from scpviz.pAnnData.enrichment import (
     enrichment_functional,
+    enrichment_functional_pca,
     enrichment_ppi,
     _resolve_de_key,
     _pretty_vs_key,

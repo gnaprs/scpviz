@@ -24,6 +24,9 @@ Functions:
     filter: Legacy sample filtering (use `.filter_sample_values` instead).
     resolve_class_filter: Resolve class/value pairs and apply filtering.
     get_pep_prot_mapping: Determine peptide-to-protein mapping column.
+    update_layer_provenance: Register a matrix layer in ``adata.uns['layer_provenance']``.
+    resolve_input_layer: Map ``layer='X'`` to ``uns['current_X_layer']`` for provenance.
+    infer_layer_is_log: Infer log-transformed layers via provenance or name heuristic.
 
 ## API Functions
 
@@ -343,7 +346,7 @@ def get_classlist(adata, classes = None, order = None):
         # NOTE: might break, should use better method to filter out file-related columns
         quant_col_index = adata.obs.columns.get_loc(next(col for col in adata.obs.columns if "_quant" in col))
         selected_columns = adata.obs.iloc[:, :quant_col_index]
-        classes_list = selected_columns.apply(lambda x: '_'.join(x), axis=1).unique()
+        classes_list = selected_columns.apply(lambda x: "_".join(x.astype(str)), axis=1).unique()
         classes = selected_columns.columns.tolist()
     elif isinstance(classes, str):
         # check if classes is one of the columns of adata.obs
@@ -358,7 +361,7 @@ def get_classlist(adata, classes = None, order = None):
         else:
             if not all([c in adata.obs.columns for c in classes]):
                 raise ValueError(f"Invalid value for 'classes'. Not all elements in '{classes}' are columns in adata.obs.")
-            classes_list = adata.obs[classes].apply(lambda x: '_'.join(x), axis=1).unique()
+            classes_list = adata.obs[classes].apply(lambda x: "_".join(x.astype(str)), axis=1).unique()
     else:
         raise ValueError("Invalid value for 'classes'. Must be None, a string or a list of strings.")
 
@@ -2253,3 +2256,119 @@ def convert_identifiers(
         return resolved, result_df
     else:
         raise ValueError("Invalid return_type. Choose from {'dict', 'df', 'both'}.")
+
+
+def update_layer_provenance(
+    adata: ad.AnnData,
+    layer_name: str,
+    op: str,
+    input_layer: str,
+    **kwargs: Any,
+) -> str:
+    """
+    Register a layer in the provenance registry stored in ``adata.uns``.
+
+    Preprocessing methods (``normalize``, ``impute``, ``log_transform``) call this
+    before assigning ``adata.layers[...]``. Chains are reconstructable by following
+    ``input_layer`` pointers.
+
+    If ``layer_name`` already exists with a different ``op`` or ``input_layer``,
+    a warning is printed and the record is stored under ``layer_name_1``, ``layer_name_2``, …
+
+    Args:
+        adata: AnnData to update (must not rely on pAnnData ``.history``; registry
+            lives only in ``adata.uns``).
+        layer_name: Intended output layer key.
+        op: One of ``\"normalize\"``, ``\"impute\"``, ``\"log_transform\"``.
+        input_layer: Source layer name, or ``\"X\"`` if read from ``adata.X``.
+        **kwargs: Extra metadata (e.g. ``method=...``, ``base=...``).
+
+    Returns:
+        Actual layer key to use in ``adata.layers`` (may be suffixed on collision).
+    """
+    if "layer_provenance" not in adata.uns:
+        adata.uns["layer_provenance"] = {}
+
+    registry = adata.uns["layer_provenance"]
+    new_record = {"op": op, "input_layer": input_layer, **kwargs}
+
+    if layer_name in registry:
+        existing = registry[layer_name]
+        collision = (
+            existing.get("input_layer") != input_layer or existing.get("op") != op
+        )
+        if collision:
+            suffix_n = 1
+            candidate = f"{layer_name}_{suffix_n}"
+            while candidate in registry:
+                suffix_n += 1
+                candidate = f"{layer_name}_{suffix_n}"
+
+            print(
+                f"{format_log_prefix('warn')} Layer '{layer_name}' already exists "
+                f"in the provenance registry with a different origin:\n"
+                f"       existing: {existing}\n"
+                f"       new:      {new_record}\n"
+                f"     Storing new layer as '{candidate}' to avoid collision.\n"
+                f"     Use pdata.show_layer_provenance('{layer_name}') to inspect "
+                "the existing chain."
+            )
+            layer_name = candidate
+
+    registry[layer_name] = new_record
+    return layer_name
+
+
+def infer_layer_is_log(layer: str, adata: Optional[ad.AnnData] = None) -> bool:
+    """
+    Infer whether a layer contains log-transformed values.
+
+    1. **Registry** (if ``adata`` is given and ``adata.uns['layer_provenance']`` exists):
+       walk ancestors via ``input_layer`` (cycle-safe). If any step has
+       ``op == \"log_transform\"``, return True. If ``layer`` is registered and no
+       ``log_transform`` appears, return False.
+    2. **Name fallback**: ``\"log\" in layer.lower()``.
+
+    Standalone ``AnnData`` objects (e.g. passed into low-level ``utils`` helpers)
+    often have no ``layer_provenance`` and no pAnnData ``.history``; only the
+    name heuristic applies unless you populate ``uns['layer_provenance']`` yourself.
+
+    Args:
+        layer: Layer name to inspect.
+        adata: Optional AnnData carrying ``layer_provenance``.
+
+    Returns:
+        True if the layer is treated as log-transformed.
+    """
+    if adata is not None:
+        registry = adata.uns.get("layer_provenance", {})
+        visited: set[str] = set()
+        current: str = layer
+        while current in registry and current not in visited:
+            visited.add(current)
+            record = registry[current]
+            if record.get("op") == "log_transform":
+                return True
+            nxt = record.get("input_layer", "")
+            if not nxt:
+                break
+            current = nxt
+        if layer in registry:
+            return False
+
+    return "log" in layer.lower()
+
+
+def resolve_input_layer(adata: ad.AnnData, layer: str) -> str:
+    """
+    Resolve the source layer name for provenance when the user passes ``layer='X'``.
+
+    The active matrix ``.X`` tracks its logical source in ``adata.uns['current_X_layer']``
+    (maintained by ``set_X()`` and set at import). For any other ``layer`` string,
+    return it unchanged.
+
+    If ``current_X_layer`` is missing (legacy objects), falls back to ``\"X_raw\"``.
+    """
+    if layer == "X":
+        return adata.uns.get("current_X_layer", "X_raw")
+    return layer

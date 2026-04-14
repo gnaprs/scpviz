@@ -1236,3 +1236,133 @@ def test_get_pca_importance_invalid_inputs():
     pcs = np.array([[0.1, 0.2, 0.3]])
     with pytest.raises(IndexError):
         utils.get_pca_importance({"PCs": pcs}, ["x", "y"])
+
+# --- layer provenance & log inference ---
+
+class TestInferLayerIsLog:
+    def test_log2_name_heuristic(self):
+        assert utils.infer_layer_is_log("X_log2") is True
+
+    def test_non_log_name(self):
+        assert utils.infer_layer_is_log("X_norm_median") is False
+
+    def test_raw_X(self):
+        assert utils.infer_layer_is_log("X") is False
+
+    def test_registry_overrides_name(self):
+        """Registry result takes priority over name heuristic."""
+        adata = AnnData(np.zeros((3, 3)))
+        utils.update_layer_provenance(
+            adata, "X_log2", op="normalize", input_layer="X", method="median"
+        )
+        assert utils.infer_layer_is_log("X_log2", adata) is False
+
+    def test_registry_chain_detects_log(self):
+        """Detects log_transform anywhere in the chain."""
+        adata = AnnData(np.zeros((3, 3)))
+        utils.update_layer_provenance(
+            adata, "X_norm_median", op="normalize", input_layer="X", method="median"
+        )
+        utils.update_layer_provenance(
+            adata,
+            "X_impute_knn",
+            op="impute",
+            input_layer="X_norm_median",
+            method="knn",
+        )
+        utils.update_layer_provenance(
+            adata,
+            "X_log2",
+            op="log_transform",
+            input_layer="X_impute_knn",
+            base="2",
+        )
+        assert utils.infer_layer_is_log("X_log2", adata) is True
+
+    def test_non_log_chain_returns_false(self):
+        adata = AnnData(np.zeros((3, 3)))
+        utils.update_layer_provenance(
+            adata, "X_log2", op="normalize", input_layer="X", method="median"
+        )
+        assert utils.infer_layer_is_log("X_log2", adata) is False
+
+class TestUpdateLayerProvenance:
+    def _make_adata(self):
+        return AnnData(np.zeros((3, 3)))
+
+    def test_stores_record(self):
+        adata = self._make_adata()
+        utils.update_layer_provenance(
+            adata, "X_log2", op="log_transform", input_layer="X", base="2"
+        )
+        assert "X_log2" in adata.uns["layer_provenance"]
+        assert adata.uns["layer_provenance"]["X_log2"]["op"] == "log_transform"
+
+    def test_no_collision_same_op(self):
+        adata = self._make_adata()
+        utils.update_layer_provenance(adata, "X_log2", op="log_transform", input_layer="X")
+        result = utils.update_layer_provenance(
+            adata, "X_log2", op="log_transform", input_layer="X"
+        )
+        assert result == "X_log2"
+
+    def test_collision_different_input_adds_suffix(self, capsys):
+        adata = self._make_adata()
+        utils.update_layer_provenance(
+            adata, "X_log2", op="log_transform", input_layer="X"
+        )
+        result = utils.update_layer_provenance(
+            adata, "X_log2", op="log_transform", input_layer="X_norm_median"
+        )
+        assert result == "X_log2_1"
+        assert "X_log2_1" in adata.uns["layer_provenance"]
+        captured = capsys.readouterr()
+        assert (
+            "already exists" in captured.out.lower()
+            or "collision" in captured.out.lower()
+        )
+
+    def test_multiple_collisions_increment_suffix(self):
+        adata = self._make_adata()
+        utils.update_layer_provenance(
+            adata, "X_log2", op="log_transform", input_layer="X"
+        )
+        r1 = utils.update_layer_provenance(
+            adata, "X_log2", op="log_transform", input_layer="X_norm_median"
+        )
+        r2 = utils.update_layer_provenance(
+            adata, "X_log2", op="log_transform", input_layer="X_norm_sum"
+        )
+        assert r1 == "X_log2_1"
+        assert r2 == "X_log2_2"
+
+    def test_initialises_registry_if_missing(self):
+        adata = self._make_adata()
+        assert "layer_provenance" not in adata.uns
+        utils.update_layer_provenance(
+            adata, "X_log2", op="log_transform", input_layer="X"
+        )
+        assert "layer_provenance" in adata.uns
+
+class TestResolveInputLayer:
+    def _make_adata(self, current_X_layer=None):
+        adata = AnnData(np.zeros((3, 3)))
+        if current_X_layer is not None:
+            adata.uns["current_X_layer"] = current_X_layer
+        return adata
+
+    def test_X_resolves_to_X_raw_when_set(self):
+        adata = self._make_adata(current_X_layer="X_raw")
+        assert utils.resolve_input_layer(adata, "X") == "X_raw"
+
+    def test_X_resolves_to_current_after_normalize(self):
+        adata = self._make_adata(current_X_layer="X_norm_median")
+        assert utils.resolve_input_layer(adata, "X") == "X_norm_median"
+
+    def test_explicit_layer_returned_unchanged(self):
+        adata = self._make_adata(current_X_layer="X_norm_median")
+        assert utils.resolve_input_layer(adata, "X_norm_median") == "X_norm_median"
+
+    def test_fallback_when_key_missing(self):
+        adata = self._make_adata()
+        assert utils.resolve_input_layer(adata, "X") == "X_raw"
