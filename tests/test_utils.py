@@ -672,7 +672,7 @@ def test_print_versions_runs(capsys):
     print_versions()
     captured = capsys.readouterr().out
     assert "scpviz version" in captured
-    assert "Dependencies:" in captured
+    assert "Core dependencies:" in captured
 
 # get_string_mappings() branches
 

@@ -33,6 +33,7 @@ dependencies = [
   "pyarrow>=7.0",
   "scanpy>=1.9",
   "gseapy>=1.0",
+  "openpyxl>=3.1.5",
 ]
 
 [project.urls]
@@ -60,7 +61,7 @@ sc = [
 notebook = [
   "IPython>=7.31",
 ]
-dev = ["pytest","coverage","flake8","openpyxl","pytest-cov"]
+dev = ["pytest>=9.0.3","coverage>=7.13.5","flake8>=7.3.0","pytest-cov>=7.1.0"]
 
 # MkDocs + mkdocstrings stack only (use a dedicated venv, e.g. venv-docs; includes editable scpviz for API autodoc).
 # mkdocs-material>=9.7.5 requires MkDocs<2 so builds stay valid if MkDocs 2.0 ships (breaking theme/plugin API).

@@ -26,40 +26,57 @@ def get_datetime():
     now = datetime.datetime.now()
     return now.strftime("%Y-%m-%d %H:%M:%S")
 
-# print versions of all dependencies of scpviz
+# Keep in sync with [project] dependencies and [project.optional-dependencies] in pyproject.toml
 def print_versions():
-    dependencies = [
-    "numpy",
-    "pandas", 
-    "matplotlib", 
-    "seaborn",
-    "upsetplot", 
-    "scikit-learn", 
-    "scipy",
-    "umap-learn", 
-    "adjustText", 
-    "anndata",
-    "requests",
-    "matplotlib_venn",
-    "pyarrow",
-    "scanpy",
-    "IPython",
-    "igraph",
-    "harmonypy",
-    "leidenalg",
-    "scikit-misc",
-    "directlfq",
-    ]
+    from importlib.metadata import PackageNotFoundError, version
 
-    print("scpviz version: 0.5.7-alpha")
+    # [project] dependencies
+    core = [
+        "numpy",
+        "pandas",
+        "matplotlib",
+        "seaborn",
+        "upsetplot",
+        "scikit-learn",
+        "scipy",
+        "umap-learn",
+        "adjustText",
+        "anndata",
+        "requests",
+        "matplotlib_venn",
+        "pyarrow",
+        "scanpy",
+        "gseapy",
+        "openpyxl",
+    ]
+    # optional-dependencies.sc
+    opt_sc = [
+        "directlfq",
+        "pimms-learn",
+        "harmonypy",
+        "leidenalg",
+        "igraph",
+        "scikit-misc",
+    ]
+    # optional-dependencies.notebook
+    opt_notebook = ["IPython"]
+    # optional-dependencies.dev
+    opt_dev = ["pytest", "coverage", "flake8", "pytest-cov"]
+
+    def _print_group(title: str, packages: list[str]) -> None:
+        print(title)
+        for package in packages:
+            try:
+                print(f"  {package}", version(package))
+            except PackageNotFoundError:
+                print(f"  {package}", "not installed")
+
+    print("scpviz version: 0.5.9")
     print("Date and time: ", get_datetime())
-    print("Dependencies:")
-    for package in dependencies:
-        try:
-            module = __import__(package)
-            print(package, module.__version__)
-        except ImportError:
-            print(package, "not installed")
+    _print_group("Core dependencies:", core)
+    _print_group("Optional [sc]:", opt_sc)
+    _print_group("Optional [notebook]:", opt_notebook)
+    _print_group("Optional [dev]:", opt_dev)
 
 GLOBAL_DEBUG = False
 
