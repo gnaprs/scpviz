@@ -30,6 +30,7 @@ Use format:
 ## Things to update
 1. pyproject.toml -> version
 2. readme.md -> documentation version
+3. setup.py -> version
 3. Push tag -> automatically updates changelog and deploys docs
 4. Draft and publish GitHub Release -> automatically uploads to PyPI
 
