@@ -6,7 +6,7 @@ import base64
 import json
 import re
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,13 +23,30 @@ from scpviz import plotting as scplot
 from scpviz.pAnnData.io import get_filenames
 
 from dash_app.state.session import (
+    get_edited_svg,
     get_pdata,
     get_upload_path,
+    set_edited_svg,
     set_last_log,
     set_pdata,
     set_upload_path,
 )
 from dash_app.utils.figures import fig_to_data_uri, new_figure
+
+
+@contextmanager
+def _isolate_stdio(stdout_sink: Optional[StringIO] = None):
+    """Redirect stdout/stderr during library calls.
+
+    scpviz/matplotlib sometimes print Unicode (e.g. U+26A0). On Windows with a
+    legacy console encoding (cp932), writing those to the real stderr/stdout
+    raises UnicodeEncodeError and aborts Dash callbacks. Capturing both streams
+    keeps plotting on the success path without requiring PYTHONUTF8=1.
+    """
+    out: StringIO = stdout_sink if stdout_sink is not None else StringIO()
+    err = StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        yield out
 
 
 def _session_tmp_dir(session_id: str) -> Path:
@@ -46,6 +63,94 @@ def _refresh_summary_if_needed(pdata: Any) -> None:
     except Exception:
         # Non-fatal: callers still handle plotting/table exceptions upstream.
         pass
+
+
+def sanitize_svg_markup(svg_text: str) -> str:
+    """Basic SVG sanitization for persisted user-edited markup."""
+    text = (svg_text or "").strip()
+    if not text:
+        return ""
+    if "<svg" not in text.lower():
+        raise ValueError("Payload is not valid SVG markup.")
+    # Remove script blocks and inline event handlers.
+    text = re.sub(r"<script\b[^>]*>.*?</script>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"\son[a-zA-Z]+\s*=\s*(['\"]).*?\1", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"\sjavascript\s*:", "", text, flags=re.IGNORECASE)
+    return text
+
+
+def svg_data_uri_to_markup(data_uri: str) -> str:
+    """Decode an SVG data URI into raw markup string."""
+    if not data_uri or "," not in data_uri:
+        return ""
+    header, payload = data_uri.split(",", 1)
+    if ";base64" in header:
+        try:
+            return base64.b64decode(payload).decode("utf-8", errors="replace")
+        except Exception as exc:
+            raise ValueError(f"Invalid base64 SVG payload: {exc}") from exc
+    return payload
+
+
+def svg_markup_to_data_uri(svg_text: str) -> str:
+    """Encode SVG markup into a data URI for html.Img src."""
+    clean = sanitize_svg_markup(svg_text)
+    encoded = base64.b64encode(clean.encode("utf-8")).decode("utf-8")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+def _make_columns_unique(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure DataFrame columns are unique by adding numeric suffixes."""
+    cols = list(df.columns)
+    seen: Dict[str, int] = {}
+    new_cols = []
+    for c in cols:
+        key = str(c)
+        count = seen.get(key, 0)
+        if count == 0:
+            new_cols.append(key)
+        else:
+            new_cols.append(f"{key}_{count}")
+        seen[key] = count + 1
+    if new_cols != cols:
+        out = df.copy()
+        out.columns = new_cols
+        return out
+    return df
+
+
+def _unique_column_name(existing: set, stem: str) -> str:
+    """Return stem, or stem_1, stem_2, ... first not in existing (existing is not mutated)."""
+    candidate = stem
+    n = 0
+    while candidate in existing:
+        n += 1
+        candidate = f"{stem}_{n}"
+    return candidate
+
+
+def _dataframe_reset_index_no_collision(df: pd.DataFrame, preferred: str = "sample") -> pd.DataFrame:
+    """reset_index so new column names from the index never clash with existing columns."""
+    work = df.copy()
+    blocked = set(map(str, work.columns.tolist()))
+
+    if isinstance(work.index, pd.MultiIndex):
+        names = list(work.index.names)
+        new_names: List[str] = []
+        for i, nm in enumerate(names):
+            base = str(nm) if nm is not None else f"level_{i}"
+            candidate = base if base not in blocked else _unique_column_name(blocked, base)
+            new_names.append(candidate)
+            blocked.add(candidate)
+        work.index.names = new_names
+        return work.reset_index()
+
+    nm = work.index.name
+    if nm is None:
+        work.index.name = preferred if preferred not in blocked else _unique_column_name(blocked, preferred)
+    elif str(nm) in blocked:
+        work.index.name = _unique_column_name(blocked, str(nm))
+    return work.reset_index()
 
 
 def parse_obs_columns(text: str) -> List[str]:
@@ -116,7 +221,7 @@ def import_data_for_session(
 
     capture = StringIO()
     try:
-        with redirect_stdout(capture):
+        with _isolate_stdio(capture):
             pdata = pAnnData.import_data(**kwargs)
     except Exception as exc:  # pragma: no cover - pass-through error formatting
         logs = capture.getvalue().strip()
@@ -139,7 +244,8 @@ def summary_records(session_id: str, limit: int = 50) -> Tuple[List[Dict[str, An
     if pdata is None:
         return [], []
     _refresh_summary_if_needed(pdata)
-    df = pdata.summary.reset_index().rename(columns={"index": "sample"})
+    df = _dataframe_reset_index_no_collision(pdata.summary, preferred="sample")
+    df = _make_columns_unique(df)
     df = df.head(limit)
     columns = [{"name": c, "id": c} for c in df.columns]
     return df.to_dict("records"), columns
@@ -187,7 +293,7 @@ def run_preprocessing(
 
     capture = StringIO()
     try:
-        with redirect_stdout(capture):
+        with _isolate_stdio(capture):
             pdata.normalize(method=normalize_method, layer=layer, set_X=True)
             pdata.impute(method=impute_method, layer="X", set_X=True)
     except Exception as exc:
@@ -200,37 +306,39 @@ def plot_summary_image(session_id: str, value: str, classes: Optional[List[str]]
     if pdata is None:
         return ""
     _refresh_summary_if_needed(pdata)
-    with new_figure((6, 4)) as fig:
-        ax = fig.add_subplot(111)
-        plotted = scplot.plot_summary(ax, pdata, value=value, classes=classes)
+    with _isolate_stdio():
+        with new_figure((6, 4)) as fig:
+            ax = fig.add_subplot(111)
+            plotted = scplot.plot_summary(ax, pdata, value=value, classes=classes)
 
-        # plot_summary may internally create and return axes on a new figure
-        # (e.g. multi-class grouped subplots). Export the actual plotted figure.
-        out_fig = fig
-        if plotted is not None:
-            if hasattr(plotted, "figure"):
-                out_fig = plotted.figure
-            elif isinstance(plotted, list) and plotted and hasattr(plotted[0], "figure"):
-                out_fig = plotted[0].figure
-            elif hasattr(plotted, "flat"):
-                flat_axes = list(plotted.flat)
-                if flat_axes and hasattr(flat_axes[0], "figure"):
-                    out_fig = flat_axes[0].figure
+            # plot_summary may internally create and return axes on a new figure
+            # (e.g. multi-class grouped subplots). Export the actual plotted figure.
+            out_fig = fig
+            if plotted is not None:
+                if hasattr(plotted, "figure"):
+                    out_fig = plotted.figure
+                elif isinstance(plotted, list) and plotted and hasattr(plotted[0], "figure"):
+                    out_fig = plotted[0].figure
+                elif hasattr(plotted, "flat"):
+                    flat_axes = list(plotted.flat)
+                    if flat_axes and hasattr(flat_axes[0], "figure"):
+                        out_fig = flat_axes[0].figure
 
-        data_uri = fig_to_data_uri(out_fig, fmt="png")
-        if out_fig is not fig:
-            plt.close(out_fig)
-        return data_uri
+            data_uri = fig_to_data_uri(out_fig, fmt="png")
+            if out_fig is not fig:
+                plt.close(out_fig)
+            return data_uri
 
 
 def plot_cv_image(session_id: str, classes: Optional[List[str]] = None, layer: str = "X") -> str:
     pdata = get_pdata(session_id)
     if pdata is None:
         return ""
-    with new_figure((6, 4)) as fig:
-        ax = fig.add_subplot(111)
-        scplot.plot_cv(ax, pdata, classes=classes, layer=layer)
-        return fig_to_data_uri(fig, fmt="png")
+    with _isolate_stdio():
+        with new_figure((6, 4)) as fig:
+            ax = fig.add_subplot(111)
+            scplot.plot_cv(ax, pdata, classes=classes, layer=layer)
+            return fig_to_data_uri(fig, fmt="png")
 
 
 def run_embeddings(
@@ -243,7 +351,7 @@ def run_embeddings(
         return False, "No dataset imported."
     capture = StringIO()
     try:
-        with redirect_stdout(capture):
+        with _isolate_stdio(capture):
             pdata.pca(layer=layer)
             pdata.neighbor(layer=layer)
             pdata.umap(layer=layer)
@@ -256,20 +364,22 @@ def plot_pca_image(session_id: str, classes: Optional[List[str]] = None, layer: 
     pdata = get_pdata(session_id)
     if pdata is None:
         return ""
-    with new_figure((6, 4)) as fig:
-        ax = fig.add_subplot(111)
-        scplot.plot_pca(ax, pdata, classes=classes, layer=layer, add_ellipses=True)
-        return fig_to_data_uri(fig, fmt="png")
+    with _isolate_stdio():
+        with new_figure((6, 4)) as fig:
+            ax = fig.add_subplot(111)
+            scplot.plot_pca(ax, pdata, classes=classes, layer=layer, add_ellipses=True)
+            return fig_to_data_uri(fig, fmt="png")
 
 
 def plot_umap_image(session_id: str, classes: Optional[List[str]] = None, layer: str = "X") -> str:
     pdata = get_pdata(session_id)
     if pdata is None:
         return ""
-    with new_figure((6, 4)) as fig:
-        ax = fig.add_subplot(111)
-        scplot.plot_umap(ax, pdata, classes=classes, layer=layer, add_ellipses=True)
-        return fig_to_data_uri(fig, fmt="png")
+    with _isolate_stdio():
+        with new_figure((6, 4)) as fig:
+            ax = fig.add_subplot(111)
+            scplot.plot_umap(ax, pdata, classes=classes, layer=layer, add_ellipses=True)
+            return fig_to_data_uri(fig, fmt="png")
 
 
 def plot_abundance_image(
@@ -281,10 +391,11 @@ def plot_abundance_image(
     pdata = get_pdata(session_id)
     if pdata is None:
         return ""
-    with new_figure((7, 4)) as fig:
-        ax = fig.add_subplot(111)
-        scplot.plot_abundance(ax, pdata, namelist=genes, classes=classes, layer=layer)
-        return fig_to_data_uri(fig, fmt="png")
+    with _isolate_stdio():
+        with new_figure((7, 4)) as fig:
+            ax = fig.add_subplot(111)
+            scplot.plot_abundance(ax, pdata, namelist=genes, classes=classes, layer=layer)
+            return fig_to_data_uri(fig, fmt="png")
 
 
 def run_de(
@@ -310,7 +421,7 @@ def run_de(
 
     capture = StringIO()
     try:
-        with redirect_stdout(capture):
+        with _isolate_stdio(capture):
             df = pdata.de(
                 values=[group1, group2],
                 method=method,
@@ -331,6 +442,13 @@ def volcano_plotly_figure(df: pd.DataFrame, pval: float, log2fc: float):
     dfp = df.reset_index().copy()
     if "p_value" not in dfp or "log2fc" not in dfp:
         return no_update
+    # Stable index into de-table-store rows (matches callback-built volcano after dropna).
+    dfp["__row_idx"] = list(range(len(dfp)))
+    dfp["p_value"] = pd.to_numeric(dfp["p_value"], errors="coerce")
+    dfp["log2fc"] = pd.to_numeric(dfp["log2fc"], errors="coerce")
+    dfp = dfp.dropna(subset=["p_value", "log2fc"])
+    if dfp.empty:
+        return no_update
     dfp["neg_log10_p"] = -dfp["p_value"].clip(lower=1e-300).apply(np.log10)
 
     fig = px.scatter(
@@ -338,7 +456,8 @@ def volcano_plotly_figure(df: pd.DataFrame, pval: float, log2fc: float):
         x="log2fc",
         y="neg_log10_p",
         color="significance" if "significance" in dfp.columns else None,
-        hover_data=[c for c in ["Genes", "p_value", "log2fc"] if c in dfp.columns],
+        hover_data=[c for c in ["Genes", "p_value", "log2fc", "index"] if c in dfp.columns],
+        custom_data=["__row_idx"],
         title="Volcano plot",
     )
     fig.add_vline(x=log2fc, line_dash="dash")
@@ -346,6 +465,56 @@ def volcano_plotly_figure(df: pd.DataFrame, pval: float, log2fc: float):
     fig.add_hline(y=-np.log10(max(pval, 1e-300)), line_dash="dash")
     fig.update_layout(template="plotly_white", height=460, margin=dict(l=30, r=20, t=50, b=30))
     return fig
+
+
+def volcano_svg_markup_from_records(records: List[Dict[str, Any]], pval: float, log2fc: float) -> str:
+    """Render DE records into standalone SVG markup for editor loading."""
+    if not records:
+        raise ValueError("No DE records available.")
+    df = pd.DataFrame(records)
+    if "log2fc" not in df.columns or "p_value" not in df.columns:
+        raise ValueError("DE records missing required columns: log2fc and p_value.")
+    df = df.copy()
+    df["p_value"] = pd.to_numeric(df["p_value"], errors="coerce")
+    df["log2fc"] = pd.to_numeric(df["log2fc"], errors="coerce")
+    df = df.dropna(subset=["p_value", "log2fc"])
+    if df.empty:
+        raise ValueError("DE records contain no valid numeric points.")
+    df["neg_log10_p"] = -np.log10(df["p_value"].clip(lower=1e-300))
+
+    with _isolate_stdio():
+        with new_figure((8, 5)) as fig:
+            ax = fig.add_subplot(111)
+            if "significance" in df.columns:
+                groups = df.groupby("significance")
+                for name, sub in groups:
+                    ax.scatter(sub["log2fc"], sub["neg_log10_p"], s=24, alpha=0.8, label=str(name))
+                if len(groups) > 1:
+                    ax.legend(loc="upper right", fontsize=8)
+            else:
+                ax.scatter(df["log2fc"], df["neg_log10_p"], s=24, alpha=0.8)
+            ax.axvline(log2fc, linestyle="--", linewidth=1)
+            ax.axvline(-log2fc, linestyle="--", linewidth=1)
+            ax.axhline(-np.log10(max(float(pval), 1e-300)), linestyle="--", linewidth=1)
+            ax.set_title("Volcano plot")
+            ax.set_xlabel("log2fc")
+            ax.set_ylabel("-log10(p_value)")
+            ax.grid(alpha=0.2)
+            stream = StringIO()
+            fig.savefig(stream, format="svg", bbox_inches="tight")
+            return stream.getvalue()
+
+
+def save_edited_svg_for_session(session_id: str, plot_key: str, svg_text: str) -> None:
+    """Sanitize and persist an edited SVG per session."""
+    clean = sanitize_svg_markup(svg_text)
+    set_edited_svg(session_id, plot_key, clean)
+
+
+def load_edited_svg_for_session(session_id: str, plot_key: str) -> str:
+    """Load persisted edited SVG markup for a plot key."""
+    svg_text = get_edited_svg(session_id, plot_key)
+    return sanitize_svg_markup(svg_text) if svg_text else ""
 
 
 def run_functional_enrichment(
@@ -362,7 +531,7 @@ def run_functional_enrichment(
 
     capture = StringIO()
     try:
-        with redirect_stdout(capture):
+        with _isolate_stdio(capture):
             pdata.enrichment_functional(
                 from_de=True,
                 de_key=de_key,
@@ -422,7 +591,8 @@ def summary_dataframe(session_id: str) -> pd.DataFrame:
     if pdata is None:
         return pd.DataFrame()
     _refresh_summary_if_needed(pdata)
-    return pdata.summary.reset_index().rename(columns={"index": "sample"}).copy()
+    df = _dataframe_reset_index_no_collision(pdata.summary, preferred="sample").copy()
+    return _make_columns_unique(df)
 
 
 def embedding_dataframe(session_id: str) -> pd.DataFrame:
@@ -432,9 +602,7 @@ def embedding_dataframe(session_id: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     obs = pdata.prot.obs.copy()
-    if obs.index.name is None:
-        obs.index.name = "sample"
-    out = obs.reset_index()
+    out = _dataframe_reset_index_no_collision(obs, preferred="sample")
 
     pca = pdata.prot.obsm.get("X_pca")
     if pca is not None and getattr(pca, "shape", (0, 0))[1] >= 2:

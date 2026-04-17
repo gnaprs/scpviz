@@ -21,6 +21,7 @@ class SessionState:
 
     pdata: Any = None
     uploads: Dict[str, str] = field(default_factory=dict)
+    edited_svgs: Dict[str, str] = field(default_factory=dict)
     last_log: str = ""
     last_access_ts: float = field(default_factory=time.time)
     lock: Lock = field(default_factory=Lock, repr=False)
@@ -40,6 +41,7 @@ def _state_to_payload(state: SessionState) -> bytes:
     payload = {
         "pdata": state.pdata,
         "uploads": state.uploads,
+        "edited_svgs": state.edited_svgs,
         "last_log": state.last_log,
         "last_access_ts": state.last_access_ts,
     }
@@ -51,6 +53,7 @@ def _payload_to_state(payload: bytes) -> SessionState:
     return SessionState(
         pdata=obj.get("pdata"),
         uploads=dict(obj.get("uploads", {})),
+        edited_svgs=dict(obj.get("edited_svgs", {})),
         last_log=str(obj.get("last_log", "")),
         last_access_ts=float(obj.get("last_access_ts", time.time())),
     )
@@ -230,4 +233,38 @@ def get_last_log(session_id: str) -> str:
         return state.last_log if state else ""
 
     return _with_memory_session(session_id, lambda s: s.last_log)
+
+
+def set_edited_svg(session_id: str, plot_key: str, svg_text: str) -> None:
+    """Persist edited SVG markup for a plot key in a session."""
+    if not plot_key:
+        raise ValueError("plot_key is required")
+    if _USE_REDIS and _REDIS_CLIENT is not None:
+        lock = _REDIS_CLIENT.lock(_redis_lock_key(session_id), timeout=30, blocking_timeout=5)
+        with lock:
+            state = _redis_get_state(session_id, create=True) or SessionState()
+            if svg_text:
+                state.edited_svgs[plot_key] = svg_text
+            else:
+                state.edited_svgs.pop(plot_key, None)
+            _redis_set_state(session_id, state)
+        return
+
+    def _set(session: SessionState) -> None:
+        if svg_text:
+            session.edited_svgs[plot_key] = svg_text
+        else:
+            session.edited_svgs.pop(plot_key, None)
+
+    _with_memory_session(session_id, _set)
+
+
+def get_edited_svg(session_id: str, plot_key: str) -> str:
+    """Return edited SVG markup for a plot key if present."""
+    if not plot_key:
+        return ""
+    if _USE_REDIS and _REDIS_CLIENT is not None:
+        state = _redis_get_state(session_id, create=False)
+        return state.edited_svgs.get(plot_key, "") if state else ""
+    return _with_memory_session(session_id, lambda s: s.edited_svgs.get(plot_key, ""))
 
