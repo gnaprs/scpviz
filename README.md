@@ -81,6 +81,63 @@ Use the dedicated guide:
 
 - [DEPLOY_CLOUDFLARE.md](DEPLOY_CLOUDFLARE.md)
 
+### Standard Operating Protocol (SOP)
+
+Use this checklist for a complete analysis run:
+
+1. **Start app**
+   - `python -m dash_app.app`
+   - Open `http://127.0.0.1:8050`
+2. **Import (Tab 1)**
+   - Choose `Proteome Discoverer (PD)` or `DIA-NN`
+   - Upload required file(s)
+   - Click `Import dataset`
+   - Confirm import log + summary table
+3. **QC (Tab 2)**
+   - Set grouping/metric as needed
+   - Click `Refresh QC plots`
+   - Optionally apply min-protein filter
+4. **Preprocess (Tab 3)**
+   - Choose normalize/impute settings
+   - Click `Run preprocessing`
+5. **Embeddings (Tab 4)**
+   - Set class columns + abundance genes/proteins
+   - Click `Compute embeddings + plots`
+   - Confirm PCA/UMAP/abundance figures
+6. **Differential expression (Tab 5)**
+   - Configure group filters and method
+   - Click `Run DE + volcano`
+   - Confirm DE table + volcano plot
+7. **Volcano styling and labels (Tab 5)**
+   - Adjust colors, font, thresholds
+   - Add labels from selection/click or by list/cutoff
+   - Use exact/substring matching toggle for list labeling
+   - Use label manager for update/delete/snap
+8. **STRING enrichment (Tab 6)**
+   - Refresh/select DE key
+   - Run enrichment
+   - Load STRING SVG/network
+9. **Plot editor (Tab 7)**
+   - Open from DE/enrichment or load directly in tab
+   - Edit SVG, save, and optionally download edited SVG
+10. **Export**
+   - Download per-tab CSVs as needed
+   - Use `Download all tables + plots (ZIP)` for full bundle
+
+### Troubleshooting
+
+- **DE fails with default JSON keys**
+  - If your dataset uses `treatment` instead of `condition`, update group JSON accordingly (for example `{"cellline":"BE","treatment":"kd"}` vs `{"cellline":"BE","treatment":"sc"}`).
+- **Volcano labels are not added**
+  - Ensure DE has run and points are selected/clicked first.
+  - If using list-based labels, verify exact vs substring toggle and list tokens.
+- **Too many labels reduce readability**
+  - Lower `Max labels`, use stricter p-value/log2FC cutoffs, and use snap/dodge tools.
+- **STRING enrichment outputs missing**
+  - Re-run enrichment, refresh keys, and ensure network access to STRING API.
+- **Bundle ZIP missing files**
+  - ZIP includes only artifacts generated in the current session; run the corresponding tab steps first.
+
 ## Contributing
 
 If you'll like to contribute to `scpviz`, please see the [contributing guidelines](https://gnaprs.github.io/scpviz/dev/contributing/). We welcome contributions from the community to help improve, expand, and document the functionality of scpviz.

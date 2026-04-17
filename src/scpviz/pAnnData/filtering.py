@@ -1,4 +1,3 @@
-from tkinter import N
 import numpy as np
 import pandas as pd
 from scpviz import utils

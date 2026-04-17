@@ -6,6 +6,23 @@ All notable changes to this project are documented here.
 
 #### Added
 
+##### (Dash App)
+
+- Add full Dash workflow UI and callbacks for import, QC, preprocessing, embeddings, DE, STRING enrichment, and export bundle flow.
+- Add in-app Plot Editor tab with SVG load/save/download flow and bridge assets for browser-side editing.
+- Add context entry buttons to open editor directly from DE and enrichment tabs.
+- Add DE volcano style controls (color/font/cutoffs), label manager, and label utilities:
+  - add from selection/click
+  - add by list or cutoff rules
+  - exact vs substring token matching
+  - label limit warning and max label cap
+  - priority sort for rule-based auto-labeling
+- Add native popup color-picker utilities in DE tab via frontend bridge.
+- Add Cloudflare deployment docs and compose profile:
+  - `DEPLOY_CLOUDFLARE.md`
+  - `docker-compose.cloudflare.yml`
+- Add SOP + troubleshooting guide to README for end-to-end app operation.
+
 
 ##### (Analysis)
 
@@ -152,6 +169,15 @@ All notable changes to this project are documented here.
 
 #### Changed
 
+##### (Dash App)
+
+- Rework DE interaction model to stabilize point-to-row mapping by using explicit custom row IDs across volcano traces.
+- Improve DE selection UX and messaging (selection/click handling, unresolved mapping messages).
+- Upgrade label rendering to boxed text with connector lines anchored from point to label position.
+- Add label dodging and improved default placement logic for dense plots.
+- Add configurable highlight behavior for labeled points with toggle and custom color.
+- Improve browser bridge behavior/performance with safer event handling and reduced noisy updates.
+
 
 ##### (Directlfq)
 
@@ -278,6 +304,16 @@ All notable changes to this project are documented here.
 
 
 #### Fixed
+
+##### (Dash App)
+
+- Fix bundle export crash from dataframe index/column collisions (`sample` naming conflict) by using collision-safe index reset logic.
+- Fix cp932/Windows console encoding failures during plotting/log capture via stdio isolation.
+- Fix volcano `px` import/mapping issues and prevent selection-driven redraw loops.
+- Fix stale editor state updates when SVG payload is empty.
+- Fix DE color-control responsiveness so style changes apply immediately.
+- Fix color-picker popup reliability in Dash UI.
+- Fix annotation direction and relayout synchronization for moved labels.
 
 
 ##### (Analysis)
