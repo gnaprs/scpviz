@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>scpviz Web-App User Guide</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      background: #0b1220;
+      color: #e5e7eb;
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 22px;
+    }
+    h1, h2 {
+      margin: 0 0 10px 0;
+      color: #dbeafe;
+    }
+    .hint {
+      margin-bottom: 18px;
+      color: #94a3b8;
+      font-size: 14px;
+    }
+    .step {
+      border: 1px solid #24324c;
+      border-radius: 12px;
+      background: #0f172a;
+      padding: 14px;
+      margin-bottom: 18px;
+    }
+    .step h3 {
+      margin: 0 0 8px 0;
+      color: #bfdbfe;
+      font-size: 18px;
+    }
+    .button {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid #1d4ed8;
+      background: #172848;
+      color: #93c5fd;
+      font-size: 12px;
+      font-weight: 700;
+      margin-left: 6px;
+    }
+    ol {
+      margin: 8px 0 12px 20px;
+      padding: 0;
+    }
+    img {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      background: #0b1325;
+    }
+    .nav {
+      margin: 0 0 14px 0;
+      font-size: 13px;
+      color: #93c5fd;
+    }
+    .nav a {
+      color: #93c5fd;
+      text-decoration: none;
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>scpviz Step-by-Step User Guide</h1>
+    <p class="hint">This page shows real screenshots from the app and exactly which button to click at each step.</p>
+    <p class="nav">
+      <a href="#step1">Start</a>
+      <a href="#step2">Import</a>
+      <a href="#step3">QC</a>
+      <a href="#step4">Preprocess</a>
+      <a href="#step5">Embeddings</a>
+      <a href="#step6">DE</a>
+      <a href="#step7">Enrichment</a>
+      <a href="#step8">Editor</a>
+    </p>
+
+    <section class="step" id="step1">
+      <h3>1) Start the app</h3>
+      <ol>
+        <li>Run <code>python -m dash_app.app</code>.</li>
+        <li>Open <code>http://127.0.0.1:8050</code>.</li>
+      </ol>
+      <img src="guide/01_home.png" alt="Home screen with tabs" />
+    </section>
+
+    <section class="step" id="step2">
+      <h3>2) Import your data</h3>
+      <ol>
+        <li>Go to tab <strong>1) Import</strong>.</li>
+        <li>Upload required files.</li>
+        <li>Click <span class="button">Import dataset</span>.</li>
+      </ol>
+      <img src="guide/02_import_tab.png" alt="Import tab" />
+    </section>
+
+    <section class="step" id="step3">
+      <h3>3) Run QC</h3>
+      <ol>
+        <li>Open tab <strong>2) QC</strong>.</li>
+        <li>Choose metric/grouping if needed.</li>
+        <li>Click <span class="button">Refresh QC plots</span>.</li>
+      </ol>
+      <img src="guide/03_qc_tab.png" alt="QC tab" />
+    </section>
+
+    <section class="step" id="step4">
+      <h3>4) Preprocess</h3>
+      <ol>
+        <li>Open tab <strong>3) Preprocess</strong>.</li>
+        <li>Select normalize/impute options.</li>
+        <li>Click <span class="button">Run preprocessing</span>.</li>
+      </ol>
+      <img src="guide/04_preprocess_tab.png" alt="Preprocess tab" />
+    </section>
+
+    <section class="step" id="step5">
+      <h3>5) Compute embeddings</h3>
+      <ol>
+        <li>Open tab <strong>4) Embeddings + Abundance</strong>.</li>
+        <li>Set classes/genes.</li>
+        <li>Click <span class="button">Compute embeddings + plots</span>.</li>
+      </ol>
+      <img src="guide/05_embed_tab.png" alt="Embeddings tab" />
+    </section>
+
+    <section class="step" id="step6">
+      <h3>6) Differential expression and volcano labels</h3>
+      <ol>
+        <li>Open tab <strong>5) Differential Expression</strong>.</li>
+        <li>Set group filters.</li>
+        <li>Click <span class="button">Run DE + volcano</span>.</li>
+        <li>Use label/style controls as needed.</li>
+      </ol>
+      <img src="guide/06_de_tab.png" alt="Differential expression tab" />
+    </section>
+
+    <section class="step" id="step7">
+      <h3>7) STRING enrichment</h3>
+      <ol>
+        <li>Open tab <strong>6) STRING Enrichment</strong>.</li>
+        <li>Click <span class="button">Run functional enrichment</span>.</li>
+        <li>Then click <span class="button">Load STRING SVG</span>.</li>
+      </ol>
+      <img src="guide/07_enrich_tab.png" alt="STRING enrichment tab" />
+    </section>
+
+    <section class="step" id="step8">
+      <h3>8) SVG editor and export</h3>
+      <ol>
+        <li>Open tab <strong>7) Plot Editor</strong> (or click open-editor buttons from DE/Enrichment tabs).</li>
+        <li>Edit graphics and click <span class="button">Save Edits</span>.</li>
+        <li>Export using <span class="button">Download Edited SVG</span> or the main bundle button in the app header.</li>
+      </ol>
+      <img src="guide/08_editor_tab.png" alt="Plot editor tab" />
+    </section>
+  </div>
+</body>
+</html>

@@ -208,6 +208,12 @@ def build_layout():
                     html.H2("scpviz Dash Web App", style=TITLE_STYLE),
                     html.P("Upload files and run the full proteomics workflow.", style=SUBTITLE_STYLE),
                     html.Button("Download all tables + plots (ZIP)", id="btn-download-bundle", n_clicks=0, style=BUNDLE_BUTTON_STYLE),
+                    html.A(
+                        "Open step-by-step user guide",
+                        href="/assets/user_guide.html",
+                        target="_blank",
+                        style={**BUTTON_SUBTLE_STYLE, "display": "inline-block", "marginLeft": "10px", "marginBottom": "14px", "textDecoration": "none"},
+                    ),
                     dcc.Tabs(
                         id="main-tabs",
                         value="tab-import",
