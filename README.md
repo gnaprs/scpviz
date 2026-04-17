@@ -75,6 +75,12 @@ Then open the local URL shown in the terminal (typically `http://127.0.0.1:8050`
 - This MVP targets local, single-user usage with in-memory session state.
 - Existing `scpviz` plotting functions are rendered in the app via image conversion where needed, and Plotly-native rendering is used for volcano visualization.
 
+### Deploy behind Cloudflare
+
+Use the dedicated guide:
+
+- [DEPLOY_CLOUDFLARE.md](DEPLOY_CLOUDFLARE.md)
+
 ## Contributing
 
 If you'll like to contribute to `scpviz`, please see the [contributing guidelines](https://gnaprs.github.io/scpviz/dev/contributing/). We welcome contributions from the community to help improve, expand, and document the functionality of scpviz.

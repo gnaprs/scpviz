@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  web:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - PORT=8050
+      - REDIS_URL=redis://redis:6379/0
+      - SCPVIZ_SESSION_TTL_SECONDS=21600
+    expose:
+      - "8050"
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    depends_on:
+      - web
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
