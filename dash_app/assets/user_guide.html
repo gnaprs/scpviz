@@ -3,167 +3,140 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>scpviz Web-App User Guide</title>
+  <title>scpviz Click-by-Click User Guide</title>
   <style>
-    body {
-      margin: 0;
-      font-family: Inter, "Segoe UI", Arial, sans-serif;
-      background: #0b1220;
-      color: #e5e7eb;
-      line-height: 1.5;
-    }
-    .wrap {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 22px;
-    }
-    h1, h2 {
-      margin: 0 0 10px 0;
-      color: #dbeafe;
-    }
-    .hint {
-      margin-bottom: 18px;
-      color: #94a3b8;
-      font-size: 14px;
-    }
-    .step {
-      border: 1px solid #24324c;
-      border-radius: 12px;
-      background: #0f172a;
-      padding: 14px;
-      margin-bottom: 18px;
-    }
-    .step h3 {
-      margin: 0 0 8px 0;
-      color: #bfdbfe;
-      font-size: 18px;
-    }
-    .button {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 999px;
-      border: 1px solid #1d4ed8;
-      background: #172848;
-      color: #93c5fd;
-      font-size: 12px;
-      font-weight: 700;
-      margin-left: 6px;
-    }
-    ol {
-      margin: 8px 0 12px 20px;
-      padding: 0;
-    }
-    img {
-      width: 100%;
-      border-radius: 10px;
-      border: 1px solid #334155;
-      background: #0b1325;
-    }
-    .nav {
-      margin: 0 0 14px 0;
-      font-size: 13px;
-      color: #93c5fd;
-    }
-    .nav a {
-      color: #93c5fd;
-      text-decoration: none;
-      margin-right: 10px;
-    }
+    body { margin: 0; font-family: Inter, "Segoe UI", Arial, sans-serif; background: #0b1220; color: #e5e7eb; line-height: 1.5; }
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 22px; }
+    h1 { margin: 0 0 10px 0; color: #dbeafe; }
+    .hint { margin-bottom: 16px; color: #94a3b8; font-size: 14px; }
+    .dataset { border: 1px solid #2b3a56; border-radius: 10px; background: #0f172a; padding: 10px 12px; margin-bottom: 18px; }
+    .step { border: 1px solid #24324c; border-radius: 12px; background: #0f172a; padding: 14px; margin-bottom: 18px; }
+    .step h3 { margin: 0 0 8px 0; color: #bfdbfe; font-size: 18px; }
+    .action { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #1d4ed8; background: #172848; color: #93c5fd; font-size: 12px; font-weight: 700; }
+    ul { margin: 8px 0 12px 20px; padding: 0; }
+    li { margin-bottom: 4px; }
+    img { width: 100%; border-radius: 10px; border: 1px solid #334155; background: #0b1325; }
+    code { background: #101827; border: 1px solid #334155; border-radius: 6px; padding: 1px 6px; color: #cbd5e1; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>scpviz Step-by-Step User Guide</h1>
-    <p class="hint">This page shows real screenshots from the app and exactly which button to click at each step.</p>
-    <p class="nav">
-      <a href="#step1">Start</a>
-      <a href="#step2">Import</a>
-      <a href="#step3">QC</a>
-      <a href="#step4">Preprocess</a>
-      <a href="#step5">Embeddings</a>
-      <a href="#step6">DE</a>
-      <a href="#step7">Enrichment</a>
-      <a href="#step8">Editor</a>
-    </p>
+    <h1>scpviz Step-by-Step Protocol (Real Test Data)</h1>
+    <p class="hint">This guide uses a real fixture from the <code>tests</code> folder and enumerates each required button action.</p>
+    <div class="dataset">
+      <strong>Dataset used:</strong> <code>tests/test_diann_prot.tsv</code><br />
+      <strong>Source type:</strong> DIA-NN
+    </div>
 
-    <section class="step" id="step1">
-      <h3>1) Start the app</h3>
-      <ol>
+    <section class="step">
+      <h3>Step 1 — Launch app</h3>
+      <ul>
         <li>Run <code>python -m dash_app.app</code>.</li>
         <li>Open <code>http://127.0.0.1:8050</code>.</li>
-      </ol>
-      <img src="guide/01_home.png" alt="Home screen with tabs" />
+      </ul>
+      <img src="guide/01_start_home.png" alt="App home page after launch" />
     </section>
 
-    <section class="step" id="step2">
-      <h3>2) Import your data</h3>
-      <ol>
-        <li>Go to tab <strong>1) Import</strong>.</li>
-        <li>Upload required files.</li>
-        <li>Click <span class="button">Import dataset</span>.</li>
-      </ol>
-      <img src="guide/02_import_tab.png" alt="Import tab" />
+    <section class="step">
+      <h3>Step 2 — Upload test file</h3>
+      <ul>
+        <li>Open tab <strong>1) Import</strong>.</li>
+        <li>Select source type <strong>DIA-NN</strong>.</li>
+        <li>Upload <code>tests/test_diann_prot.tsv</code> via DIA-NN upload button.</li>
+      </ul>
+      <img src="guide/02_import_uploaded_diann.png" alt="Import tab after DIA-NN file upload" />
     </section>
 
-    <section class="step" id="step3">
-      <h3>3) Run QC</h3>
-      <ol>
+    <section class="step">
+      <h3>Step 3 — Import dataset</h3>
+      <ul>
+        <li>Click <span class="action">Import dataset</span>.</li>
+      </ul>
+      <img src="guide/03_import_after_click_import_dataset.png" alt="Import tab after clicking Import dataset" />
+    </section>
+
+    <section class="step">
+      <h3>Step 4 — Refresh QC plots</h3>
+      <ul>
         <li>Open tab <strong>2) QC</strong>.</li>
-        <li>Choose metric/grouping if needed.</li>
-        <li>Click <span class="button">Refresh QC plots</span>.</li>
-      </ol>
-      <img src="guide/03_qc_tab.png" alt="QC tab" />
+        <li>Click <span class="action">Refresh QC plots</span>.</li>
+      </ul>
+      <img src="guide/04_qc_after_refresh_qc_plots.png" alt="QC tab after refresh" />
     </section>
 
-    <section class="step" id="step4">
-      <h3>4) Preprocess</h3>
-      <ol>
+    <section class="step">
+      <h3>Step 5 — Run preprocessing</h3>
+      <ul>
         <li>Open tab <strong>3) Preprocess</strong>.</li>
-        <li>Select normalize/impute options.</li>
-        <li>Click <span class="button">Run preprocessing</span>.</li>
-      </ol>
-      <img src="guide/04_preprocess_tab.png" alt="Preprocess tab" />
+        <li>Click <span class="action">Run preprocessing</span>.</li>
+      </ul>
+      <img src="guide/05_preprocess_after_run_preprocessing.png" alt="Preprocess tab after run" />
     </section>
 
-    <section class="step" id="step5">
-      <h3>5) Compute embeddings</h3>
-      <ol>
+    <section class="step">
+      <h3>Step 6 — Compute embeddings and abundance plots</h3>
+      <ul>
         <li>Open tab <strong>4) Embeddings + Abundance</strong>.</li>
-        <li>Set classes/genes.</li>
-        <li>Click <span class="button">Compute embeddings + plots</span>.</li>
-      </ol>
-      <img src="guide/05_embed_tab.png" alt="Embeddings tab" />
+        <li>Click <span class="action">Compute embeddings + plots</span>.</li>
+      </ul>
+      <img src="guide/06_embeddings_after_compute_embeddings_plots.png" alt="Embeddings tab after compute" />
     </section>
 
-    <section class="step" id="step6">
-      <h3>6) Differential expression and volcano labels</h3>
-      <ol>
+    <section class="step">
+      <h3>Step 7 — Run DE volcano</h3>
+      <ul>
         <li>Open tab <strong>5) Differential Expression</strong>.</li>
-        <li>Set group filters.</li>
-        <li>Click <span class="button">Run DE + volcano</span>.</li>
-        <li>Use label/style controls as needed.</li>
-      </ol>
-      <img src="guide/06_de_tab.png" alt="Differential expression tab" />
+        <li>Click <span class="action">Run DE + volcano</span>.</li>
+      </ul>
+      <img src="guide/07_de_after_run_de_volcano.png" alt="DE tab after run DE + volcano" />
     </section>
 
-    <section class="step" id="step7">
-      <h3>7) STRING enrichment</h3>
-      <ol>
+    <section class="step">
+      <h3>Step 8 — Add label from selection/click</h3>
+      <ul>
+        <li>Select or click point(s) in volcano plot.</li>
+        <li>Click <span class="action">Add labels from selection/click</span>.</li>
+      </ul>
+      <img src="guide/08_de_after_add_labels_selection_click.png" alt="DE tab after label add button" />
+    </section>
+
+    <section class="step">
+      <h3>Step 9 — Run enrichment and load STRING SVG</h3>
+      <ul>
         <li>Open tab <strong>6) STRING Enrichment</strong>.</li>
-        <li>Click <span class="button">Run functional enrichment</span>.</li>
-        <li>Then click <span class="button">Load STRING SVG</span>.</li>
-      </ol>
-      <img src="guide/07_enrich_tab.png" alt="STRING enrichment tab" />
+        <li>Click <span class="action">Refresh DE keys</span>.</li>
+        <li>Select a DE key.</li>
+        <li>Click <span class="action">Run functional enrichment</span>.</li>
+        <li>Click <span class="action">Refresh functional keys</span>.</li>
+        <li>Select a functional key.</li>
+        <li>Click <span class="action">Load STRING SVG</span>.</li>
+      </ul>
+      <img src="guide/09_enrichment_after_run_and_load_svg.png" alt="Enrichment tab after enrichment and SVG load" />
     </section>
 
-    <section class="step" id="step8">
-      <h3>8) SVG editor and export</h3>
-      <ol>
-        <li>Open tab <strong>7) Plot Editor</strong> (or click open-editor buttons from DE/Enrichment tabs).</li>
-        <li>Edit graphics and click <span class="button">Save Edits</span>.</li>
-        <li>Export using <span class="button">Download Edited SVG</span> or the main bundle button in the app header.</li>
-      </ol>
-      <img src="guide/08_editor_tab.png" alt="Plot editor tab" />
+    <section class="step">
+      <h3>Step 10 — Open editor from enrichment</h3>
+      <ul>
+        <li>Click <span class="action">Open SVG editor</span> in tab 6.</li>
+        <li>Confirm tab <strong>7) Plot Editor</strong> opens.</li>
+      </ul>
+      <img src="guide/10_editor_opened_from_enrichment_button.png" alt="Editor tab opened from enrichment button" />
+    </section>
+
+    <section class="step">
+      <h3>Step 11 — Save editor changes</h3>
+      <ul>
+        <li>In tab 7, click <span class="action">Save Edits</span>.</li>
+      </ul>
+      <img src="guide/11_editor_after_save_edits.png" alt="Editor tab after save edits button" />
+    </section>
+
+    <section class="step">
+      <h3>Step 12 — Export full bundle</h3>
+      <ul>
+        <li>Click top button <span class="action">Download all tables + plots (ZIP)</span>.</li>
+      </ul>
+      <img src="guide/12_export_bundle_button_clicked.png" alt="Main page after clicking bundle export button" />
     </section>
   </div>
 </body>
