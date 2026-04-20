@@ -1,6 +1,7 @@
 import base64
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -11,11 +12,13 @@ from dash_app.state.session import set_pdata
 
 from dash_app.services.scpviz_service import (
     _isolate_stdio,
+    de_keys,
     embedding_dataframe,
     import_data_for_session,
     load_edited_svg_for_session,
     parse_obs_columns,
     plot_summary_image,
+    run_de,
     save_edited_svg_for_session,
     save_upload_contents,
     summary_dataframe,
@@ -240,4 +243,53 @@ def test_volcano_svg_markup_from_records():
     svg = volcano_svg_markup_from_records(records, pval=0.05, log2fc=1.0)
     assert "<svg" in svg
     assert "</svg>" in svg
+
+
+def test_run_de_calls_set_pdata_and_de_keys_non_empty():
+    """DE mutates pdata.stats; set_pdata ensures Redis-backed sessions see keys on later callbacks."""
+    root = Path(__file__).resolve().parents[1]
+    prot_file = root / "dev" / "pd_prot_short.txt"
+    pep_file = root / "dev" / "pd_pep_short.txt"
+    session_id = "test-dash-de-persist"
+
+    save_upload_contents(
+        session_id=session_id,
+        upload_key="prot_file",
+        contents=_encode_file_as_upload_payload(prot_file),
+        filename=prot_file.name,
+    )
+    save_upload_contents(
+        session_id=session_id,
+        upload_key="pep_file",
+        contents=_encode_file_as_upload_payload(pep_file),
+        filename=pep_file.name,
+    )
+    ok, message = import_data_for_session(
+        session_id=session_id,
+        source_type="pd",
+        obs_columns_text="sample,cellline,treatment",
+    )
+    assert ok, message
+
+    group1 = '{"cellline": "AS", "treatment": "kd"}'
+    group2 = '{"cellline": "AS", "treatment": "sc"}'
+
+    with patch("dash_app.services.scpviz_service.set_pdata") as mock_set_pdata:
+        ok_de, msg_de, df = run_de(
+            session_id=session_id,
+            group1_json=group1,
+            group2_json=group2,
+            method="ttest",
+            layer="X",
+            pval=0.05,
+            log2fc=1.0,
+        )
+        assert ok_de, msg_de
+        assert df is not None
+        mock_set_pdata.assert_called_once()
+        assert mock_set_pdata.call_args[0][0] == session_id
+
+    keys = de_keys(session_id)
+    assert keys, "Enrichment DE dropdown should list at least one contrast after DE"
+    assert any(" vs " in k for k in keys)
 

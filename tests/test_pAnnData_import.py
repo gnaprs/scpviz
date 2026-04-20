@@ -159,6 +159,24 @@ def test_import_diann_new():
     assert pdata.pep is not None
     assert pdata.rs is not None
 
+
+def test_import_diann_parquet_fewer_obs_columns_than_run_tokens():
+    """App/guide users may pass a short obs_columns list; import must not fail on column rename."""
+    test_dir = Path(__file__).parent
+    diann_file = str(test_dir / "test_diann.parquet")
+    pdata = pAnnData.import_data(
+        source_type="diann",
+        report_file=diann_file,
+        obs_columns=["sample", "cellline", "treatment"],
+    )
+    assert pdata is not None
+    assert pdata.prot is not None
+    n_tok = pdata.prot.obs.shape[1]
+    assert n_tok >= 3
+    cols = list(pdata.prot.obs.columns)
+    assert cols[:3] == ["sample", "cellline", "treatment"]
+    assert cols[3] == "run_token_4"
+
 def test_import_diann_old_delimiter():
     # pre diann v1.8.1
     test_dir = Path(__file__).parent

@@ -262,7 +262,17 @@ def de_keys(session_id: str) -> List[str]:
     pdata = get_pdata(session_id)
     if pdata is None:
         return []
-    return sorted([k for k in pdata.stats.keys() if "vs" in k and not k.endswith(("_up", "_down"))])
+    reserved = {"functional", "ppi"}
+    keys: List[str] = []
+    for k, val in pdata.stats.items():
+        if not isinstance(k, str) or k in reserved:
+            continue
+        if "vs" not in k or k.endswith(("_up", "_down")):
+            continue
+        if not isinstance(val, pd.DataFrame):
+            continue
+        keys.append(k)
+    return sorted(keys)
 
 
 def functional_keys(session_id: str) -> List[str]:
@@ -432,6 +442,9 @@ def run_de(
     except Exception as exc:
         return False, f"DE failed: {exc}", None
 
+    # Persist mutated stats (.stats DE keys) for Redis-backed sessions; each get_pdata
+    # reloads from storage, so in-place updates are otherwise lost across callbacks.
+    set_pdata(session_id, pdata)
     return True, "DE complete.\n" + capture.getvalue().strip(), df
 
 

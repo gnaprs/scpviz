@@ -535,6 +535,27 @@ def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[
 
     return pdata
 
+def _align_obs_column_names(n_cols: int, obs_columns: Optional[List[str]]) -> List:
+    """
+    Build `.obs` column labels with length exactly ``n_cols``.
+
+    Import paths (notably DIA-NN) may split run names into more tokens than the user
+    supplied ``obs_columns`` entries; assigning a short list to ``DataFrame.columns``
+    raises a length mismatch. We pad with generic names so import always succeeds.
+    """
+    if n_cols <= 0:
+        return []
+    if not obs_columns:
+        return list(range(n_cols))
+    names: List = []
+    for i in range(n_cols):
+        if i < len(obs_columns):
+            names.append(obs_columns[i])
+        else:
+            names.append(f"run_token_{i + 1}")
+    return names
+
+
 def _safe_strip(df_like):
     """Safely strip whitespace from strings in a DataFrame or Series."""
     import sys
@@ -638,7 +659,7 @@ def _create_pAnnData_from_parts(
         pdata.prot.var = pd.DataFrame(prot_var) # type: ignore[attr-defined]
         pdata.prot.obs_names = list(prot_obs_names) # type: ignore[attr-defined]
         pdata.prot.var_names = list(prot_var_names) # type: ignore[attr-defined]
-        pdata.prot.obs.columns = obs_columns if obs_columns else list(range(pdata.prot.obs.shape[1])) # type: ignore[attr-defined]
+        pdata.prot.obs.columns = _align_obs_column_names(pdata.prot.obs.shape[1], obs_columns) # type: ignore[attr-defined]
         pdata.prot.layers['X_raw'] = prot_X # type: ignore[attr-defined]
         pdata.prot.uns['X_raw_obs_names'] = list(prot_obs_names) # type: ignore[attr-defined]
         pdata.prot.uns['X_raw_var_names'] = list(prot_var_names)
@@ -658,7 +679,7 @@ def _create_pAnnData_from_parts(
         pdata.pep.var = pd.DataFrame(pep_var) # type: ignore[attr-defined]
         pdata.pep.obs_names = list(pep_obs_names) # type: ignore[attr-defined]
         pdata.pep.var_names = list(pep_var_names) # type: ignore[attr-defined]
-        pdata.pep.obs.columns = obs_columns if obs_columns else list(range(pdata.pep.obs.shape[1])) # type: ignore[attr-defined]
+        pdata.pep.obs.columns = _align_obs_column_names(pdata.pep.obs.shape[1], obs_columns) # type: ignore[attr-defined]
         pdata.pep.layers['X_raw'] = pep_X # type: ignore[attr-defined]
         pdata.pep.uns['X_raw_obs_names'] = list(pep_obs_names) # type: ignore[attr-defined]
         pdata.pep.uns['X_raw_var_names'] = list(pep_var_names)

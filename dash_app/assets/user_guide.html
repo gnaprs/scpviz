@@ -24,7 +24,7 @@
     <h1>scpviz Step-by-Step Protocol (Real Test Data)</h1>
     <p class="hint">This guide uses a real fixture from the <code>tests</code> folder and enumerates each required button action.</p>
     <div class="dataset">
-      <strong>Dataset used:</strong> <code>tests/test_diann_prot.tsv</code><br />
+      <strong>Dataset used:</strong> <code>tests/test_diann.parquet</code><br />
       <strong>Source type:</strong> DIA-NN
     </div>
 
@@ -42,13 +42,23 @@
       <ul>
         <li>Open tab <strong>1) Import</strong>.</li>
         <li>Select source type <strong>DIA-NN</strong>.</li>
-        <li>Upload <code>tests/test_diann_prot.tsv</code> via DIA-NN upload button.</li>
+        <li>Upload <code>tests/test_diann.parquet</code> via DIA-NN upload button.</li>
       </ul>
       <img src="guide/02_import_uploaded_diann.png" alt="Import tab after DIA-NN file upload" />
     </section>
 
     <section class="step">
-      <h3>Step 3 — Import dataset</h3>
+      <h3>Step 3 — Required: use obs helper</h3>
+      <ul>
+        <li>Click <span class="action">obs_columns helper</span>.</li>
+        <li>Click <span class="action">Apply to obs_columns</span>.</li>
+        <li><strong>Do not skip this step.</strong> Proper imports should apply helper-generated <code>obs_columns</code> before import.</li>
+      </ul>
+      <img src="guide/02b_import_obs_helper_applied.png" alt="Import tab with obs helper applied" />
+    </section>
+
+    <section class="step">
+      <h3>Step 4 — Import dataset</h3>
       <ul>
         <li>Click <span class="action">Import dataset</span>.</li>
       </ul>
@@ -56,7 +66,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 4 — Refresh QC plots</h3>
+      <h3>Step 5 — Refresh QC plots</h3>
       <ul>
         <li>Open tab <strong>2) QC</strong>.</li>
         <li>Click <span class="action">Refresh QC plots</span>.</li>
@@ -65,7 +75,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 5 — Run preprocessing</h3>
+      <h3>Step 6 — Run preprocessing</h3>
       <ul>
         <li>Open tab <strong>3) Preprocess</strong>.</li>
         <li>Click <span class="action">Run preprocessing</span>.</li>
@@ -74,7 +84,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 6 — Compute embeddings and abundance plots</h3>
+      <h3>Step 7 — Compute embeddings and abundance plots</h3>
       <ul>
         <li>Open tab <strong>4) Embeddings + Abundance</strong>.</li>
         <li>Click <span class="action">Compute embeddings + plots</span>.</li>
@@ -83,7 +93,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 7 — Run DE volcano</h3>
+      <h3>Step 8 — Run DE volcano</h3>
       <ul>
         <li>Open tab <strong>5) Differential Expression</strong>.</li>
         <li>Click <span class="action">Run DE + volcano</span>.</li>
@@ -92,7 +102,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 8 — Add label from selection/click</h3>
+      <h3>Step 9 — Add label from selection/click</h3>
       <ul>
         <li>Select or click point(s) in volcano plot.</li>
         <li>Click <span class="action">Add labels from selection/click</span>.</li>
@@ -101,7 +111,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 9 — Run enrichment and load STRING SVG</h3>
+      <h3>Step 10 — Run enrichment and load STRING SVG</h3>
       <ul>
         <li>Open tab <strong>6) STRING Enrichment</strong>.</li>
         <li>Click <span class="action">Refresh DE keys</span>.</li>
@@ -115,7 +125,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 10 — Open editor from enrichment</h3>
+      <h3>Step 11 — Open editor from enrichment</h3>
       <ul>
         <li>Click <span class="action">Open SVG editor</span> in tab 6.</li>
         <li>Confirm tab <strong>7) Plot Editor</strong> opens.</li>
@@ -124,7 +134,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 11 — Save editor changes</h3>
+      <h3>Step 12 — Save editor changes</h3>
       <ul>
         <li>In tab 7, click <span class="action">Save Edits</span>.</li>
       </ul>
@@ -132,7 +142,7 @@
     </section>
 
     <section class="step">
-      <h3>Step 12 — Export full bundle</h3>
+      <h3>Step 13 — Export full bundle</h3>
       <ul>
         <li>Click top button <span class="action">Download all tables + plots (ZIP)</span>.</li>
       </ul>
