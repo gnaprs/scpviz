@@ -582,8 +582,8 @@ def build_layout():
                                         placeholder="e.g. GAPDH, VCP, P04406",
                                         style={**INPUT_STYLE, "width": "60%", "height": "72px"},
                                     ),
-                                    html.Label("Auto-label p-value <= ", style={**LABEL_STYLE, "display": "inline-block", "marginTop": "10px", "marginBottom": "0"}),
-                                    dcc.Input(id="de-label-pval-max", type="number", value=None, step=0.001, placeholder="e.g. 0.01", style={**INPUT_STYLE, "width": "130px", "marginLeft": "8px"}),
+                                    html.Label("Auto-label -log10(p) >= ", style={**LABEL_STYLE, "display": "inline-block", "marginTop": "10px", "marginBottom": "0"}),
+                                    dcc.Input(id="de-label-pval-max", type="number", value=None, step=0.1, placeholder="e.g. 2.0", style={**INPUT_STYLE, "width": "130px", "marginLeft": "8px"}),
                                     html.Label("Auto-label |log2FC| >= ", style={**LABEL_STYLE, "display": "inline-block", "marginLeft": "12px", "marginBottom": "0"}),
                                     dcc.Input(id="de-label-log2fc-min", type="number", value=None, step=0.1, placeholder="e.g. 1.5", style={**INPUT_STYLE, "width": "130px", "marginLeft": "8px"}),
                                     dcc.Checklist(

@@ -326,7 +326,8 @@ def _row_matches_label_cutoffs(row, pval_max, log2fc_min):
         return False
     if pval_max is None and log2fc_min is None:
         return False
-    p_ok = True if pval_max is None else p_val <= float(pval_max)
+    neg_logp = float(-np.log10(max(float(p_val), 1e-300)))
+    p_ok = True if pval_max is None else neg_logp >= float(pval_max)
     fc_ok = True if log2fc_min is None else abs(fc_val) >= float(log2fc_min)
     return p_ok and fc_ok
 
@@ -478,12 +479,16 @@ def _build_volcano_figure_from_records(records, style_data, labels, highlight_en
             marker={
                 "size": base_size,
                 "color": str(highlight_color or "#16a34a"),
+                "line": {"color": str(highlight_color or "#16a34a"), "width": 1.5},
                 "symbol": "circle",
             },
+            cliponaxis=False,
             hoverinfo="skip",
             showlegend=False,
             name="Labeled points",
         )
+        # Keep highlighted markers as the last trace so they render on top.
+        fig.data = tuple([trace for trace in fig.data[:-1]] + [fig.data[-1]])
     annotations = []
     for item in labels or []:
         text = str(item.get("text", "")).strip()
