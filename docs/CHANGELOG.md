@@ -3,7 +3,7 @@
 ## scpviz
 
 
-### Unreleased <small>Unreleased</small> { id="Unreleased" }
+### 0.6.0 <small>April 14, 2026</small> { id="0.6.0" }
 
 
 #### Build System
@@ -14,10 +14,62 @@
 
 - Restructure dependencies with optional extras and bump min Python to 3.10 #33 (12f5dbd…)
 
+- Move openpyxl to core and set min versions for [dev] #30 #31 (0024f0d…)
+
+
+
+##### (Setup)
+
+
+- Update setup.py with updated deps (87fe954…)
+
+
+
+##### (V0.6.0)
+
+
+- Update to stable launch, add gseapy analysis and plotting, refactor plotting and utils (d3fbfa7…)
+
+
+
+
+#### CI
+
+
+
+- Automate changelog and PyPI release workflows (a773a00…)
+
+
+
+
+#### Changed
+
+
+##### (Plotting)
+
+
+- Plotting module refactor (3da4e61…)
+
+
+
+##### (Utils)
+
+
+- Utils module refactor (b54988f…)
+
 
 
 
 #### Chores
+
+
+##### (Merge)
+
+
+- Merge main into development, resolve conflicts (80c9dc7…)
+
+- Merge changes to .gitignore (491ee9a…)
+
 
 
 
@@ -25,10 +77,61 @@
 
 - Update changelogs [skip ci] (37fc44b…)
 
+- Update changelogs [skip ci] (5e6b792…)
+
+
+
+
+#### Documentation
+
+
+##### (Links)
+
+
+- Fix wrong/dead links (5d28169…)
+
+
+
+##### (Version bump)
+
+
+- Document optional sc extras and update Python requirement to 3.10 #31 #33 (85d10c8…)
+
+
+
+
+#### Fixed
+
+
+##### (Tests)
+
+
+- Typo in test assertion for test_print_versions_runs() (ffb3b0a…)
+
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update Paper PDF Draft (f4b1e86…)
+
+- Update Paper PDF Draft (6451bae…)
+
 
 
 
 #### Tests
+
+
+##### (Analysis)
+
+
+- Remove xfail from passing tests due to bump in python version (634addd…)
+
 
 
 ##### (Import)
@@ -168,19 +271,6 @@
 ### 0.5.8-alpha <small>March 16, 2026</small> { id="0.5.8-alpha" }
 
 
-#### Added
-
-
-##### (Plotting)
-
-
-- Update plot_abundance_boxgrid to more flexible plotting style, bug fixes (4276636…)
-
-- Update plot_abundance_boxgrid and add tests (2c1b0cd…)
-
-
-
-
 #### Build System
 
 
@@ -206,82 +296,12 @@
 #### Documentation
 
 
-##### (Plotting)
-
-
-- Update examples for various plotting functions (cc43b62…)
-
-
-
-##### (Quickstart)
-
-
-- Update quickstart to include new plotting functions (d4f1d48…)
-
-
-
 ##### (Tutorial)
 
-
-- Add wget downloads to importing ipynb (f9d34fa…)
 
 - Update single cell and quickstart tutorial (1a04522…)
 
 - Update single_cell.ipynb (b5eb1fb…)
-
-
-
-##### (Tutorials)
-
-
-- Complete importing tutorial (3534a19…)
-
-
-
-##### (Upload)
-
-
-- Upload test_input.csv (94ca178…)
-
-
-
-
-#### Fixed
-
-
-##### (Get_abundance)
-
-
-- Bug fix on get_abundance throwing error when passing in string instead of list (9b70b75…)
-
-
-
-##### (Tests)
-
-
-- Typos on errortype and assertion match (f0b9674…)
-
-
-
-
-#### Other
-
-
-
-#### Tests
-
-
-##### (Import)
-
-
-- Add test for pep xlsx import (6d67ccb…)
-
-
-
-##### (Plotting)
-
-
-- Update test names for plot_abundance_boxgrid (21933a5…)
 
 
 
@@ -299,6 +319,12 @@
 
 - Add pimms imputation (3745120…)
 
+- Add ssGSEA and declare gseapy dependency (33a3578…)
+
+- Add pairwise_correlation function (d5a62b9…)
+
+- Add log_transform for preprocessing and update handling of log data on de(), pca() and pairwise_correlation() (e8f9af4…)
+
 
 
 ##### (Directlfq)
@@ -308,10 +334,19 @@
 
 
 
+##### (Editing)
+
+
+- Update export_layer to support multiple labels (25dd299…)
+
+
+
 ##### (Enrichment)
 
 
 - Allow category argument for plot_enrichment_svg (297e9f7…)
+
+- Add enrichment_functional_pca for STRING on PCA loadings (0099128…)
 
 
 
@@ -319,6 +354,22 @@
 
 
 - Add warning about underscores in class_type throwing error within annotate_found and annotate_significant (51b0664…)
+
+
+
+##### (PAnnData)
+
+
+- Layer provenance registry, log_transform, and show_layer_provenance (5cceb9a…)
+
+- Update layer provenance in .analysis functions (c1cca58…)
+
+
+
+##### (Pca_gsea)
+
+
+- Implement gseapy prerank, using multi-library default, FDR counts in verbose (1b6cd7d…)
 
 
 
@@ -347,6 +398,16 @@
 - Text adjustments to mark_volcano and mark_volcano_significance (2c8219a…)
 
 - Add weighted option to plot_venn (4e516a4…)
+
+- Update plot_abundance_boxgrid to more flexible plotting style, bug fixes (4276636…)
+
+- Update plot_abundance_boxgrid and add tests (2c1b0cd…)
+
+- Add PCA-GSEA plots and pAnnData wrappers (44d82f2…)
+
+- Add plot_pairwise_correlation (86483c3…)
+
+- Add accession and gene columns to plot_cv() returned df (ac850b9…)
 
 
 
@@ -416,6 +477,13 @@
 - Update patch pass to 80% (809e06a…)
 
 - Patch pass to 70% (c19c842…)
+
+
+
+##### (Docs)
+
+
+- Update to local editable copy of scpviz for docs serve (f069efa…)
 
 
 
@@ -498,6 +566,10 @@
 
 - Return ax on plot_venn to match other plot functions, change test (5722d3c…)
 
+- Cleanup, move single use functions into helper functions (643061c…)
+
+- Refactor both biplots for protein and pathway vectors to accept n_vectors per pc, fix bug on ylim/xlim, allow cmap coloring (3112be7…)
+
 
 
 ##### (Setup)
@@ -518,6 +590,13 @@
 
 
 
+##### (Gitignore)
+
+
+- Extend .gitignore for save tar folders etc (a89b398…)
+
+
+
 ##### (Plot_abundance)
 
 
@@ -532,6 +611,13 @@
 
 
 
+##### (Todo)
+
+
+- Refactor todo list w priority and better oganization (cf4d03c…)
+
+
+
 
 - Update changelogs [skip ci] (9b4fecb…)
 
@@ -540,6 +626,8 @@
 - Update changelogs [skip ci] (525bdb9…)
 
 - Update changelogs [skip ci] (6c89f44…)
+
+- Expose __version__, align print_versions, ignore logo asset (e750e24…)
 
 - Update changelogs [skip ci] (fe0eb7b…)
 
@@ -559,6 +647,20 @@
 #### Documentation
 
 
+##### (Plotting)
+
+
+- Update examples for various plotting functions (cc43b62…)
+
+
+
+##### (Quickstart)
+
+
+- Update quickstart to include new plotting functions (d4f1d48…)
+
+
+
 ##### (Refactor)
 
 
@@ -566,8 +668,36 @@
 
 
 
+##### (Tutorial)
+
+
+- Add wget downloads to importing ipynb (f9d34fa…)
+
+
+
+##### (Tutorials)
+
+
+- Complete importing tutorial (3534a19…)
+
+
+
 
 - General updates to site style, formatting for mixins (d0a1bca…)
+
+
+
+##### (Upload)
+
+
+- Upload test_input.csv (94ca178…)
+
+
+
+##### (Utils)
+
+
+- Synchronize docs layout for utilies and plotting modules (d83cb71…)
 
 
 
@@ -595,6 +725,13 @@
 
 
 - Fix link to importing tutorial (541b849…)
+
+
+
+##### (Get_abundance)
+
+
+- Bug fix on get_abundance throwing error when passing in string instead of list (9b70b75…)
 
 
 
@@ -632,12 +769,30 @@
 
 - Fix return on plot_venn to pass test (6d1709c…)
 
+- Update plot_venn to override alpha if provided (32afcbe…)
+
 
 
 ##### (Summary)
 
 
 - Check and remove_unused_categories after filter, mostly for PD data (925e72d…)
+
+
+
+##### (Test_provenance_chain_depth_after_chain)
+
+
+- Add update to current_X_layer in editing.py (ae7d7de…)
+
+
+
+##### (Tests)
+
+
+- Typos on errortype and assertion match (f0b9674…)
+
+- Correct GLOBAL_DEBUG import in pytest_configure (4d7a271…)
 
 
 
@@ -655,6 +810,8 @@
 
 - Fix for py3.8 compatibility (8163c5c…)
 
+- Force string typecast on join for get_classlist() (474f97b…)
+
 
 
 
@@ -665,6 +822,8 @@
 
 
 - Update Paper PDF Draft (4644379…)
+
+- Update Paper PDF Draft (ebe6943…)
 
 - Update Paper PDF Draft (c371cd7…)
 
@@ -681,6 +840,8 @@
 
 - Remove extra blank lines (1897136…)
 
+- Fix typo in pca_gsea() printed results key (f28f201…)
+
 
 
 ##### (Docs)
@@ -689,6 +850,10 @@
 - Change root_heading to true, remove others section (bb68f1d…)
 
 - Add tabs back to website for better navigation (45ba11f…)
+
+- Fix griffe errors for plot.py (c3cf62d…)
+
+- Fix griffe errors for pAnnData.py (f7dd584…)
 
 
 
@@ -768,6 +933,8 @@
 
 - Add mark xfail for failure due to potential package version mismatch (a7c808a…)
 
+- Cover ssGSEA storage, gene column, and duplicate collapse (e1e8d04…)
+
 
 
 ##### (Boxgrid)
@@ -791,10 +958,19 @@
 
 
 
+##### (Editing)
+
+
+- Add tests for layer provenance (2b13eac…)
+
+
+
 ##### (Enrichment)
 
 
 - Add test for helper _scalarize_taxon() within get_string_mappings (485b830…)
+
+- Cover enrichment_functional_pca PC tails and key suffix (8ca4855…)
 
 
 
@@ -802,6 +978,13 @@
 
 
 - Add test for automated annotation with simple group (451ce0a…)
+
+
+
+##### (Import)
+
+
+- Add test for pep xlsx import (6d67ccb…)
 
 
 
@@ -844,6 +1027,10 @@
 - Add mark xfail for known plt version error, add test for violin (c6a3854…)
 
 - Add test for plot_volcano_adata with no data (6791ad6…)
+
+- Update test names for plot_abundance_boxgrid (21933a5…)
+
+- Cover PCA-GSEA plots, protein loading vectors, and pAnnData wrappers (297e698…)
 
 
 
