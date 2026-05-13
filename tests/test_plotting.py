@@ -947,6 +947,104 @@ def test_resolve_plot_colors_invalid(dummy_adata, bad_input):
     with pytest.raises(ValueError):
         scplt.resolve_plot_colors(dummy_adata, classes=bad_input, cmap="default")
 
+def _combo_mapping_literal(pdata):
+    """Unique (cellline, treatment) pairs with simple face/edge styles."""
+    adata = pdata.prot
+    mapping_keys = ["cellline", "treatment"]
+    mapping = {}
+    edges = ["black", "blue", "red", "green"]
+    for i, row in enumerate(adata.obs[mapping_keys].drop_duplicates().itertuples(index=False, name=None)):
+        mapping[tuple(row)] = {"color": "#f0f0f0", "edge_color": edges[i % len(edges)]}
+    return mapping_keys, mapping
+
+
+def test_plot_pca_mapping_literal_face_edge(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys, mapping = _combo_mapping_literal(pdata)
+    result = scplt.plot_pca(
+        ax,
+        pdata,
+        mapping_keys=mapping_keys,
+        mapping=mapping,
+        force=True,
+        on="protein",
+    )
+    assert _is_axes_container(result)
+    assert len(ax.collections) > 0
+
+
+def test_plot_pca_mapping_abundance_with_edges(pdata):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    adata = pdata.prot
+    mapping_keys = ["cellline", "treatment"]
+    mapping = {}
+    for row in adata.obs[mapping_keys].drop_duplicates().itertuples(index=False, name=None):
+        mapping[tuple(row)] = {"edge_color": "black"}
+    result = scplt.plot_pca(
+        ax,
+        pdata,
+        color=gene,
+        cmap="plasma",
+        mapping_keys=mapping_keys,
+        mapping=mapping,
+        force=True,
+        on="protein",
+    )
+    assert _is_axes_container(result)
+    assert len(ax.collections) > 0
+
+
+def test_plot_pca_mapping_rejects_edge_color_kw(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys, mapping = _combo_mapping_literal(pdata)
+    with pytest.raises(ValueError, match="edge_color cannot be used with mapping"):
+        scplt.plot_pca(
+            ax,
+            pdata,
+            mapping_keys=mapping_keys,
+            mapping=mapping,
+            edge_color="treatment",
+            force=True,
+            on="protein",
+        )
+
+
+def test_plot_pca_mapping_raises_missing_combo(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys = ["cellline", "treatment"]
+    mapping = {("nonexistent", "combo"): {"color": "white", "edge_color": "k"}}
+    with pytest.raises(ValueError, match="not found in mapping"):
+        scplt.plot_pca(
+            ax,
+            pdata,
+            mapping_keys=mapping_keys,
+            mapping=mapping,
+            force=True,
+            on="protein",
+            mapping_on_missing="raise",
+        )
+
+
+def test_plot_pca_mapping_incomplete_warn_default(pdata):
+    """Missing combos: default warn prints and grey face + no edge (except abundance color=)."""
+    fig, ax = plt.subplots()
+    adata = pdata.prot
+    mapping_keys = ["cellline", "treatment"]
+    one = next(adata.obs[mapping_keys].drop_duplicates().itertuples(index=False, name=None))
+    mapping = {tuple(one): {"color": "#e0e0e0", "edge_color": "black"}}
+    result = scplt.plot_pca(
+        ax,
+        pdata,
+        mapping_keys=mapping_keys,
+        mapping=mapping,
+        force=True,
+        on="protein",
+    )
+    assert _is_axes_container(result)
+    assert len(ax.collections) > 0
+
+
 # tests for plot_umap
 def test_plot_umap_runs_without_error(pdata):
     fig, ax = plt.subplots()

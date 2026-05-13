@@ -170,20 +170,22 @@ def get_color(resource_type: str, n: int | None = None) -> Any:
 
 def shift_legend(
     ax: "plt.Axes",
-    anchor_pos: tuple[float, float] = (1.05, 0.5),
+    anchor_pos: tuple[float, float] = (1.05, 1),
     loc: str = "center left",
 ) -> None:
     """
-    Reposition an axis legend.
+    Reposition all legends on an axis.
 
-    This helper moves an existing Matplotlib legend to a custom anchor point
-    (outside or inside the axis) without modifying its contents.
+    Moves every Matplotlib legend on the axis to a custom anchor point
+    (outside or inside the axis) without modifying contents. When multiple
+    legends are present, they are stacked vertically from the anchor point
+    downward with a small gap between them.
 
     Args:
-        ax (matplotlib.axes.Axes): Axis containing the legend.
-        anchor_pos (tuple of float, optional): (x, y) anchor position for the legend
-            in axis coordinates. Default is `(1.05, 0.5)`, placing the legend just
-            outside the right edge.
+        ax (matplotlib.axes.Axes): Axis containing the legend(s).
+        anchor_pos (tuple of float, optional): (x, y) anchor position for the
+            first (or only) legend in axis coordinates. Default is `(1.05, 0.5)`,
+            placing the legend just outside the right edge.
         loc (str, optional): Legend location relative to the anchor. Default is
             `'center left'`.
 
@@ -191,16 +193,51 @@ def shift_legend(
         None
 
     Example:
-        ```python
-        fig, ax = plt.subplots(figsize=(3, 3))
-        ax, = scplt.plot_pca(ax, pdata, classes='treatment')
-        scplt.shift_legend(ax)
-        ```
-    """    
-    leg = ax.get_legend()
-    if leg is not None:
+        Move a single legend outside the right edge:
+            ```python
+                    fig, ax = plt.subplots(figsize=(3, 3))
+                    ax = scplt.plot_pca(pdata, classes='treatment')
+                    scplt.shift_legend(ax)
+            ```
+
+        Stack multiple legends when color, edge, and shape are all mapped:
+            ```python
+                    fig, ax = plt.subplots(figsize=(3, 3))
+                    ax = scplt.plot_pca(pdata, color='treatment', edge_color='cellline',
+                                        marker_shape='batch')
+                    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+            ```
+    """
+    legends = ax.get_figure().legends or []
+    # ax.get_legend() returns only the last; collect all via ax.artists
+
+    ax_legends = [a for a in ax.get_children()
+                  if isinstance(a, plt.matplotlib.legend.Legend)]
+
+    if not ax_legends:
+        return
+
+    if len(ax_legends) == 1:
+        leg = ax_legends[0]
+        leg.set_clip_on(False)
         leg.set_bbox_to_anchor(anchor_pos)
         leg.set_loc(loc)
+        return
+
+    # Multiple legends: stack vertically from anchor_pos downward
+    fig = ax.get_figure()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    ax_height_px = ax.get_window_extent(renderer).height
+
+    x, y_cursor = anchor_pos
+    for leg in ax_legends:
+        leg.set_clip_on(False)
+        leg_height_px = leg.get_window_extent(renderer).height
+        leg_height_ax = leg_height_px / ax_height_px
+        leg.set_bbox_to_anchor((x, y_cursor))
+        leg.set_loc("upper left")
+        y_cursor -= leg_height_ax + 0.02
 
 def plot_significance(
     ax: "plt.Axes",

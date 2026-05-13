@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 import re
-import warnings
 
 import anndata as ad
 import matplotlib.cm as cm
@@ -49,7 +48,8 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
              s=20, alpha=.8, plot_pc=[1, 2], pca_params=None, subset_mask=None,
              force=False, basis='X_pca', text_size=9, show_labels=False, label_column=None,
              add_ellipses=False, ellipse_group=None, ellipse_cmap='default', ellipse_kwargs=None, 
-             return_fit=False, **kwargs: Any) -> "plt.Axes | tuple[plt.Axes, dict[str, Any]]":
+             return_fit=False, mapping_keys=None, mapping=None, mapping_on_missing: str = "warn",
+             **kwargs: Any) -> "plt.Axes | tuple[plt.Axes, dict[str, Any]]":
     """
     Plot principal component analysis (PCA) of protein or peptide abundance.
 
@@ -152,6 +152,18 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         ellipse_kwargs (dict, optional): Extra keyword arguments passed to the ellipse patch
             (e.g., `{"alpha": 0.12, "lw": 1.5}`).
 
+        mapping_keys (list of str, optional): `.obs` columns whose tuple of levels keys `mapping`.
+            Must be provided together with ``mapping``.
+
+        mapping (dict, optional): Keys are tuples matching observed metadata combinations; values
+            are dicts with optional ``color`` (literal or abundance feature), ``edge_color`` (literal
+            only), and ``marker``. Cannot be combined with ``edge_color`` / ``edge_cmap``. When
+            ``color=`` is an abundance feature, mapping entries must not include ``color``.
+
+        mapping_on_missing (str): ``"warn"`` (default) prints a log-prefixed message and uses grey
+            face with no edge for missing combinations (abundance ``color=``: missing combo keeps
+            abundance face, edges off). ``"raise"`` raises if any observed combination is absent from ``mapping``.
+
         return_fit (bool): If True, also return the fitted PCA object.
         **kwargs (Any): Extra keyword arguments passed to `ax.scatter()`.
 
@@ -228,6 +240,92 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
             ```python
             plot_pca(ax, pdata, color="treatment", show_labels=True, label_column="short_name")
             ```
+
+        Tuple-key ``mapping`` (literal face + edge per combination of ``.obs`` columns):
+            ```python
+            mapping_keys = ["cellline", "condition"]
+            mapping = {
+                ("A", "ctrl"): {"color": "white", "edge_color": "black"},
+                ("A", "treat"): {"color": "white", "edge_color": "blue"},
+                ("B", "ctrl"): {"color": "lightgrey", "edge_color": "black"},
+                ("B", "treat"): {"color": "lightgrey", "edge_color": "blue"},
+            }
+            plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, force=True)
+            ```
+
+        Global abundance face color with per-combination edges (``mapping`` must not set ``color``):
+            ```python
+            mapping_keys = ["cellline", "condition"]
+            mapping = {
+                ("A", "ctrl"): {"edge_color": "black"},
+                ("A", "treat"): {"edge_color": "steelblue"},
+                ("B", "ctrl"): {"edge_color": "black"},
+                ("B", "treat"): {"edge_color": "steelblue"},
+            }
+            plot_pca(ax, pdata, color="UBE4B", cmap="plasma", mapping_keys=mapping_keys, mapping=mapping)
+            ```
+
+        Sequential overlays on the same axes (same embedding, using different ``subset_mask``; order matters).
+        Replace column names and palettes with your metadata:
+            ```python
+            line = "LineA"
+            cell_line_color = {"LineA": "#4C72B0", "LineB": "#DD8452"}
+            cell_line_color_6h = {"LineA": "#9fb8d9", "LineB": "#e8b896"}
+
+            mask_dark = (
+                (pdata.summary["treatment"] == "Drug")
+                & (pdata.summary["cell_line"] == line)
+                & (pdata.summary["duration"] == "24hr")
+            )
+            mask_light = (
+                (pdata.summary["treatment"] == "Drug")
+                & (pdata.summary["cell_line"] == line)
+                & (pdata.summary["duration"] == "6hr")
+            )
+            mask_ctrl = (
+                (pdata.summary["treatment"] == "Vehicle")
+                & (pdata.summary["cell_line"] == line)
+            )
+
+            fig = plt.figure(figsize=(4, 4))
+            ax = fig.add_subplot(111, projection="3d")
+
+            ax, _ = plot_pca(
+                ax,
+                pdata,
+                color="cell_line",
+                cmap=cell_line_color,
+                edge_color="duration",
+                edge_cmap={"6hr": "grey", "24hr": "black"},
+                plot_pc=[1, 2, 3],
+                subset_mask=mask_dark,
+                return_fit=True,
+                force=True,
+            )
+            ax, _ = plot_pca(
+                ax,
+                pdata,
+                color="cell_line",
+                cmap=cell_line_color_6h,
+                edge_color="duration",
+                edge_cmap={"6hr": "grey", "24hr": "black"},
+                plot_pc=[1, 2, 3],
+                subset_mask=mask_light,
+                return_fit=True,
+            )
+            plot_pca(
+                ax,
+                pdata,
+                color="cell_line",
+                cmap={k: "white" for k in cell_line_color},
+                plot_pc=[1, 2, 3],
+                edge_color="cell_line",
+                edge_cmap=cell_line_color,
+                edge_lw=1.2,
+                subset_mask=mask_ctrl,
+                force=False,
+            )
+            ```
     """
     
     # Validate PCA dimensions
@@ -299,6 +397,7 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         axis_prefix="PC", dim_labels=dim_labels, pc_idx=pc_idx, 
         show_labels=show_labels, label_series=label_series, add_ellipses=add_ellipses, ellipse_kwargs=ellipse_kwargs, ellipse_group=ellipse_group, ellipse_cmap=ellipse_cmap,
         plot_confidence_ellipse=_plot_confidence_ellipse,
+        mapping_keys=mapping_keys, mapping=mapping, mapping_on_missing=mapping_on_missing,
         **kwargs,
     )
 
@@ -480,6 +579,310 @@ def resolve_marker_shapes(
 
     return markers, shape_legend, shape_map
 
+
+def _resolve_embedding_style_mapping(
+    adata: ad.AnnData,
+    *,
+    mapping_keys: list[str],
+    mapping: dict[tuple, dict[str, Any]],
+    mapping_on_missing: str,
+    color: Any,
+    cmap: Any,
+    layer: str,
+    marker_shape: Any,
+    shape_cmap: Any = "default",
+    edge_lw: float = 0.8,
+) -> dict[str, Any]:
+    """
+    Build face / edge / marker arrays for ``mapping_keys`` + ``mapping`` embedding plots.
+
+    Abundance is allowed for face color only (top-level ``color=`` and/or per-entry ``color``);
+    edge colors must be literal matplotlib colors (or ``\"none\"``).
+    """
+    if not isinstance(mapping, dict):
+        raise ValueError("mapping must be a dict mapping tuple keys to style dicts.")
+    if mapping_on_missing not in ("raise", "warn"):
+        raise ValueError("mapping_on_missing must be one of: 'raise', 'warn'.")
+
+    def is_abundance_key(k: str) -> bool:
+        if k in adata.var_names:
+            return True
+        if "Genes" in adata.var.columns:
+            gene_map = adata.var["Genes"].to_dict()
+            return any(gene == k for gene in gene_map.values())
+        return False
+
+    missing_cols = [k for k in mapping_keys if k not in adata.obs.columns]
+    if missing_cols:
+        raise ValueError(f"mapping_keys: column(s) not found in adata.obs: {missing_cols}")
+    sub = adata.obs[mapping_keys]
+    keys_series = pd.Series(
+        [tuple(sub.iloc[i].values.tolist()) for i in range(sub.shape[0])],
+        index=adata.obs_names,
+    )
+    n_obs = len(keys_series)
+
+    for mk in mapping.keys():
+        if not isinstance(mk, tuple):
+            raise ValueError(f"mapping keys must be tuples, got {type(mk).__name__}: {mk!r}")
+        if len(mk) != len(mapping_keys):
+            raise ValueError(
+                f"mapping key {mk!r} has length {len(mk)} but mapping_keys has length {len(mapping_keys)}."
+            )
+
+    mapping_has_marker = any("marker" in v for v in mapping.values())
+    if mapping_has_marker and marker_shape is not None:
+        raise ValueError("Use either mapping entries with 'marker' or marker_shape=, not both.")
+
+    if color is not None:
+        color_is_cat_obs = (
+            (isinstance(color, list) and all(c in adata.obs.columns for c in color))
+            or (isinstance(color, str) and color in adata.obs.columns)
+        )
+        if color_is_cat_obs:
+            raise ValueError(
+                "categorical color= (obs column) cannot be combined with mapping=; "
+                "use abundance color= or encode categories in mapping['color']."
+            )
+
+    global_abundance = color is not None and isinstance(color, str) and is_abundance_key(color)
+    if color is not None and not global_abundance:
+        raise ValueError(
+            f"When using mapping=, color= must be omitted or an abundance feature (gene/protein); got {color!r}."
+        )
+
+    if global_abundance:
+        for k, v in mapping.items():
+            if "color" in v:
+                raise ValueError(
+                    "When color= is an abundance feature, mapping entries must not include 'color'; "
+                    "use mapping only for edge_color / marker."
+                )
+
+    # --- resolve style dict per observation ---
+    styles_plot: list[dict[str, Any]] = []
+
+    for i in range(n_obs):
+        key = keys_series.iloc[i]
+        if key in mapping:
+            st = dict(mapping[key])
+        else:
+            ks = tuple(str(x) for x in key)
+            st = dict(mapping[ks]) if ks in mapping else None
+        if st is None:
+            if mapping_on_missing == "raise":
+                raise ValueError(
+                    f"Observed combination {key} not found in mapping. "
+                    f"Known mapping keys: {list(mapping.keys())}"
+                )
+            else:
+                msg = (
+                    f"No mapping entry for combination {key!r}; using abundance face color with edges off."
+                    if global_abundance
+                    else f"No mapping entry for combination {key!r}; using grey face and no edge."
+                )
+                print(f"{utils.format_log_prefix('warn')} {msg}")
+            if global_abundance:
+                st = {"edge_color": "none"}
+            else:
+                st = {"color": "grey", "edge_color": "none"}
+        styles_plot.append(st)
+
+    if not global_abundance:
+        for k, v in mapping.items():
+            if "color" not in v:
+                raise ValueError(f"mapping[{k!r}] must include 'color' when color= is not set.")
+
+    for k, v in mapping.items():
+        spec = v.get("color")
+        if spec is None:
+            continue
+        if mcolors.is_color_like(spec):
+            continue
+        if is_abundance_key(str(spec)):
+            continue
+        raise ValueError(
+            f"mapping[{k!r}]['color'] must be a matplotlib color or an abundance feature name, got {spec!r}."
+        )
+
+    for k, v in mapping.items():
+        ec = v.get("edge_color")
+        if ec is None:
+            continue
+        if is_abundance_key(str(ec)):
+            raise ValueError(
+                f"mapping[{k!r}]['edge_color'] must be a literal color (abundance-driven edges are not supported)."
+            )
+        if not (
+            ec is None
+            or (isinstance(ec, str) and ec.lower() == "none")
+            or mcolors.is_color_like(ec)
+        ):
+            raise ValueError(f"mapping[{k!r}]['edge_color'] is not a valid literal color: {ec!r}")
+
+    # --- face colors ---
+    face_cmap_resolved = None
+    face_legend = None
+
+    if global_abundance:
+        face_mapped, face_cmap_resolved, _fl = resolve_plot_colors(adata, color, cmap, layer=layer)
+        face_mapped = np.asarray(face_mapped)
+    else:
+        abund_cache: dict[str, tuple[np.ndarray, Any]] = {}
+        face_kind: str | None = None
+        face_hex_list: list[str] = []
+        face_float_buf = np.zeros(n_obs, dtype=float)
+
+        for i in range(n_obs):
+            spec = styles_plot[i]["color"]
+            if mcolors.is_color_like(spec):
+                fk = "lit"
+                face_hex_list.append(mcolors.to_hex(spec))
+            elif is_abundance_key(str(spec)):
+                fk = "ab"
+                sspec = str(spec)
+                if sspec not in abund_cache:
+                    col, cmap_res, _leg = resolve_plot_colors(adata, sspec, cmap, layer=layer)
+                    col = np.asarray(col).ravel()
+                    if cmap_res is None:
+                        raise ValueError(
+                            f"mapping color {spec!r} resolved as categorical; use a literal color or abundance feature."
+                        )
+                    abund_cache[sspec] = (col, cmap_res)
+                col, cmap_one = abund_cache[sspec]
+                face_float_buf[i] = col[i]
+                face_cmap_resolved = cmap_one
+            else:
+                raise ValueError(f"Invalid mapping face color {spec!r}.")
+
+            if face_kind is None:
+                face_kind = fk
+            elif face_kind != fk:
+                raise ValueError(
+                    "Cannot mix literal face colors and abundance face colors for different samples "
+                    "(including mapping_on_missing fallback)."
+                )
+
+        if face_kind == "lit":
+            face_mapped = face_hex_list
+            face_cmap_resolved = None
+            seen: set[tuple] = set()
+            face_legend = []
+            for i in range(n_obs):
+                lab = keys_series.iloc[i]
+                if lab in seen:
+                    continue
+                seen.add(lab)
+                face_legend.append(
+                    mpatches.Patch(color=face_hex_list[i], label=", ".join(str(x) for x in lab))
+                )
+        else:
+            face_mapped = face_float_buf
+            if face_cmap_resolved is None:
+                if cmap == "default":
+                    face_cmap_resolved = cm.get_cmap("viridis")
+                else:
+                    face_cmap_resolved = cm.get_cmap(cmap) if isinstance(cmap, str) else cmap
+
+    # --- edges ---
+    edge_list: list[Any] = []
+    for i in range(n_obs):
+        st = styles_plot[i]
+        ec = st.get("edge_color", "none")
+        if ec is None:
+            ec = "none"
+        if isinstance(ec, str) and ec.lower() == "none":
+            edge_list.append("none")
+        else:
+            edge_list.append(ec)
+
+    edge_mapped = edge_list
+    edge_labels = [", ".join(str(x) for x in k) for k in keys_series.values]
+    edge_legend = None
+    if any(e not in (None, "none") and not (isinstance(e, str) and e.lower() == "none") for e in edge_mapped):
+        uniq = {}
+        for i, ek in enumerate(edge_labels):
+            ec = edge_mapped[i]
+            if isinstance(ec, str) and ec.lower() == "none":
+                continue
+            uniq.setdefault((ek, ec), None)
+        edge_legend = [
+            mlines.Line2D(
+                [], [], linestyle="none", marker="o", color=ec, markerfacecolor="white",
+                markeredgecolor=ec, markersize=7, label=ek,
+            )
+            for (ek, ec) in sorted(uniq.keys(), key=lambda t: t[0])
+        ]
+
+    # One legend for mapping when face colors are literal: same keys as edge styling.
+    combined_mapping_legend: list[mpatches.Patch] | None = None
+    if not global_abundance and face_legend is not None:
+        key_to_i: dict[tuple, int] = {}
+        for i in range(n_obs):
+            key = keys_series.iloc[i]
+            if key not in key_to_i:
+                key_to_i[key] = i
+        combined_mapping_legend = []
+        for key in sorted(key_to_i.keys(), key=lambda k: ", ".join(str(x) for x in k)):
+            i = key_to_i[key]
+            fc = face_hex_list[i]
+            ec = edge_list[i]
+            lab = ", ".join(str(x) for x in key)
+            if isinstance(ec, str) and ec.lower() == "none":
+                combined_mapping_legend.append(
+                    mpatches.Patch(facecolor=fc, edgecolor="none", linewidth=0, label=lab)
+                )
+            else:
+                combined_mapping_legend.append(
+                    mpatches.Patch(
+                        facecolor=fc,
+                        edgecolor=ec,
+                        linewidth=edge_lw,
+                        label=lab,
+                    )
+                )
+        face_legend = None
+        edge_legend = None
+
+    # --- markers ---
+    markers_all = None
+    shape_legend = None
+    if mapping_has_marker:
+        markers_all = np.array([styles_plot[i].get("marker", "o") for i in range(n_obs)], dtype=object)
+        shape_map: dict[tuple, str] = {}
+        for i in range(n_obs):
+            lab = keys_series.iloc[i]
+            if lab not in shape_map:
+                shape_map[lab] = styles_plot[i].get("marker", "o")
+        shape_legend = [
+            mlines.Line2D(
+                [], [], linestyle="none", marker=shape_map[c], color="black",
+                markerfacecolor="black", markeredgecolor="black", markersize=7,
+                label=", ".join(str(x) for x in c),
+            )
+            for c in sorted(shape_map.keys(), key=str)
+        ]
+    elif marker_shape is not None:
+        markers_all, shape_legend, _ = resolve_marker_shapes(
+            adata, marker_shape, shape_cmap=shape_cmap
+        )
+
+    legend_title = " / ".join(str(k) for k in mapping_keys)
+
+    return {
+        "face_mapped": face_mapped,
+        "face_cmap_resolved": face_cmap_resolved,
+        "face_legend": face_legend,
+        "edge_mapped": edge_mapped,
+        "edge_legend": edge_legend,
+        "markers_all": markers_all,
+        "shape_legend": shape_legend,
+        "legend_title": legend_title,
+        "color_key_legend": None,
+        "combined_mapping_legend": combined_mapping_legend,
+    }
+
+
 def _plot_confidence_ellipse(x, y, ax, n_std=2.4477, facecolor='none', edgecolor='black', alpha=0.2, **kwargs):
     from matplotlib.patches import Ellipse
     
@@ -524,6 +927,9 @@ def _plot_embedding_scatter(
     add_ellipses=False, ellipse_kwargs=None, ellipse_group=None, ellipse_cmap="default", 
     plot_confidence_ellipse=None,    # function(x, y, ax, **kwargs)
     return_parts=False,
+    mapping_keys=None,
+    mapping=None,
+    mapping_on_missing: str = "warn",
     **kwargs,
 ) -> "plt.Axes | dict[str, Any]":
     """
@@ -561,13 +967,29 @@ def _plot_embedding_scatter(
             kw.pop("cmap", None)
         else:
             kw["c"] = face_plot
-            kw["cmap"] = face_cmap_resolved
+            if face_cmap_resolved is not None:
+                kw["cmap"] = face_cmap_resolved
 
         if edge_key is None:
             kw["edgecolors"] = "none"
         else:
             kw["edgecolors"] = edge_plot
-            kw["linewidths"] = edge_lw
+            if isinstance(edge_plot, str):
+                kw["linewidths"] = 0.0 if edge_plot.lower() == "none" else edge_lw
+            else:
+                ec_seq = np.asarray(edge_plot, dtype=object).ravel()
+                if ec_seq.shape[0] == n:
+                    kw["linewidths"] = np.array(
+                        [
+                            0.0
+                            if e is None or (isinstance(e, str) and e.lower() == "none")
+                            else float(edge_lw)
+                            for e in ec_seq
+                        ],
+                        dtype=float,
+                    )
+                else:
+                    kw["linewidths"] = edge_lw
 
         return kw
 
@@ -588,7 +1010,7 @@ def _plot_embedding_scatter(
         if "edgecolors" in kw:
             ec = kw["edgecolors"]
 
-            if ec is None or (isinstance(ec, str) and ec == "none"):
+            if ec is None or (isinstance(ec, str) and ec.lower() == "none"):
                 return kw
 
             if isinstance(ec, str):
@@ -597,6 +1019,13 @@ def _plot_embedding_scatter(
             ec_arr = np.asarray(ec)
             if ec_arr.shape[0] == m.shape[0]:
                 kw["edgecolors"] = ec_arr[m]
+
+        if "linewidths" in kw:
+            lw = kw["linewidths"]
+            if isinstance(lw, (list, np.ndarray)):
+                lw_arr = np.asarray(lw).ravel()
+                if lw_arr.shape[0] == m.shape[0]:
+                    kw["linewidths"] = lw_arr[m]
 
         return kw
 
@@ -627,26 +1056,66 @@ def _plot_embedding_scatter(
             return "/".join(str(c).capitalize() for c in key)
         return str(key).capitalize()
 
-    # resolve colors & marker
-    face_mapped, face_cmap_resolved, face_legend = resolve_plot_colors(
-        adata, color, cmap, layer=layer
-    )
+    use_mapping = mapping is not None
+    if (mapping is None) != (mapping_keys is None):
+        raise ValueError("Provide both mapping_keys and mapping together, or omit both.")
 
-    edge_mapped = None
-    edge_legend = None
-    if edge_color is not None:
-        edge_mapped, edge_cmap_resolved, edge_legend = resolve_plot_colors(
-            adata, edge_color, edge_cmap, layer=layer
-        )
-        if edge_cmap_resolved is not None:
+    mapping_legend_title = None
+    if use_mapping:
+        if edge_color is not None:
             raise ValueError(
-                "edge_color does not support continuous (abundance) coloring. "
-                "Use `color=` for abundance-based coloring instead."
+                "edge_color cannot be used with mapping=; set edge colors inside mapping[...]['edge_color']."
             )
+        if edge_cmap != "default":
+            raise ValueError("edge_cmap cannot be used with mapping=; define edge colors inside mapping.")
+        mp = _resolve_embedding_style_mapping(
+            adata,
+            mapping_keys=mapping_keys,
+            mapping=mapping,
+            mapping_on_missing=mapping_on_missing,
+            color=color,
+            cmap=cmap,
+            layer=layer,
+            marker_shape=marker_shape,
+            shape_cmap=shape_cmap,
+            edge_lw=edge_lw,
+        )
+        face_mapped = mp["face_mapped"]
+        face_cmap_resolved = mp["face_cmap_resolved"]
+        face_legend = mp["face_legend"]
+        edge_mapped = mp["edge_mapped"]
+        edge_legend = mp["edge_legend"]
+        markers_all = mp["markers_all"]
+        shape_legend = mp["shape_legend"]
+        mapping_legend_title = mp["legend_title"]
+        combined_mapping_legend = mp.get("combined_mapping_legend")
+        scatter_color_key = color if color is not None else tuple(mapping_keys)
+        scatter_edge_key = tuple(mapping_keys)
+        if add_ellipses and ellipse_group is None:
+            ellipse_group = mapping_keys
+    else:
+        face_mapped, face_cmap_resolved, face_legend = resolve_plot_colors(
+            adata, color, cmap, layer=layer
+        )
 
-    markers_all, shape_legend, _ = resolve_marker_shapes(
-        adata, marker_shape, shape_cmap=shape_cmap
-    )
+        edge_mapped = None
+        edge_legend = None
+        if edge_color is not None:
+            edge_mapped, edge_cmap_resolved, edge_legend = resolve_plot_colors(
+                adata, edge_color, edge_cmap, layer=layer
+            )
+            if edge_cmap_resolved is not None:
+                raise ValueError(
+                    "edge_color does not support continuous (abundance) coloring. "
+                    "Use `color=` for abundance-based coloring instead."
+                )
+
+        markers_all, shape_legend, _ = resolve_marker_shapes(
+            adata, marker_shape, shape_cmap=shape_cmap
+        )
+        scatter_color_key = color
+        scatter_edge_key = edge_color
+        combined_mapping_legend = None
 
     # plot
     Xt_plot = Xt[mask]
@@ -660,11 +1129,11 @@ def _plot_embedding_scatter(
 
     scatter_kwargs = _build_scatter_kwargs(
         base_kwargs=base_kwargs,
-        color_key=color,
+        color_key=scatter_color_key,
         face_plot=face_plot,
         face_all=face_mapped,
         face_cmap_resolved=face_cmap_resolved,
-        edge_key=edge_color,
+        edge_key=scatter_edge_key,
         edge_plot=edge_plot,
         edge_all=edge_mapped,
         edge_lw=edge_lw,
@@ -727,7 +1196,7 @@ def _plot_embedding_scatter(
         ax,
         np.asarray(face_mapped) if face_mapped is not None else None,
         face_cmap_resolved,
-        label=_legend_title_from_key(color) or "Abundance",
+        label=(_legend_title_from_key(color) if color is not None else "Abundance"),
         text_size=text_size,
     )
 
@@ -888,36 +1357,62 @@ def _plot_embedding_scatter(
                 ax.text(Xt_plot[i, pc_idx[0]], Xt_plot[i, pc_idx[1]], Xt_plot[i, pc_idx[2]],
                         str(label), fontsize=8)
 
-    # --- legends (keep separate) ---
-    if face_legend:
-        leg1 = ax.legend(
-            handles=face_legend,
-            title=_legend_title_from_key(color),
-            loc="best",
+    # --- legends (keep separate, stacked outside right edge) ---
+    from matplotlib.legend import Legend as _Legend
+
+    legends = []
+
+    def _make_legend(handles, title):
+        leg = _Legend(
+            ax, handles, [h.get_label() for h in handles],
+            title=title,
+            loc="center left",
+            bbox_to_anchor=(1.05, 0.5),
             fontsize=text_size,
             frameon=False,
         )
-        ax.add_artist(leg1)
+        ax.add_artist(leg)
+        leg.set_clip_on(False)  # ax.add_artist sets clip_path to axes boundary; undo it
+        return leg
+
+    if use_mapping and combined_mapping_legend:
+        legends.append(_make_legend(combined_mapping_legend, mapping_legend_title))
+    elif face_legend:
+        legends.append(
+            _make_legend(
+                face_legend,
+                mapping_legend_title if use_mapping else _legend_title_from_key(color),
+            )
+        )
 
     if edge_legend:
-        leg2 = ax.legend(
-            handles=edge_legend,
-            title=_legend_title_from_key(edge_color),
-            loc="upper right",
-            fontsize=text_size,
-            frameon=False,
+        legends.append(
+            _make_legend(
+                edge_legend,
+                mapping_legend_title if use_mapping else _legend_title_from_key(edge_color),
+            )
         )
-        ax.add_artist(leg2)
 
     if shape_legend:
-        leg3 = ax.legend(
-            handles=shape_legend,
-            title=_legend_title_from_key(marker_shape),
-            loc="lower right",
-            fontsize=text_size,
-            frameon=False,
-        )
-        ax.add_artist(leg3)
+        legends.append(_make_legend(shape_legend, _legend_title_from_key(marker_shape)))
+
+    # Stack legends vertically: render once to get heights, then reposition
+    if legends:
+        fig = ax.get_figure()
+        fig.canvas.draw()  # force layout so legend sizes are available
+
+        renderer = fig.canvas.get_renderer()
+        ax_height_px = ax.get_window_extent(renderer).height
+
+        # Walk top-to-bottom, accumulating y offset in axes-fraction units
+        y_cursor = 1.0  # start at top of axes
+        for leg in legends:
+            leg_height_px = leg.get_window_extent(renderer).height
+            leg_height_ax = leg_height_px / ax_height_px
+            # Place this legend so its top aligns with y_cursor
+            leg.set_bbox_to_anchor((0.6, y_cursor))
+            leg.set_loc("upper left")
+            y_cursor -= leg_height_ax + 0.02  # 0.02 gap between legends
 
     if return_parts:
         return {
@@ -933,7 +1428,9 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
               layer = "X", on = 'protein', cmap='default', edge_cmap="default", shape_cmap="default", show_labels=False, label_column=None,
               s=20, alpha=.8, umap_params={}, text_size = 10, edge_lw=0.8, 
               add_ellipses=False, ellipse_group=None, ellipse_cmap='default', ellipse_kwargs=None, 
-              force = False, return_fit=False, subset_mask=None, **kwargs: Any) -> "plt.Axes | tuple[plt.Axes, dict[str, Any]]":
+              force = False, return_fit=False, subset_mask=None,
+              mapping_keys=None, mapping=None, mapping_on_missing: str = "warn",
+              **kwargs: Any) -> "plt.Axes | tuple[plt.Axes, dict[str, Any]]":
     """
     Plot UMAP projection of protein or peptide abundance data.
 
@@ -1041,6 +1538,14 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
 
         ellipse_kwargs (dict, optional): Extra keyword arguments passed to the ellipse patch.
 
+        mapping_keys (list of str, optional): `.obs` columns whose tuple of levels keys `mapping`.
+            Must be provided together with ``mapping``.
+
+        mapping (dict, optional): Tuple-keyed style dicts (``color``, ``edge_color``, ``marker``).
+            See ``plot_pca`` for semantics; cannot be combined with ``edge_color`` / ``edge_cmap``.
+
+        mapping_on_missing (str): ``"warn"`` (default) or ``"raise"`` (see ``plot_pca``).
+
         force (bool): If True, recompute UMAP even if cached.
         return_fit (bool): If True, return the fitted UMAP object.
         **kwargs (Any): Extra keyword arguments passed to `ax.scatter()`.
@@ -1106,7 +1611,111 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
             ax = fig.add_subplot(111, projection='3d')
             plot_umap(ax, pdata, color='treatment', umap_params=umap_params)
             ```
-            
+
+        Tuple-key ``mapping`` (literal face + edge per combination of ``.obs`` columns):
+            ```python
+            umap_params = {"n_neighbors": 10, "min_dist": 0.1}
+            mapping_keys = ["cellline", "condition"]
+            mapping = {
+                ("A", "ctrl"): {"color": "white", "edge_color": "black"},
+                ("A", "treat"): {"color": "white", "edge_color": "blue"},
+                ("B", "ctrl"): {"color": "lightgrey", "edge_color": "black"},
+                ("B", "treat"): {"color": "lightgrey", "edge_color": "blue"},
+            }
+            plot_umap(
+                ax, pdata,
+                mapping_keys=mapping_keys,
+                mapping=mapping,
+                umap_params=umap_params,
+                force=True,
+            )
+            ```
+
+        Global abundance face color with per-combination edges:
+            ```python
+            umap_params = {"n_neighbors": 10, "min_dist": 0.1}
+            mapping_keys = ["cellline", "condition"]
+            mapping = {
+                ("A", "ctrl"): {"edge_color": "black"},
+                ("A", "treat"): {"edge_color": "steelblue"},
+                ("B", "ctrl"): {"edge_color": "black"},
+                ("B", "treat"): {"edge_color": "steelblue"},
+            }
+            plot_umap(
+                ax, pdata,
+                color="UBE4B",
+                cmap="plasma",
+                mapping_keys=mapping_keys,
+                mapping=mapping,
+                umap_params=umap_params,
+            )
+            ```
+
+        Sequential overlays on the same axes (same UMAP, different ``subset_mask``). Replace
+        columns and palettes with your metadata; use matching ``umap_params`` and ``force``
+        so all layers share one embedding:
+            ```python
+            umap_params = {"n_neighbors": 10, "min_dist": 0.1}
+            line = "LineA"
+            cell_line_color = {"LineA": "#4C72B0", "LineB": "#DD8452"}
+            cell_line_color_6h = {"LineA": "#9fb8d9", "LineB": "#e8b896"}
+
+            mask_dark = (
+                (pdata.summary["treatment"] == "Drug")
+                & (pdata.summary["cell_line"] == line)
+                & (pdata.summary["duration"] == "24hr")
+            )
+            mask_light = (
+                (pdata.summary["treatment"] == "Drug")
+                & (pdata.summary["cell_line"] == line)
+                & (pdata.summary["duration"] == "6hr")
+            )
+            mask_ctrl = (
+                (pdata.summary["treatment"] == "Vehicle")
+                & (pdata.summary["cell_line"] == line)
+            )
+
+            fig = plt.figure(figsize=(4, 4))
+            ax = fig.add_subplot(111, projection="3d")
+
+            ax, _ = plot_umap(
+                ax,
+                pdata,
+                color="cell_line",
+                cmap=cell_line_color,
+                edge_color="duration",
+                edge_cmap={"6hr": "grey", "24hr": "black"},
+                umap_params={**umap_params, "n_components": 3},
+                subset_mask=mask_dark,
+                return_fit=True,
+                force=True,
+            )
+            ax, _ = plot_umap(
+                ax,
+                pdata,
+                color="cell_line",
+                cmap=cell_line_color_6h,
+                edge_color="duration",
+                edge_cmap={"6hr": "grey", "24hr": "black"},
+                umap_params={**umap_params, "n_components": 3},
+                subset_mask=mask_light,
+                return_fit=True,
+                force=False,
+            )
+            plot_umap(
+                ax,
+                pdata,
+                color="cell_line",
+                cmap={k: "white" for k in cell_line_color},
+                edge_color="cell_line",
+                edge_cmap=cell_line_color,
+                edge_lw=1.2,
+                umap_params={**umap_params, "n_components": 3},
+                subset_mask=mask_ctrl,
+                force=False,
+            )
+            ```
+
     """
     default_umap_params = {'n_components': 2, 'random_state': 42}
     umap_param = {**default_umap_params, **(umap_params if umap_params else {})}
@@ -1155,6 +1764,7 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
         axis_prefix="UMAP", dim_labels=dim_labels, pc_idx=pc_idx, y_1d=y_1d,
         show_labels=show_labels, label_series=label_series,
         add_ellipses=add_ellipses, ellipse_kwargs=ellipse_kwargs, ellipse_group=ellipse_group, ellipse_cmap=ellipse_cmap, plot_confidence_ellipse=_plot_confidence_ellipse,
+        mapping_keys=mapping_keys, mapping=mapping, mapping_on_missing=mapping_on_missing,
         **kwargs,
     )
 
