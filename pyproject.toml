@@ -53,7 +53,7 @@ filterwarnings = [
 sc = [
   "directlfq>=0.2",
   "pimms-learn>=0.5.2",
-  "harmonypy>=0.0.5",
+  "harmonypy<1.0",
   "leidenalg>=0.9",
   "igraph>=0.10",
   "scikit-misc>=0.2",
