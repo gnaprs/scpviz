@@ -144,6 +144,60 @@ def plot_pairwise_correlation(
             ``ticklabels_auto_max_samples`` < 1.
 
     Example:
+        Sample × sample Pearson correlation on a per-protein z-score layer (``X_pw_zscore``):
+            ```python
+            import matplotlib.pyplot as plt
+            import numpy as np
+            from scpviz import plotting as scplt
+            from scpviz import utils as scu
+
+            adata = scu.get_adata(pdata_norm, "protein")
+            X = np.asarray(scu.get_adata_layer(adata, "X"), dtype=float)
+            mu = np.nanmean(X, axis=0, keepdims=True)
+            sig = np.nanstd(X, axis=0, keepdims=True)
+            sig = np.where(np.isfinite(sig) & (sig > 0), sig, 1.0)
+            adata.layers["X_pw_zscore"] = (X - mu) / sig
+
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata_norm,
+                classes=["cellline", "condition"],
+                method="pearson",
+                show_samples=True,
+                layer="X_pw_zscore",
+                force=True,
+            )
+            plt.show()
+            ```
+
+        ![Plot pairwise correlation](../../assets/plots/plot_pairwise_correlation.png)
+
+        Same approach on single-cell protein data (``classes`` aligned with UMAP, e.g. ``region``):
+            ```python
+            import matplotlib.pyplot as plt
+            import numpy as np
+            from scpviz import plotting as scplt
+            from scpviz import utils as scu
+
+            adata = scu.get_adata(pdata_sc, "protein")
+            X = np.asarray(scu.get_adata_layer(adata, "X"), dtype=float)
+            mu = np.nanmean(X, axis=0, keepdims=True)
+            sig = np.nanstd(X, axis=0, keepdims=True)
+            sig = np.where(np.isfinite(sig) & (sig > 0), sig, 1.0)
+            adata.layers["X_pw_zscore"] = (X - mu) / sig
+
+            fig, ax = scplt.plot_pairwise_correlation(
+                pdata_sc,
+                classes=["region"],
+                method="pearson",
+                show_samples=True,
+                layer="X_pw_zscore",
+                force=True,
+            )
+            plt.show()
+            ```
+
+        ![Plot pairwise correlation (single-cell)](../../assets/plots/plot_pairwise_correlation_sc.png)
+
         Imports and group-level heatmap (``show_samples=False``, default). Uses cached
         ``pairwise_correlation`` results when parameters match; pass ``force=True`` to
         recompute after changing ``.X`` or normalization:
@@ -657,25 +711,28 @@ def plot_clustermap(
             ```
 
     Example:
-        Cluster a subset of features with custom annotations:
+        Clustered heatmap with sample annotations:
             ```python
             import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
 
-            fig, ax = plt.subplots(figsize=(6, 4))
-            scplt.plot_clustermap(
+            fig, ax = plt.subplots(figsize=(1, 1))
+            g = scplt.plot_clustermap(
                 ax,
-                pdata,
-                classes=["cell_line", "condition", "treatment", "duration"],
+                pdata_norm,
+                on="prot",
+                classes=["cellline", "condition"],
+                force=True,
                 impute="row_min",
                 z_score=0,
                 center=0,
                 linewidth=0,
                 figsize=(10, 6),
-                colors_ratio=0.04,
-                x_label="gene",
-                force=True,
             )
+            plt.show()
             ```
+
+        ![Plot clustermap](../../assets/plots/plot_clustermap.png)
 
         Provide a custom LUT for annotation colors:
             ```python

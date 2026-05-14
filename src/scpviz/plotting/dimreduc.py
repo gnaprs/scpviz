@@ -185,6 +185,38 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         - To force recalculation (e.g., after filtering or normalization), set `force=True`.
 
     Example:
+        PCA on normalized protein data with ellipses, grouped by cell line and condition:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            pdata_norm.pca(on="protein")
+            scplt.plot_pca(ax, pdata_norm, classes=["cellline", "condition"], add_ellipses=True)
+            plt.show()
+            ```
+
+        ![Plot PCA](../../assets/plots/plot_pca.png)
+
+        PCA on single-cell protein data after ``directlfq`` (example uses ``region``; use ``condition`` or other ``.obs`` columns as in your object):
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            pdata_sc.pca(on="protein")
+            scplt.plot_pca(
+                ax,
+                pdata_sc,
+                color=["region"],
+                cmap={"Cortex": "#D19DCB", "SNpc": "#85BE9E"},
+                add_ellipses=True,
+            )
+            plt.show()
+            ```
+
+        ![Plot PCA (single-cell)](../../assets/plots/plot_pca_sc.png)
+
         Basic usage in grey:
             ```python
             plot_pca(ax, pdata)
@@ -1566,6 +1598,29 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
         - Use `classes=` only for backwards compatibility; prefer `color=`.
 
     Example:
+        UMAP after ``pca(on="protein")``, colored by sample metadata (example uses ``region`` and cohort-specific ``umap_params``):
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4.5, 4))
+            pdata_sc.pca(on="protein")
+            scplt.plot_umap(
+                ax,
+                pdata_sc,
+                color=["region"],
+                cmap={"Cortex": "#D19DCB", "SNpc": "#85BE9E"},
+                force=True,
+                umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
+                s=10,
+                alpha=0.85,
+            )
+            scplt.shift_legend(ax)
+            plt.show()
+            ```
+
+        ![Plot UMAP](../../assets/plots/plot_umap.png)
+
         Plot by treatment group with default palette, using custom UMAP parameters:
             ```python
             umap_params = {'n_neighbors': 10, 'min_dist': 0.1}
@@ -1791,19 +1846,18 @@ def plot_pca_scree(ax: "plt.Axes", pca: Any) -> "plt.Axes":
         ax (matplotlib.axes.Axes): Axis containing the scree plot.
 
     Example:
-        Basic usage with fitted PCA, first run PCA:
+        Basic usage with PCA results from ``.uns``:
             ```python
             import matplotlib.pyplot as plt
             from scpviz import plotting as scplt
-            fig, ax = plt.subplots()
-            ax, pca = scplt.plot_pca(ax, pdata, classes=["cellline", "treatment"], plot_pc=[1, 2])  # run PCA and plot
-            ax = scplt.plot_pca_scree(ax, pca)  # scree plot
+
+            fig, ax = plt.subplots(figsize=(4, 3))
+            pdata_norm.pca(on="protein")
+            scplt.plot_pca_scree(ax, pdata_norm.prot.uns["pca"])
+            plt.show()
             ```
 
-        If PCA has already been run, use cached PCA results from `.uns`:
-            ```python
-            scplt.plot_pca_scree(ax, pdata.prot.uns["pca"])
-            ```
+        ![Plot PCA scree](../../assets/plots/plot_pca_scree.png)
     """
     if isinstance(pca, dict):
         variance_ratio = np.array(pca["variance_ratio"])
@@ -2242,6 +2296,19 @@ def plot_pca_protein_vectors(
         matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
 
     Example:
+        Show top protein loadings on PC1 vs PC2 on sample PCA scatter:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            pdata_norm.pca(on="protein")
+            scplt.plot_pca_protein_vectors(ax, pdata_norm, n_vectors=10)
+            plt.show()
+            ```
+
+        ![Plot PCA protein vectors](../../assets/plots/plot_pca_protein_vectors.png)
+
         Top-loading genes on PC1 vs PC2 over the sample PCA scatter, returning arrow and text coordinates:
             ```python
             import matplotlib.pyplot as plt

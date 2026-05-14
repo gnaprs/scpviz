@@ -66,6 +66,18 @@ def plot_venn(
         ValueError: If custom `set_colors` length does not match number of sets.
 
     Example:
+        Two-set Venn by cell line:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(3, 3))
+            scplt.plot_venn(ax, pdata, classes="cellline")
+            plt.show()
+            ```
+
+        ![Plot venn](../../assets/plots/plot_venn.png)
+
         Plot a 2-set Venn diagram of shared proteins:
             ```python
             fig, ax = plt.subplots()
@@ -192,28 +204,53 @@ def plot_upset(
         The ``upsetplot.UpSet`` instance, or ``(upset, membership_df)`` if ``return_contents=True`` (membership as a multi-index DataFrame).
 
     Example:
-        Basic usage with set size categories:
+        UpSet for ``cellline`` and ``condition`` (``show_counts=False`` can help when saving some PNGs with matplotlib / upsetplot):
             ```python
-            upplot, size_upset = scplt.plot_upset(
-                pdata_filter, classes="size", sort_categories_by="-input"
-            )
-            uplot = upplot.plot()
-            uplot["intersections"].set_ylabel("Subset size")
-            uplot["totals"].set_xlabel("Protein count")
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            upplot = scplt.plot_upset(pdata, classes=["cellline", "condition"], show_counts=False)
+            upplot.plot()
             plt.show()
             ```
 
-        Optional styling of the plot can also be done:
+        ![Plot upset](../../assets/plots/plot_upset.png)
+
+        Highlight disjoint subsets (resolve keys with ``get_upset_contents(..., upsetForm=False)``):
             ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+            from scpviz import utils as scu
+
+            keys = list(
+                scu.get_upset_contents(pdata, classes=["cellline", "condition"], upsetForm=False).keys()
+            )
+            be_kd = next((k for k in keys if "BE" in k and "kd" in k), keys[0])
+            as_sc = next((k for k in keys if "AS" in k and "sc" in k), keys[-1])
+            others = [k for k in keys if k not in (be_kd, as_sc)]
+
+            upplot = scplt.plot_upset(pdata, classes=["cellline", "condition"], show_counts=False)
             upplot.style_subsets(
-                present=["sc"], absent=["2k", "5k", "10k", "20k"],
-                edgecolor="black", facecolor="darkorange", linewidth=2, label="sc only"
+                present=[be_kd],
+                absent=others,
+                edgecolor="black",
+                facecolor="#E59866",
+                linewidth=2,
+                label="highlight A",
             )
             upplot.style_subsets(
-                absent=["sc"], present=["2k", "5k", "10k", "20k"],
-                edgecolor="white", facecolor="#7F7F7F", linewidth=2, label="in all but sc"
+                present=[as_sc],
+                absent=[k for k in keys if k != as_sc],
+                edgecolor="black",
+                facecolor="#5DADE2",
+                linewidth=2,
+                label="highlight B",
             )
+            upplot.plot()
+            plt.show()
             ```
+
+        ![Plot upset styled](../../assets/plots/plot_upset_styled.png)
 
     See Also:
         plot_venn: Plot a Venn diagram for 2 to 3 sets.  
@@ -221,8 +258,13 @@ def plot_upset(
     """
 
     upset_contents = _plotting_pkg_utils().get_upset_contents(pdata, classes=classes)
+    show_counts = kwargs.pop("show_counts", True)
     upplot = _plotting_pkg_upsetplot().UpSet(
-        upset_contents, subset_size="count", show_counts=True, facecolor="black", **kwargs
+        upset_contents,
+        subset_size="count",
+        show_counts=show_counts,
+        facecolor="black",
+        **kwargs,
     )
 
     if return_contents:

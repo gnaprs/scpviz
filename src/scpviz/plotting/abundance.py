@@ -62,16 +62,30 @@ def plot_cv(
         cv_df (pandas.DataFrame): Optional, returned if `return_df=True`.
 
     Example:
-        Retrieve CV values and customize the violin plot:
+        CV distribution grouped by cell line and condition:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            scplt.plot_cv(ax, pdata, classes=["cellline", "condition"])
+            plt.show()
+            ```
+
+        ![Plot cv](../../assets/plots/plot_cv.png)
+
+        Extract ``cv_df`` and plot with your own seaborn/matplotlib code (e.g. horizontal violins, custom order and palette):
             ```python
             import matplotlib.pyplot as plt
             import seaborn as sns
+            from scpviz import plotting as scplt
 
-            classes = "size"
-            fig, ax = plt.subplots(figsize=(2.795, 3))
+            classes = ["cellline", "condition"]
+            fig, ax = plt.subplots(figsize=(4, 4))
             cv_df = scplt.plot_cv(ax, pdata, classes=classes, return_df=True)
-
             cv_df = cv_df.reset_index()
+            order = sorted(cv_df["Class"].unique())  # replace with your preferred order
+            colors = sns.color_palette("Blues", n_colors=len(order))
             sns.violinplot(
                 data=cv_df,
                 y="Class",
@@ -84,6 +98,7 @@ def plot_cv(
                 saturation=1,
                 ax=ax,
             )
+            plt.show()
             ```
     """
     # Compute CVs for the selected layer
@@ -175,6 +190,8 @@ def plot_abundance_housekeeping(ax: "plt.Axes", pdata: pAnnData, classes: str | 
             fig, ax = plt.subplots(figsize=(6,4))
             scplt.plot_abundance_housekeeping(ax, pdata, loading_control='whole cell', classes='condition')
             ```
+
+        ![Plot abundance housekeeping](../../assets/plots/plot_abundance_housekeeping.png)
     """
 
     loading_controls = {
@@ -254,12 +271,19 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
         df (pandas.DataFrame, optional): Returned if `return_df=True`.
 
     !!! example
-        Plot abundance of two selected proteins:
+        Plot abundance of selected marker proteins grouped by cell line and condition:
             ```python
+            import matplotlib.pyplot as plt
             from scpviz import plotting as scplt
-            scplt.plot_abundance(ax, pdata, namelist=['Slc12a2','Septin6'])
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            scplt.plot_abundance(
+                ax, pdata, namelist=["GAPDH", "TUBB", "ACTB"], classes=["cellline", "condition"]
+            )
+            plt.show()
             ```
 
+        ![Plot abundance](../../assets/plots/plot_abundance.png)
     """
 
     # Get abundance DataFrame
@@ -428,10 +452,13 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
         global_legend (bool): Whether to display a single global legend.
         box_kwargs (dict, optional): Additional arguments passed to ``sns.boxplot``
             (used when ``plot_type="box"``).
-        hline_kwargs (dict, optional): Keyword arguments for mean-lines
-            (used when ``plot_type="line"``).
-        bar_kwargs (dict, optional): Additional arguments passed to bar plotting
-            (used when ``plot_type="bar"``).
+        hline_kwargs (dict, optional): Styling for mean segments when ``plot_type="line"``.
+            Recognized keys include Matplotlib ``hlines`` options plus ``half_width``
+            (float, default 0.15): half the segment length in x-axis units; use a
+            smaller value when dodged groups would otherwise overlap.
+        bar_kwargs (dict, optional): Passed to ``Axes.bar`` when ``plot_type="bar"``
+            (e.g. ``width`` in x-axis units; default here is 0.3—decrease when many
+            hue levels overlap on one gene tick).
         bar_error (str, optional): Error bar for bar plot. Select from one of
             {"sd", "sem", None, <callable>}, where callable takes a 1D array and returns
             a scalar error. Defaults to "sd".
@@ -471,7 +498,8 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
             "half_width": 0.15,
         }
         ```
-        Note: ``half_width`` sets the half-length of the mean line.
+        ``half_width`` is in x-axis units; lower it when several classes are dodged
+        and mean segments would cross.
 
         Bar styling (used when ``plot_type="bar"``):
         ```python
@@ -484,6 +512,8 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
             "zorder": 3,
         }
         ```
+        ``width`` is passed to ``Axes.bar`` (x-axis units); use a smaller value when
+        bars from neighboring hue levels overlap.
 
         Violin styling (used when ``plot_type="violin"``):
         ```python
@@ -521,74 +551,79 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
         Basic usage (grouped boxplots):
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="box",
             figsize=(2, 2.5),
         )
         plt.show()
         ```
 
+        ![Plot abundance boxgrid](../../assets/plots/plot_abundance_boxgrid.png)
+
         Bar plots with error bars:
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="bar",
             bar_error="sd",  # "sd", "sem", None, or callable
+            bar_kwargs={"width": 0.14},  # narrower bars when many groups dodge
             figsize=(2, 2.5),
         )
         plt.show()
         ```
+
+        ![Plot abundance boxgrid bar](../../assets/plots/plot_abundance_boxgrid_bar.png)
 
         Mean-lines with count annotations:
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="line",
             show_n=True,
+            hline_kwargs={"half_width": 0.08},  # shorter segments when groups dodge
             figsize=(2, 2.5),
         )
         plt.show()
         ```
 
+        ![Plot abundance boxgrid line](../../assets/plots/plot_abundance_boxgrid_line.png)
+
         Violin plots (distribution-focused):
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="violin",
             figsize=(2, 2.5),
         )
         plt.show()
         ```
 
+        ![Plot abundance boxgrid violin](../../assets/plots/plot_abundance_boxgrid_violin.png)
+
         Customizing appearance (palette, order, and styling):
         ```python
-        palette = {"Control": "#4C72B0", "Treatment": "#DD8452"}
-
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
-            order=["Control", "Treatment"],
-            palette=palette,
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="box",
             box_kwargs={"boxprops": {"alpha": 0.45}, "linewidth": 1.2},
             strip_kwargs={"size": 4, "alpha": 0.6},
-            y_min=2,
-            y_max=10,
-            log_scale=True,
             figsize=(2, 2.5),
         )
         plt.show()
         ```
 
+        ![Plot abundance boxgrid custom](../../assets/plots/plot_abundance_boxgrid_custom.png)
+
         Return the plotting DataFrame for downstream checks:
         ```python
         fig, axes, df = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="box",
             return_df=True,
         )
@@ -596,6 +631,8 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
         display(df.head())
         plt.show()
         ```
+
+        ![Plot abundance boxgrid](../../assets/plots/plot_abundance_boxgrid.png)
     """
     from matplotlib.colors import to_rgba
 
@@ -1026,42 +1063,29 @@ def plot_rankquant(ax: "plt.Axes", pdata: pAnnData, classes: str | list[str] | N
         ax (matplotlib.axes.Axes): Axis containing the rank abundance plot.
     
     Example:
-        Plot rank abundance grouped by sample size:
+        Plot rank abundance grouped by cell line and condition:
             ```python
-            import seaborn as sns
-            colors = sns.color_palette("Blues", 4)
-            cmaps = ["Blues", "Reds", "Greens", "Oranges"]
-            order = ["sc", "5k", "10k", "20k"]
-            fig, ax = plt.subplots(figsize=(4, 3))
-            ax = scplt.plot_rankquant(
-                ax, pdata_filter, classes="size",
-                order=order,
-                cmap=cmaps, color=colors, calpha=1, alpha=0.005
-            )
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            scplt.plot_rankquant(ax, pdata, classes=["cellline", "condition"])
+            plt.show()
             ```
 
-        Format the plot better:
+        ![Plot rankquant](../../assets/plots/plot_rankquant.png)
+
+        Plot rank abundance on single-cell protein data (use the same ``classes`` you use for UMAP, e.g. ``region``):
             ```python
-            plt.ylabel("Abundance")
-            ax.set_ylim(10**ylims[0], 10**ylims[1])
-            legend_patches = [
-                mpatches.Patch(color=color, label=label)
-                for color, label in zip(colors, order)
-            ]
-            plt.legend(
-                handles=legend_patches, bbox_to_anchor=(0.75, 1),
-                loc=2, borderaxespad=0., frameon=False
-            )
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            scplt.plot_rankquant(ax, pdata_sc, classes=["region"])
+            plt.show()
             ```
 
-        Highlight specific points on the rank-quant plot:
-            ```python
-            scplt.mark_rankquant(
-                ax, pdata_filter, mark_df=prot_sc_df,
-                class_values=["sc"], show_label=True,
-                color="darkorange", label_type="gene"
-            )
-            ```
+        ![Plot rankquant (single-cell)](../../assets/plots/plot_rankquant_sc.png)
 
     See Also:
         mark_rankquant: Highlight specific proteins or genes on a rank abundance plot.            
@@ -1194,23 +1218,34 @@ def mark_rankquant(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, cla
         highlights.
 
     Example:
-        Plot rank abundance and highlight specific proteins:
+        Overlay markers after a bulk rank-quant plot:
             ```python
-            fig, ax = plt.subplots()
-            ax = scplt.plot_rankquant(
-                ax, pdata_filter, classes="size", order=order,
-                cmap=cmaps, color=colors, s=10, calpha=1, alpha=0.005
-            )
-            size_upset = scutils.get_upset_contents(pdata_filter, classes="size")
-            prot_sc_df = scutils.get_upset_query(
-                size_upset, present=["sc"], absent=["5k", "10k", "20k"]
-            )
+            import matplotlib.pyplot as plt
+            import pandas as pd
+            from scpviz import plotting as scplt
+            from scpviz import utils as scu
+
+            classes_2 = ["cellline", "condition"]
+            class_list = scu.get_classlist(pdata.prot, classes_2)
+            acc = list(pdata.prot.var_names[:3])
+            mark_df = pd.DataFrame({"accession": acc})
+            if "Genes" in pdata.prot.var.columns:
+                mark_df["gene_primary"] = pdata.prot.var.loc[acc, "Genes"].astype(str).values
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            scplt.plot_rankquant(ax, pdata, classes=classes_2)
             scplt.mark_rankquant(
-                ax, pdata_filter, mark_df=prot_sc_df,
-                class_values=["sc"], show_label=True,
-                color="darkorange", label_type="gene"
+                ax,
+                pdata,
+                mark_df=mark_df,
+                class_values=class_list[: min(4, len(class_list))],
+                color="black",
+                label_type="gene",
             )
-            ```python
+            plt.show()
+            ```
+
+        ![Mark rankquant](../../assets/plots/mark_rankquant.png)
 
     See Also:
         plot_rankquant: Generate rank abundance plots with statistics stored in `.var`.
@@ -1407,17 +1442,39 @@ def plot_raincloud(ax: "plt.Axes", pdata: pAnnData, classes: str | list[str] | N
         used with `mark_raincloud()` to highlight specific features.
 
     Example:
-        Plot raincloud distributions grouped by sample size:
+        Plot raincloud distributions by cell line and condition (one color per combined class):
             ```python
-            ax = scplt.plot_raincloud(
-                ax, pdata_filter, classes="size",
-                order=order, color=colors, linewidth=0.5, debug=False
-            )
-            scplt.mark_raincloud(
-                ax, pdata_filter, mark_df=prot_sc_df,
-                class_values=["sc"], color="black"
-            )
+            import matplotlib.cm as cm
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+            from scpviz import utils as scu
+
+            classes_2 = ["cellline", "condition"]
+            rain_colors = [cm.tab10(i % 10) for i in range(len(scu.get_classlist(pdata.prot, classes_2)))]
+
+            fig, ax = plt.subplots(figsize=(5, 4))
+            scplt.plot_raincloud(ax, pdata, classes=classes_2, color=rain_colors)
+            plt.show()
             ```
+
+        ![Plot raincloud](../../assets/plots/plot_raincloud.png)
+
+        Same pattern on single-cell protein data after ``directlfq`` (``classes`` aligned with UMAP, e.g. ``region``):
+            ```python
+            import matplotlib.cm as cm
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+            from scpviz import utils as scu
+
+            classes_sc = ["region"]
+            rain_colors = [cm.tab10(i % 10) for i in range(len(scu.get_classlist(pdata_sc.prot, classes_sc)))]
+
+            fig, ax = plt.subplots(figsize=(5, 4))
+            scplt.plot_raincloud(ax, pdata_sc, classes=classes_sc, color=rain_colors)
+            plt.show()
+            ```
+
+        ![Plot raincloud (single-cell)](../../assets/plots/plot_raincloud_sc.png)
 
     See Also:
         mark_raincloud: Highlight specific features on a raincloud plot.  
@@ -1531,17 +1588,47 @@ def mark_raincloud(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, cla
         stores the required statistics in `.var`.
 
     Example:
-        Highlight specific proteins on a raincloud plot:
+        Highlight proteins on a raincloud after ``plot_raincloud`` (same grouping and colors as that plot):
             ```python
-            ax = scplt.plot_raincloud(
-                ax, pdata_filter, classes="size", order=order,
-                color=colors, linewidth=0.5
-            )
+            import matplotlib.cm as cm
+            import matplotlib.pyplot as plt
+            import pandas as pd
+            from scpviz import plotting as scplt
+            from scpviz import utils as scu
+
+            classes_2 = ["cellline", "condition"]
+            class_list = scu.get_classlist(pdata.prot, classes_2)
+            rain_colors = [cm.tab10(i % 10) for i in range(len(class_list))]
+
+            var = pdata.prot.var
+            want = ["GAPDH", "TUBB", "ACTB"]
+            if "Genes" not in var.columns:
+                acc = list(var.index[:3])
+            else:
+                m = var["Genes"].astype(str).isin(want)
+                acc = list(var.index[m][:3])
+                if len(acc) < 3:
+                    acc = list(var.index[:3])
+            sub = var.loc[acc].copy().reset_index()
+            id_col = "index" if "index" in sub.columns else sub.columns[0]
+            mark_df = sub.rename(columns={id_col: "accession"})
+            if "Genes" in mark_df.columns:
+                mark_df = mark_df.rename(columns={"Genes": "gene_primary"})
+            mark_df = mark_df[[c for c in ("accession", "gene_primary") if c in mark_df.columns]]
+
+            fig, ax = plt.subplots(figsize=(5, 4))
+            scplt.plot_raincloud(ax, pdata, classes=classes_2, color=rain_colors)
             scplt.mark_raincloud(
-                ax, pdata_filter, mark_df=prot_sc_df,
-                class_values=["sc"], color="black"
+                ax,
+                pdata,
+                mark_df=mark_df,
+                class_values=class_list[: min(4, len(class_list))],
+                color="black",
             )
+            plt.show()
             ```
+
+        ![Mark raincloud](../../assets/plots/mark_raincloud.png)
 
     See Also:
         plot_raincloud: Generate raincloud plots with distributions per group.  

@@ -275,6 +275,19 @@ def plot_significance(
         None
 
     Example:
+        Minimal bar comparison with a significance bracket:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(2, 3))
+            ax.bar([0, 1], [10, 15])
+            scplt.plot_significance(ax, 16.0, 1.0, x1=0, x2=1, pval="*")
+            plt.show()
+            ```
+
+        ![Plot significance](../../assets/plots/plot_significance.png)
+
         Annotate a swarm + bar plot with a t-test p-value:
             ```python
             import matplotlib.pyplot as plt
@@ -359,13 +372,17 @@ def plot_summary(
         ValueError: If `classes` is invalid (not None, str, or non-empty list).
 
     Example:
-        Quick QC summary without mean bars:
+        Sample count summary by cell line and condition:
             ```python
             import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
 
-            fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-            scplt.plot_summary(ax, pdata, classes=["amount"], plot_mean=False)
+            fig, ax = plt.subplots(figsize=(5, 3))
+            scplt.plot_summary(ax, pdata, classes=["cellline", "condition"])
+            plt.show()
             ```
+
+        ![Plot summary](../../assets/plots/plot_summary.png)
     """
 
     if pdata.summary is None:

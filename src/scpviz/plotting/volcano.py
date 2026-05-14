@@ -121,25 +121,50 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
     Example:
         Dictionary-style input:
             ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
             values = [
-                {"cellline": "HCT116", "treatment": "DMSO"},
-                {"cellline": "HCT116", "treatment": "DrugX"}
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
             ]
-            colors = sns.color_palette("Paired")[4:6]
-            color_dict = dict(zip(['downregulated', 'upregulated'], colors))
-            ax, df = plot_volcano(ax, pdata, classes="cellline", values=values)
+            ax, df = scplt.plot_volcano(ax, pdata_norm, values=values, return_df=True)
+            plt.show()
             ```
+
+        ![Plot volcano](../../assets/plots/plot_volcano.png)
+
         Legacy input:
             ```python
-            ax, df = plot_volcano(ax, pdata, classes="cellline", values=["A", "B"], color=color_dict)
-            add_volcano_legend(ax)
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            colors = sns.color_palette("Paired")[4:6]
+            color_dict = dict(zip(["downregulated", "upregulated"], colors))
+            ax, df = scplt.plot_volcano(
+                ax,
+                pdata_norm,
+                classes="condition",
+                values=["kd", "sc"],
+                color=color_dict,
+                return_df=True,
+            )
+            scplt.add_volcano_legend(ax)
+            plt.show()
             ```
         To tweak styling:
 
             Move positions up/down and tweak styling:
             ```python
-            plot_volcano(
-                ax, pdata, values=values, classes=classes,
+            values = [
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
+            ]
+            scplt.plot_volcano(
+                ax, pdata_norm, values=values,
                 group_annot_kwargs={"pos": {"group1_xy": (0.98, 1.10), "group2_xy": (0.02, 1.10)}},
                 up_kwargs={"fontsize": 9},
                 down_kwargs={"fontsize": 9},
@@ -147,14 +172,22 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
             ```
             Remove the bbox but keep text:
             ```python
-            plot_volcano(
-                ax, pdata, values=values, classes=classes,
+            values = [
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
+            ]
+            scplt.plot_volcano(
+                ax, pdata_norm, values=values,
                 group_annot_kwargs={"bbox": None},
             )
             ```
             Turn off all text:
             ```python
-            plot_volcano(ax, pdata, values=values, classes=classes, group_annot=False)
+            values = [
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
+            ]
+            scplt.plot_volcano(ax, pdata_norm, values=values, group_annot=False)
             ```
 
 
@@ -318,7 +351,7 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
     Volcano plot for AnnData with the *same API behavior* as pdata.plot_volcano.
 
     Required:
-        - Either `de_data` OR (`adata`, `values`, `class_type`).
+        - Either ``de_data`` OR (``adata`` and ``values``). For legacy-style ``values`` (group labels or list-of-lists), also pass ``class_type`` as documented in :func:`scpviz.utils.stats.de_adata`.
         
     Supports:
         - Dictionary-style values: [{"cellline":"HCT116","tx":"DMSO"}, {...}]
@@ -326,6 +359,26 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
         - Legacy multi-col values: [["HCT116","DMSO"], ["HCT116","DrugX"]]
 
     Produces: identical volcano to pAnnData version.
+
+    Example:
+        After DE on ``adata`` with the same comparison as :func:`plot_volcano`, the figure matches :func:`plot_volcano` (same PNG):
+
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            values = [
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
+            ]
+            ax, df = scplt.plot_volcano_adata(
+                ax, pdata_norm.prot, values=values, return_df=True
+            )
+            plt.show()
+            ```
+
+        ![Plot volcano (same style as plot_volcano_adata)](../../assets/plots/plot_volcano.png)
     """
     import numpy as np
     import pandas as pd
@@ -488,6 +541,19 @@ def add_volcano_legend(ax: "plt.Axes", colors: dict[str, str] | None = None) -> 
             }
             ```
 
+    Example:
+        Add legend handles for significance categories:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(3, 2))
+            scplt.add_volcano_legend(ax)
+            plt.show()
+            ```
+
+        ![Add volcano legend](../../assets/plots/add_volcano_legend.png)
+
     Returns:
         None
     """
@@ -540,13 +606,22 @@ def mark_volcano(ax: "plt.Axes", volcano_df: pd.DataFrame, label: Any, label_col
     Example:
         Highlight specific features on a volcano plot:
             ```python
-            fig, ax = plt.subplots()
-            ax, df = scplt.plot_volcano(ax, pdata, classes="treatment", values=["ctrl", "drug"])
-            ax = scplt.mark_volcano(
-                ax, df, label=["P11247", "O35639", "F6ZDS4"],
-                label_color="red", s=10, alpha=1, show_names=True
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            values = [
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
+            ]
+            ax, volcano_df = scplt.plot_volcano(
+                ax, pdata_norm, values=values, return_df=True, label=[0, 0]
             )
+            scplt.mark_volcano(ax, volcano_df, label=["GAPDH", "TUBB", "ACTB"])
+            plt.show()
             ```
+
+        ![Mark volcano](../../assets/plots/mark_volcano.png)
 
     Note:
         This function works especially well in combination with
@@ -667,20 +742,38 @@ def mark_volcano_by_significance(
             where the list contains the text artists for further adjustment.
 
     Example:
-        Highlight specific features on a volcano plot using significance colors:
-
+        Highlight specific features on a volcano plot using significance colors;
+        ``label`` is required. This example marks the top up- and down-regulated
+        features by ``significance_score``:
             ```python
-            fig, ax = plt.subplots()
-            ax, df = scplt.plot_volcano(
-                ax, pdata, classes="treatment", values=["ctrl", "drug"]
-            )
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
 
-            custom_prot = ['Snca','Sox2']
-            custom_dict = {"downregulated": "#1F2CCF"}
-            ax = scplt.mark_volcano_by_significance(
-                ax, df, label=custom_prot, color=custom_dict, show_names=False
+            fig, ax = plt.subplots(figsize=(4, 4))
+            values = [
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
+            ]
+            ax, volcano_df = scplt.plot_volcano(
+                ax, pdata_norm, values=values, return_df=True, label=[0, 0]
             )
+            up_ids = (
+                volcano_df[volcano_df["significance"] == "upregulated"]
+                .sort_values("significance_score", ascending=False)
+                .head(5)
+                .index.tolist()
+            )
+            down_ids = (
+                volcano_df[volcano_df["significance"] == "downregulated"]
+                .sort_values("significance_score", ascending=True)
+                .head(5)
+                .index.tolist()
+            )
+            scplt.mark_volcano_by_significance(ax, volcano_df, label=up_ids + down_ids)
+            plt.show()
             ```
+
+        ![Mark volcano by significance](../../assets/plots/mark_volcano_by_significance.png)
 
     Note:
         This function is designed to work seamlessly with
@@ -846,6 +939,8 @@ def volcano_adjust_and_outline_texts(
 
             volcano_adjust_and_outline_texts(texts, expand=(2, 2))
             ```
+
+        ![Volcano adjust and outline texts](../../assets/plots/volcano_adjust_and_outline_texts.png)
 
     Note:
         This function is designed to be used after collecting all labels from
