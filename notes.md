@@ -38,6 +38,7 @@ Use format:
 git fetch origin
 VERSION=$(grep -m1 version pyproject.toml | cut -d'"' -f2)
 git tag -a "v$VERSION" origin/main -m "Release v$VERSION"
+CHECK: name of tag with `git tag -n`
 git push origin "v$VERSION"
 
 ## PyPI release

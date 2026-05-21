@@ -71,7 +71,7 @@ def print_versions():
             except PackageNotFoundError:
                 print(f"  {package}", "not installed")
 
-    print("scpviz version: 0.6.0")
+    print("scpviz version: 1.0.0")
     print("Date and time: ", get_datetime())
     _print_group("Core dependencies:", core)
     _print_group("Optional [sc]:", opt_sc)
