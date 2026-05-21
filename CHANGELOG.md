@@ -1,6 +1,76 @@
 All notable changes to this project are documented here.
 
 <details open>
+<summary><b>1.0.0</b> – 2026-05-21</summary>
+
+
+#### Build System
+
+
+##### (V1.0.0)
+
+
+- Bump version to 1.0.0 (c3e1193…)
+
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (db52750…)
+
+
+
+#### Documentation
+
+
+##### (Plotting)
+
+
+- Update plotting API with figure example images close #45 (7a0fcae…)
+
+
+
+#### Fixed
+
+
+##### (Build)
+
+
+- Set pyharmony requirement <1.0 to avoid C++ requirement on CI windows build fix #44 (5de43f9…)
+
+- Force fixed pyharmony version (bc76b8e…)
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update manuscript for reviewer feedback (6967ffe…)
+
+- Update Paper PDF Draft (32f6b99…)
+
+- Update manuscript (1f5939e…)
+
+- Update Paper PDF Draft (250ac22…)
+
+
+
+##### (Plotting)
+
+
+- Add mapping key for easier plotting, fix legends overlap and shift_legend not working on multiple legend, fix #42 (20df3ae…)
+
+
+
+
+</details>
+
+<details open>
 <summary><b>0.6.0</b> – 2026-04-14</summary>
 
 

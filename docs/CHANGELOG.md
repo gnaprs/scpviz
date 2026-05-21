@@ -3,6 +3,79 @@
 ## scpviz
 
 
+### 1.0.0 <small>May 21, 2026</small> { id="1.0.0" }
+
+
+#### Build System
+
+
+##### (V1.0.0)
+
+
+- Bump version to 1.0.0 (c3e1193…)
+
+
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (db52750…)
+
+
+
+
+#### Documentation
+
+
+##### (Plotting)
+
+
+- Update plotting API with figure example images close #45 (7a0fcae…)
+
+
+
+
+#### Fixed
+
+
+##### (Build)
+
+
+- Set pyharmony requirement <1.0 to avoid C++ requirement on CI windows build fix #44 (5de43f9…)
+
+- Force fixed pyharmony version (bc76b8e…)
+
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update manuscript for reviewer feedback (6967ffe…)
+
+- Update Paper PDF Draft (32f6b99…)
+
+- Update manuscript (1f5939e…)
+
+- Update Paper PDF Draft (250ac22…)
+
+
+
+##### (Plotting)
+
+
+- Add mapping key for easier plotting, fix legends overlap and shift_legend not working on multiple legend, fix #42 (20df3ae…)
+
+
+
+
+
+
 ### 0.6.0 <small>April 14, 2026</small> { id="0.6.0" }
 
 
