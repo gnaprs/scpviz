@@ -86,8 +86,8 @@ Use the dedicated guide:
 Use this checklist for a complete analysis run:
 
 1. **Start app**
-   - `python -m dash_app.app`
-   - Open `http://127.0.0.1:8050`
+   - App is now on the render service: https://scpviz-webapp.onrender.com/
+   - Note: The service may take a few minutes to load if left offline for too long.
 2. **Import (Tab 1)**
    - Choose `Proteome Discoverer (PD)` or `DIA-NN`
    - Upload required file(s)
