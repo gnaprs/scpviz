@@ -1,19 +1,4 @@
-cff-version: 1.2.0
-title: >-
-  scpviz: A Python bioinformatics toolkit for Single-cell
-  Proteomics and multi-omics analysis
-message: >-
-  If you use this software, please cite it using the
-  metadata from this file.
-type: software
-version: 0.5.8-alpha
-date-released: 2025-11-15
-identifiers:
-  - type: doi
-    value: 10.5281/zenodo.17362532
-repository-code: 'https://github.com/gnaprs/scpviz'
-url: 'https://gnaprs.github.io/scpviz/'
-license: MIT
+cff-version: "1.2.0"
 authors:
   - family-names: Pang
     given-names: Marion
@@ -31,6 +16,44 @@ authors:
     given-names: Tsui-Fen
     orcid: "https://orcid.org/0000-0003-2410-2186"
     affiliation: "Division of Biology and Biological Engineering, California Institute of Technology; Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology"
+doi: 10.5281/zenodo.20332865
+message: If you use this software, please cite our article in the
+  Journal of Open Source Software.
+preferred-citation:
+  authors:
+  - family-names: Pang
+    given-names: Marion
+    orcid: "https://orcid.org/0000-0002-0158-2976"
+    affiliation: "Division of Biology and Biological Engineering, California Institute of Technology"
+  - family-names: Quan
+    given-names: Baiyi
+    orcid: "https://orcid.org/0000-0001-6313-4274"
+    affiliation: "Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology"
+  - family-names: Wang
+    given-names: Ting-Yu
+    orcid: "https://orcid.org/0000-0002-9014-6825"
+    affiliation: "Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology"
+  - family-names: Chou
+    given-names: Tsui-Fen
+    orcid: "https://orcid.org/0000-0003-2410-2186"
+    affiliation: "Division of Biology and Biological Engineering, California Institute of Technology; Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology"
+  date-published: 2026-06-02
+  doi: 10.21105/joss.10303
+  issn: 2475-9066
+  issue: 122
+  journal: Journal of Open Source Software
+  publisher:
+    name: Open Journals
+  start: 10303
+  title: "scpviz: A Python bioinformatics toolkit for Single-cell
+    Proteomics and multi-omics analysis"
+  type: article
+  url: "https://joss.theoj.org/papers/10.21105/joss.10303"
+  volume: 11
+title: "scpviz: A Python bioinformatics toolkit for Single-cell
+  Proteomics and multi-omics analysis"
+type: software
+version: 1.0.0
 abstract: >
   scpviz is a Python package for visualizing and analyzing single-cell proteomics
   and multi-omics data. It extends the AnnData data structure to the domain of
@@ -38,3 +61,6 @@ abstract: >
   from raw peptide-level data to protein-level summaries and downstream
   interpretation through differential expression, enrichment analysis, and
   network analysis.
+repository-code: 'https://github.com/gnaprs/scpviz'
+url: 'https://gnaprs.github.io/scpviz/'
+license: MIT

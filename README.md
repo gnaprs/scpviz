@@ -1,7 +1,8 @@
 # scpviz
 <img src="https://raw.githubusercontent.com/gnaprs/scpviz/refs/heads/main/docs/assets/300ppi/logo_white_label@300x.png"
  align="right" width="200"/>
- [![DOI](https://zenodo.org/badge/762480088.svg)](https://doi.org/10.5281/zenodo.17362532)
+[![DOI](https://joss.theoj.org/papers/10.21105/joss.10303/status.svg)](https://doi.org/10.21105/joss.10303)
+ 
 
 **Build & Tests:**  
 [![codecov](https://codecov.io/gh/gnaprs/scpviz/branch/main/graph/badge.svg)](https://codecov.io/gh/gnaprs/scpviz)
@@ -52,6 +53,29 @@ For more in-depth guides on importing, filtering, plotting, and running enrichme
 ### API Reference
 
 Full function documentation for the `pAnnData` class and utility modules can be found on our [documentation page](https://gnaprs.github.io/scpviz/reference/).
+
+## Citation
+
+If you use `scpviz` in your research, please cite:
+
+Pang et al., (2026). scpviz: A Python bioinformatics toolkit for Single-cell Proteomics and multi-omics analysis. *Journal of Open Source Software*, 11(122), 10303. https://doi.org/10.21105/joss.10303
+
+```bibtex
+@article{Pang2026,
+  author  = {Pang, Marion and Quan, Baiyi and Wang, Ting-Yu and Chou, Tsui-Fen},
+  title   = {scpviz: A Python bioinformatics toolkit for Single-cell Proteomics and multi-omics analysis},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  month = jun,
+  journal = {Journal of Open Source Software},
+  volume = {11},
+  number = {122},
+  pages = {10303},
+  issn = {2475-9066},
+  doi = {10.21105/joss.10303},
+
+}
+```
 
 ## Contributing
 

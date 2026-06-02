@@ -57,6 +57,28 @@ For more detailed examples, check out the [Tutorials](tutorials/index.md).
 
 - **[Developer Notes](dev/contributing.md)** – Guidelines for contributing, testing, and extending scpviz.  
 
+## Citation
+
+If you use `scpviz` in your research, please cite:
+
+Pang et al., (2026). scpviz: A Python bioinformatics toolkit for Single-cell Proteomics and multi-omics analysis. *Journal of Open Source Software*, 11(122), 10303. https://doi.org/10.21105/joss.10303
+
+```bibtex
+@article{Pang2026,
+  author  = {Pang, Marion and Quan, Baiyi and Wang, Ting-Yu and Chou, Tsui-Fen},
+  title   = {scpviz: A Python bioinformatics toolkit for Single-cell Proteomics and multi-omics analysis},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  month = jun,
+  journal = {Journal of Open Source Software},
+  volume = {11},
+  number = {122},
+  pages = {10303},
+  issn = {2475-9066},
+  doi = {10.21105/joss.10303},
+
+}
+```
 
 ---
 
