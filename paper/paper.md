@@ -21,9 +21,9 @@ authors:
     corresponding: true
     affiliation: "1, 2"
 affiliations:
- - name: Division of Biology and Biological Engineering, California Institute of Technology, 1200 E. California Blvd, Pasadena, CA 91125
+ - name: Division of Biology and Biological Engineering, California Institute of Technology, 1200 E. California Blvd, Pasadena, CA 91125, United States
    index: 1
- - name: Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology, 1200 E. California Blvd, Pasadena, CA 91125
+ - name: Proteome Exploration Laboratory, Beckman Institute, California Institute of Technology, 1200 E. California Blvd, Pasadena, CA 91125, United States
    index: 2
 date: 15 November 2025
 bibliography: paper.bib
