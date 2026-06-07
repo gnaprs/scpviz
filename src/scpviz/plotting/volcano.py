@@ -16,13 +16,70 @@ import seaborn as sns
 from adjustText import adjust_text
 
 from scpviz import utils
+from scpviz.utils.formatting import format_log_prefix
 
 if TYPE_CHECKING:
     from scpviz.pAnnData.pAnnData import pAnnData
 
+def _resolve_p_col_from_df(p_col: str | None, df: pd.DataFrame) -> tuple[str, bool]:
+    """Return ``(p_col, p_col_explicit)``. ``None`` prefers ``adj_p_value`` when present."""
+    if p_col is None:
+        if "adj_p_value" in df.columns:
+            return ("adj_p_value", False)
+        return ("p_value", False)
+    if p_col not in ("p_value", "adj_p_value"):
+        raise ValueError("p_col must be 'p_value' or 'adj_p_value'.")
+    return (p_col, True)
+
+def _guard_adj_p_col(df: pd.DataFrame, p_col: str) -> None:
+    if p_col == "adj_p_value" and "adj_p_value" not in df.columns:
+        raise ValueError(
+            "p_col='adj_p_value' requested but 'adj_p_value' column is missing. "
+            "Run de() with correct_fdr=True first, or pass p_col='p_value'."
+        )
+    log10_col = f"-log10({p_col})"
+    if log10_col not in df.columns:
+        raise ValueError(
+            f"p_col={p_col!r} requested but {log10_col!r} column is missing in the "
+            "differential expression results."
+        )
+
+def _warn_volcano_de_inconsistency(
+    df: pd.DataFrame,
+    *,
+    de_data_provided: bool,
+    correct_fdr: bool,
+    p_col: str,
+    p_col_explicit: bool,
+) -> None:
+    if correct_fdr and "adj_p_value" not in df.columns:
+        suffix = (
+            "using supplied de_data unchanged."
+            if de_data_provided
+            else "FDR correction may not have been applied."
+        )
+        print(
+            f"{format_log_prefix('warn')} correct_fdr=True but DE results have no "
+            f"'adj_p_value' column; {suffix}"
+        )
+    if (
+        correct_fdr
+        and "adj_p_value" in df.columns
+        and p_col == "p_value"
+        and p_col_explicit
+    ):
+        print(
+            f"{format_log_prefix('warn')} correct_fdr=True and DE results include "
+            "adjusted p-values, but p_col='p_value'; significance labels reflect "
+            "FDR while the y-axis shows raw p-values. Omit p_col or pass "
+            "p_col='adj_p_value' for a consistent volcano."
+        )
+
 def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = None, method: str = 'ttest', fold_change_mode: str = 'mean', label: Any = 5,
-                 label_type='Gene', color=None, alpha=0.5, pval=0.05, log2fc=1, linewidth=0.5,
-                 fontsize=8, no_marks=False, classes=None, de_data=None, return_df=False, 
+                 label_type='Gene', color=None, alpha=0.5, threshold=0.05, log2fc=1, linewidth=0.5,
+                 p_col: str | None = None, correct_fdr: bool = False, equal_var: bool = True,
+                 pval: float | None = None,
+                 fontsize=8, no_marks=False, classes=None, de_data=None, return_df=False,
                  group_annot=True, group_annot_kwargs=None, group1_kwargs=None, group2_kwargs=None, up_kwargs=None, down_kwargs=None, **kwargs: Any) -> Any:
     """
     Plot a volcano plot of differential expression results.
@@ -61,8 +118,18 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
         color (dict, optional): Dictionary mapping significance categories
             to colors. Defaults to grey/red/blue.
         alpha (float): Point transparency. Default is 0.5.
-        pval (float): P-value threshold for significance. Default is 0.05.
+        threshold (float): Significance cutoff for threshold lines and for DE when
+            computed inline. Matches ``de()``: raw ``p_value`` when ``correct_fdr=False``,
+            ``adj_p_value`` when ``correct_fdr=True``. Default is 0.05.
+        pval (float, optional): Deprecated alias for ``threshold``.
         log2fc (float): Log2 fold change threshold for significance. Default is 1.
+        p_col (str or None): Column for the volcano y-axis: ``'p_value'`` or ``'adj_p_value'``.
+            Default ``None`` auto-selects ``'adj_p_value'`` when ``correct_fdr=True``, otherwise
+            ``'p_value'``. Pass explicitly to override.
+        correct_fdr (bool): Passed to ``pdata.de()`` when DE is computed inline, adds multiple testing correction.
+            When True, ``p_col`` defaults to ``'adj_p_value'`` unless overridden. Ignored when
+            ``de_data`` is provided except for ``p_col`` auto-selection and consistency warnings.
+        equal_var (bool): Passed to ``pdata.de()`` for Student vs Welch t-test.
         linewidth (float): Line width for threshold lines. Default is 0.5.
         fontsize (int): Font size for feature labels. Default is 8.
         no_marks (bool): If True, suppress coloring of significant points and
@@ -190,6 +257,36 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
             scplt.plot_volcano(ax, pdata_norm, values=values, group_annot=False)
             ```
 
+        Multiple testing correction (Benjamini-Hochberg FDR):
+            Proteomics DE tests thousands of proteins at once; without correction,
+            many raw p-values will appear significant by chance. Set ``correct_fdr=True``
+            to apply Benjamini-Hochberg FDR adjustment: significance labels and the
+            dashed horizontal threshold use adjusted p-values, and the y-axis defaults
+            to ``-log10(adj_p_value)`` (override with ``p_col`` if needed):
+
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            values = [
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
+            ]
+            ax, df = scplt.plot_volcano(
+                ax, pdata_norm, values=values,
+                correct_fdr=True, threshold=0.05, return_df=True,
+            )
+            scplt.add_volcano_legend(ax)
+            plt.show()
+            ```
+
+            With pre-computed DE results from ``pdata.de(correct_fdr=True)``:
+
+            ```python
+            de_df = pdata_norm.de(values=values, correct_fdr=True, threshold=0.05)
+            scplt.plot_volcano(ax, de_data=de_df, correct_fdr=True)
+            ```
 
     """
     import numpy as np
@@ -201,18 +298,55 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
     if de_data is None and pdata is None:
         raise ValueError("Either de_data or pdata must be provided.")
 
+    if pval is not None:
+        print(
+            f"{format_log_prefix('warn')} `pval` is deprecated in plot_volcano(); "
+            f"use `threshold` instead (applied pval={pval})."
+        )
+        if pval != threshold:
+            print(
+                f"{format_log_prefix('warn')} Both `threshold`={threshold} and "
+                f"`pval={pval}` were passed to plot_volcano(); using `pval`."
+            )
+        threshold = pval
+
+    if p_col is None:
+        p_col = "adj_p_value" if correct_fdr else "p_value"
+        p_col_explicit = False
+    else:
+        if p_col not in ("p_value", "adj_p_value"):
+            raise ValueError("p_col must be 'p_value' or 'adj_p_value'.")
+        p_col_explicit = True
+
     if de_data is not None:
         volcano_df = de_data.copy()
     else:
         if values is None:
           raise ValueError("If pdata is provided, values must also be provided.")
         if isinstance(values, list) and isinstance(values[0], dict):
-          volcano_df = pdata.de(values=values, method=method, pval=pval, log2fc=log2fc, fold_change_mode=fold_change_mode)
+          volcano_df = pdata.de(
+              values=values, method=method, threshold=threshold, log2fc=log2fc,
+              fold_change_mode=fold_change_mode, correct_fdr=correct_fdr, equal_var=equal_var,
+          )
         else:
-            volcano_df = pdata.de(class_type=classes, values=values, method=method, pval=pval, log2fc=log2fc, fold_change_mode=fold_change_mode)
+            volcano_df = pdata.de(
+                class_type=classes, values=values, method=method, threshold=threshold,
+                log2fc=log2fc, fold_change_mode=fold_change_mode, correct_fdr=correct_fdr,
+                equal_var=equal_var,
+            )
+
+    _warn_volcano_de_inconsistency(
+        volcano_df,
+        de_data_provided=de_data is not None,
+        correct_fdr=correct_fdr,
+        p_col=p_col,
+        p_col_explicit=p_col_explicit,
+    )
+    _guard_adj_p_col(volcano_df, p_col)
 
     df = volcano_df.copy()
-    volcano_df = volcano_df.dropna(subset=['p_value']).copy()
+    log10_col = f"-log10({p_col})"
+    volcano_df = volcano_df.dropna(subset=[p_col]).copy()
     volcano_df = volcano_df[volcano_df["significance"] != "not comparable"]
 
     default_color = {'not significant': 'grey', 'upregulated': 'red', 'downregulated': 'blue'}
@@ -225,15 +359,16 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
     scatter_kwargs.update(kwargs)
     colors = volcano_df['significance'].astype(str).map(default_color)
 
-    ax.scatter(volcano_df['log2fc'], volcano_df['-log10(p_value)'],
+    ax.scatter(volcano_df['log2fc'], volcano_df[log10_col],
                c=colors, alpha=alpha, **scatter_kwargs)
 
-    ax.axhline(-np.log10(pval), color='black', linestyle='--', linewidth=linewidth)
+    ax.axhline(-np.log10(threshold), color='black', linestyle='--', linewidth=linewidth)
     ax.axvline(log2fc, color='black', linestyle='--', linewidth=linewidth)
     ax.axvline(-log2fc, color='black', linestyle='--', linewidth=linewidth)
 
     ax.set_xlabel('$log_{2}$ fold change')
-    ax.set_ylabel('-$log_{10}$ p value')
+    ylabel = '-$log_{10}$ adjusted p value' if p_col == 'adj_p_value' else '-$log_{10}$ p value'
+    ax.set_ylabel(ylabel)
 
     log2fc_clean = volcano_df['log2fc'].replace([np.inf, -np.inf], np.nan).dropna()
     if log2fc_clean.empty:
@@ -267,7 +402,7 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
         for i in range(len(label_df)):
             gene = label_df.iloc[i].get('Genes', label_df.index[i])
             txt = plt.text(label_df.iloc[i]['log2fc'],
-                           label_df.iloc[i]['-log10(p_value)'],
+                           label_df.iloc[i][log10_col],
                            s=gene,
                            fontsize=fontsize,
                            bbox=dict(facecolor='white', edgecolor='black', boxstyle='round', alpha=0.6))
@@ -344,7 +479,9 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
 
 def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, class_type: Any = None, de_data: Any = None,
     gene_col=None, method='ttest', fold_change_mode='mean', layer='X', label=5, fontsize=8,
-    alpha=0.5, color=None, linewidth=0.5, pval=0.05, log2fc=1.0, no_marks=False,
+    alpha=0.5, color=None, linewidth=0.5, threshold=0.05, log2fc=1.0, p_col: str | None = None,
+    correct_fdr: bool = False, equal_var: bool = True, pval: float | None = None,
+    no_marks=False,
     return_df=False, **kwargs
 ) -> Any:
     """
@@ -359,6 +496,14 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
         - Legacy multi-col values: [["HCT116","DMSO"], ["HCT116","DrugX"]]
 
     Produces: identical volcano to pAnnData version.
+
+    Args:
+        correct_fdr (bool): If True, apply Benjamini-Hochberg FDR correction for
+            multiple testing when DE is computed inline (via ``de_adata``). Significance
+            and the y-axis use adjusted p-values by default. See :func:`plot_volcano`.
+        p_col (str or None): ``'p_value'`` or ``'adj_p_value'``. Default ``None`` auto-selects
+            from ``correct_fdr``. Other arguments mirror :func:`plot_volcano` / ``de_adata``.
+        pval (float, optional): Deprecated alias for ``threshold``.
 
     Example:
         After DE on ``adata`` with the same comparison as :func:`plot_volcano`, the figure matches :func:`plot_volcano` (same PNG):
@@ -379,12 +524,53 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
             ```
 
         ![Plot volcano (same style as plot_volcano_adata)](../../assets/plots/plot_volcano.png)
+
+        Multiple testing correction (Benjamini-Hochberg FDR):
+            Same as :func:`plot_volcano` — use when testing many features and you want
+            FDR-controlled significance rather than raw p-values:
+
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            fig, ax = plt.subplots(figsize=(4, 4))
+            values = [
+                {"cellline": "BE", "condition": "kd"},
+                {"cellline": "BE", "condition": "sc"},
+            ]
+            ax, df = scplt.plot_volcano_adata(
+                ax, pdata_norm.prot, values=values,
+                correct_fdr=True, threshold=0.05, return_df=True,
+            )
+            plt.show()
+            ```
+
     """
     import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
     from adjustText import adjust_text
     import matplotlib.patheffects as PathEffects
+
+    if pval is not None:
+        print(
+            f"{format_log_prefix('warn')} `pval` is deprecated in plot_volcano_adata(); "
+            f"use `threshold` instead (applied pval={pval})."
+        )
+        if pval != threshold:
+            print(
+                f"{format_log_prefix('warn')} Both `threshold`={threshold} and "
+                f"`pval={pval}` were passed to plot_volcano_adata(); using `pval`."
+            )
+        threshold = pval
+
+    if p_col is None:
+        p_col = "adj_p_value" if correct_fdr else "p_value"
+        p_col_explicit = False
+    else:
+        if p_col not in ("p_value", "adj_p_value"):
+            raise ValueError("p_col must be 'p_value' or 'adj_p_value'.")
+        p_col_explicit = True
 
     if de_data is not None:
         df = de_data.copy()
@@ -396,9 +582,11 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
         if adata is None or values is None:
             raise ValueError("When de_data is not provided, must supply adata and values.")
 
-        df = utils.de_adata(adata=adata, values=values, class_type=class_type,
+        df = utils.de_adata(
+            adata=adata, values=values, class_type=class_type,
             method=method, fold_change_mode=fold_change_mode, layer=layer,
-            pval=pval, log2fc=log2fc, gene_col=gene_col
+            threshold=threshold, log2fc=log2fc, correct_fdr=correct_fdr,
+            equal_var=equal_var, gene_col=gene_col,
         )
 
         def format_group(val, class_type):
@@ -412,8 +600,18 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
         group1_label = format_group(values[0], class_type)
         group2_label = format_group(values[1], class_type)
 
+    _warn_volcano_de_inconsistency(
+        df,
+        de_data_provided=de_data is not None,
+        correct_fdr=correct_fdr,
+        p_col=p_col,
+        p_col_explicit=p_col_explicit,
+    )
+    _guard_adj_p_col(df, p_col)
+
     # volcano plotting
-    volcano_df = df.dropna(subset=['p_value']).copy()
+    log10_col = f"-log10({p_col})"
+    volcano_df = df.dropna(subset=[p_col]).copy()
     volcano_df = volcano_df[volcano_df["significance"] != "not comparable"]
 
     default_color = {'not significant': 'grey', 'upregulated': 'red', 'downregulated': 'blue'}
@@ -429,18 +627,19 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
 
     ax.scatter(
         volcano_df['log2fc'],
-        volcano_df['-log10(p_value)'],
+        volcano_df[log10_col],
         c=colors, alpha=alpha,
         **scatter_kwargs
     )
 
     # threshold lines
-    ax.axhline(-np.log10(pval), color='black', linestyle='--', linewidth=linewidth)
+    ax.axhline(-np.log10(threshold), color='black', linestyle='--', linewidth=linewidth)
     ax.axvline(log2fc, color='black', linestyle='--', linewidth=linewidth)
     ax.axvline(-log2fc, color='black', linestyle='--', linewidth=linewidth)
 
     ax.set_xlabel('$log_{2}$ fold change')
-    ax.set_ylabel('-$log_{10}$ p value')
+    ylabel = '-$log_{10}$ adjusted p value' if p_col == 'adj_p_value' else '-$log_{10}$ p value'
+    ax.set_ylabel(ylabel)
 
     # symmetric x-limits
     log2fc_clean = pd.to_numeric(volcano_df['log2fc'], errors='coerce').dropna()
@@ -482,7 +681,7 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
         for idx, row in label_df.iterrows():
             text_val = row.get('Genes', idx)
             txt = ax.text(
-                row['log2fc'], row['-log10(p_value)'],
+                row['log2fc'], row[log10_col],
                 s=text_val,
                 fontsize=fontsize,
                 bbox=dict(facecolor='white', edgecolor='black', boxstyle='round', alpha=0.6)
@@ -574,7 +773,7 @@ def add_volcano_legend(ax: "plt.Axes", colors: dict[str, str] | None = None) -> 
     ]
     ax.legend(handles=handles, loc='upper right', frameon=True, fontsize=7)
 
-def mark_volcano(ax: "plt.Axes", volcano_df: pd.DataFrame, label: Any, label_color: str = "black", text_color: str | None = None, label_type: str = 'Gene', s: float = 10, alpha: float = 1, show_names: bool = True, fontsize: int = 8, return_texts: bool = False) -> Any:
+def mark_volcano(ax: "plt.Axes", volcano_df: pd.DataFrame, label: Any, label_color: str = "black", text_color: str | None = None, label_type: str = 'Gene', s: float = 10, alpha: float = 1, show_names: bool = True, fontsize: int = 8, p_col: str | None = None, return_texts: bool = False) -> Any:
     """
     Mark a volcano plot with specific proteins or genes.
 
@@ -596,6 +795,9 @@ def mark_volcano(ax: "plt.Axes", volcano_df: pd.DataFrame, label: Any, label_col
         show_names (bool): Whether to show labels for the selected features.
             Default is True.
         fontsize (int): Font size for labels. Default is 8.
+        p_col (str or None): Column for y-positions: ``'p_value'`` or ``'adj_p_value'``.
+            Default ``None`` uses ``'adj_p_value'`` when that column is present (e.g. after
+            ``de(correct_fdr=True)``), otherwise ``'p_value'``. Pass explicitly to override.
         return_texts (bool): Whether to return the list of created text artists.
             This is useful when labeling multiple groups and performing a single
             global `adjust_text()` call at the end.
@@ -628,6 +830,10 @@ def mark_volcano(ax: "plt.Axes", volcano_df: pd.DataFrame, label: Any, label_col
         `plot_volcano(..., no_marks=True)` to render all points in grey,
         followed by `mark_volcano()` to selectively highlight features of interest.
     """
+    p_col, _ = _resolve_p_col_from_df(p_col, volcano_df)
+    _guard_adj_p_col(volcano_df, p_col)
+    log10_col = f"-log10({p_col})"
+
     if return_texts and not show_names:
         print(f"{utils.format_log_prefix('warn_only')} "
             "return_texts=True but show_names=False; no text labels will be returned.")
@@ -654,7 +860,7 @@ def mark_volcano(ax: "plt.Axes", volcano_df: pd.DataFrame, label: Any, label_col
         )
         match_df = volcano_df[match_mask]
 
-        ax.scatter(match_df['log2fc'], match_df['-log10(p_value)'],
+        ax.scatter(match_df['log2fc'], match_df[log10_col],
                    c=color, s=s, alpha=alpha, edgecolors='none')
 
         if show_names:
@@ -665,7 +871,7 @@ def mark_volcano(ax: "plt.Axes", volcano_df: pd.DataFrame, label: Any, label_col
                 else:
                     text = idx
 
-                txt = ax.text(row['log2fc'], row['-log10(p_value)'],
+                txt = ax.text(row['log2fc'], row[log10_col],
                               s=text,
                               fontsize=fontsize,
                               color=txt_color ,
@@ -693,6 +899,7 @@ def mark_volcano_by_significance(
     alpha: float = 1,
     show_names: bool = True,
     fontsize: int = 8,
+    p_col: str | None = None,
     return_texts: bool = False,
 ) -> Any:
     """
@@ -732,6 +939,9 @@ def mark_volcano_by_significance(
         show_names (bool): Whether to show labels for the selected features.
             Default is True.
         fontsize (int): Font size for labels. Default is 8.
+        p_col (str or None): Column for y-positions: ``'p_value'`` or ``'adj_p_value'``.
+            Default ``None`` uses ``'adj_p_value'`` when that column is present (e.g. after
+            ``de(correct_fdr=True)``), otherwise ``'p_value'``. Pass explicitly to override.
         return_texts (bool): Whether to return the list of created text artists.
             This is useful when labeling multiple groups and performing a single
             global `adjust_text()` call at the end.
@@ -795,6 +1005,10 @@ def mark_volcano_by_significance(
             "`mark_volcano_by_significance`."
         )
 
+    p_col, _ = _resolve_p_col_from_df(p_col, volcano_df)
+    _guard_adj_p_col(volcano_df, p_col)
+    log10_col = f"-log10({p_col})"
+
     if return_texts and not show_names:
         print(f"{utils.format_log_prefix('warn_only')} "
             "return_texts=True but show_names=False; no text labels will be returned.")
@@ -825,7 +1039,7 @@ def mark_volcano_by_significance(
 
         ax.scatter(
             match_df["log2fc"],
-            match_df["-log10(p_value)"],
+            match_df[log10_col],
             c=point_colors,
             s=s,
             alpha=alpha,
@@ -853,7 +1067,7 @@ def mark_volcano_by_significance(
 
                 txt = ax.text(
                     row["log2fc"],
-                    row["-log10(p_value)"],
+                    row[log10_col],
                     s=text,
                     fontsize=fontsize,
                     color=tc,

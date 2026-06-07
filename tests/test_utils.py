@@ -536,6 +536,7 @@ def test_de_adata_passes_on_valid_inputs(pdata, fold_change_mode, test):
         method=test, fold_change_mode=fold_change_mode)
     assert isinstance(df, pd.DataFrame)
     assert "p_value" in df.columns
+    assert "adj_p_value" not in df.columns
     assert "log2fc" in df.columns
     assert "BE_kd" in df.columns
     assert "AS_sc" in df.columns
@@ -617,6 +618,39 @@ def test_de_adata_gene_col_none_fallbacks(pdata):
         gene_col=None
     )
     assert "Genes" in df.columns
+
+def test_bh_adjust_pvalues_known_values():
+    pvals = np.array([0.01, 0.04, 0.03, 0.005])
+    # BH on sorted p: 0.005->0.02, 0.01->0.02, 0.03->0.04, 0.04->0.04
+    expected = np.array([0.02, 0.04, 0.04, 0.02])
+    result = utils.bh_adjust_pvalues(pvals)
+    np.testing.assert_allclose(result, expected, rtol=0, atol=1e-12)
+
+    single = utils.bh_adjust_pvalues([0.03])
+    np.testing.assert_allclose(single, [0.03], rtol=0, atol=1e-12)
+
+    with_nan = np.array([np.nan, 0.01, 0.05])
+    expected_nan = np.array([np.nan, 0.02, 0.05])
+    result_nan = utils.bh_adjust_pvalues(with_nan)
+    np.testing.assert_allclose(result_nan, expected_nan, rtol=0, atol=1e-12, equal_nan=True)
+
+def test_de_adata_correct_fdr_adds_adjusted_columns(pdata):
+    df = utils.de_adata(
+        pdata.prot,
+        values=[{"cellline": "BE"}, {"cellline": "AS"}],
+        correct_fdr=True,
+    )
+    assert "adj_p_value" in df.columns
+    assert "-log10(adj_p_value)" in df.columns
+
+def test_de_adata_deprecated_pval_alias(pdata, capsys):
+    values = [{"cellline": "BE"}, {"cellline": "AS"}]
+    df_threshold = utils.de_adata(pdata.prot, values=values, threshold=0.05)
+    capsys.readouterr()
+    df_pval = utils.de_adata(pdata.prot, values=values, pval=0.05)
+    out = capsys.readouterr().out
+    assert "deprecated" in out.lower()
+    assert df_threshold["significance"].equals(df_pval["significance"])
 
 def test_de_adata_invalid_method(pdata):
     with pytest.raises(ValueError, match="Unsupported method"):

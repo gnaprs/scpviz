@@ -8,13 +8,31 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from scipy.stats import ttest_ind, mannwhitneyu, wilcoxon
+from scipy.stats import false_discovery_control, ttest_ind, mannwhitneyu, wilcoxon
 from sklearn.decomposition import PCA
 
 from scpviz.utils.formatting import format_log_prefix
 
 if TYPE_CHECKING:
     from scpviz.pAnnData.pAnnData import pAnnData
+
+def bh_adjust_pvalues(pvals: np.ndarray | list[float]) -> np.ndarray:
+    """
+    Benjamini-Hochberg FDR adjustment for a 1-D array of p-values.
+
+    NaN and non-finite entries are left unchanged; only finite values are corrected.
+    """
+    pvals_arr = np.asarray(pvals, dtype=float)
+    adj_pvals = np.full(pvals_arr.shape, np.nan, dtype=float)
+    valid_mask = np.isfinite(pvals_arr)
+    n_valid = int(valid_mask.sum())
+    if n_valid > 1:
+        adj_pvals[valid_mask] = false_discovery_control(
+            pvals_arr[valid_mask], method="bh"
+        )
+    elif n_valid == 1:
+        adj_pvals[valid_mask] = pvals_arr[valid_mask]
+    return adj_pvals
 
 def pairwise_log2fc(data1: np.ndarray, data2: np.ndarray) -> np.ndarray:
     """
@@ -70,8 +88,10 @@ def de_adata(
     method: str = "ttest",
     fold_change_mode: str = "mean",
     layer: str = "X",
-    pval: float = 0.05,
+    threshold: float = 0.05,
     log2fc: float = 1.0,
+    correct_fdr: bool = False,
+    equal_var: bool = True,
     data_is_log: bool = False,
     log_base: float = 2.0,
     pseudocount: float = 1.0,
@@ -97,8 +117,13 @@ def de_adata(
         method (str): 'ttest', 'mannwhitneyu', 'wilcoxon'.
         fold_change_mode (str): 'mean' or 'pairwise_median'.
         layer (str): Layer to use. Default is 'X'.
-        pval_thresh (float): p-value threshold.
-        log2fc_thresh (float): log2 fold change threshold.
+        threshold (float): Significance cutoff. Applied to raw ``p_value`` when
+            ``correct_fdr=False``, and to ``adj_p_value`` when ``correct_fdr=True``.
+        log2fc (float): Minimum absolute log2 fold change for significance labeling.
+        correct_fdr (bool): If True, apply Benjamini-Hochberg FDR correction and
+            label significance using adjusted p-values.
+        equal_var (bool): Passed to :func:`scipy.stats.ttest_ind` when ``method='ttest'``.
+            ``True`` (default) uses Student's t-test; ``False`` uses Welch's t-test.
         data_is_log (bool): If True, treat `layer` as log-transformed and
             un-log to compute fold changes.
         log_base (float): Base of the log used in `layer`. Default 2.0.
@@ -242,7 +267,7 @@ def de_adata(
 
         try:
             if method == 'ttest':
-                res = ttest_ind(x1, x2, nan_policy='omit')
+                res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
             elif method == 'mannwhitneyu':
                 res = mannwhitneyu(x1, x2, alternative='two-sided')
             elif method == 'wilcoxon':
@@ -255,7 +280,6 @@ def de_adata(
 
 
     pvals = np.array(pvals)
-    neglog10 = -np.log10(np.where(pvals == 0, np.nan, pvals))
 
     # mean abundance
     mean1 = np.nanmean(data1, axis=0)
@@ -288,14 +312,23 @@ def de_adata(
     df["log2fc"] = log2fc_vals
     df["p_value"] = pvals
     df["test_statistic"] = stats
-    df["-log10(p_value)"] = neglog10
+    df["-log10(p_value)"] = -np.log10(np.where(pvals == 0, np.nan, pvals))
     df["significance_score"] = df["-log10(p_value)"] * df["log2fc"]
+
+    if correct_fdr:
+        df["adj_p_value"] = bh_adjust_pvalues(pvals)
+        df["-log10(adj_p_value)"] = -np.log10(
+            df["adj_p_value"].replace(0, np.nan).astype(float)
+        )
+        p_for_sig = df["adj_p_value"]
+    else:
+        p_for_sig = df["p_value"]
 
     # significance classification
     df["significance"] = "not significant"
     df.loc[df["log2fc"].isna(), "significance"] = "not comparable"
-    df.loc[(df["p_value"] < pval) & (df["log2fc"] > log2fc), "significance"] = "upregulated"
-    df.loc[(df["p_value"] < pval) & (df["log2fc"] < -log2fc), "significance"] = "downregulated"
+    df.loc[(p_for_sig < threshold) & (df["log2fc"] > log2fc), "significance"] = "upregulated"
+    df.loc[(p_for_sig < threshold) & (df["log2fc"] < -log2fc), "significance"] = "downregulated"
 
     df["significance"] = pd.Categorical(
         df["significance"],

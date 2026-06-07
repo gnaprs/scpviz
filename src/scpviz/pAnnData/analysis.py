@@ -7,6 +7,7 @@ from scipy.spatial.distance import cdist
 from sklearn.metrics.pairwise import nan_euclidean_distances
 from scpviz import utils
 from scpviz.utils import format_log_prefix
+from scpviz.utils.stats import bh_adjust_pvalues
 import warnings
 from scipy import sparse
 import gseapy as gp
@@ -82,7 +83,7 @@ class AnalysisMixin:
 
         self._history.append(f"{on}: Coefficient of Variation (CV) calculated for {layer} data by {classes}. CV stored in var['CV: {class_value}'].") # type: ignore[attr-defined]
 
-    def de(self, values=None, class_type=None, method='ttest', layer='X', pval=0.05, log2fc=1.0, fold_change_mode='mean'):
+    def de(self, values=None, class_type=None, method='ttest', layer='X', threshold=0.05, log2fc=1.0, fold_change_mode='mean', correct_fdr=False, equal_var=True):
         """
         Perform differential expression (DE) analysis on proteins across sample groups.
 
@@ -99,9 +100,16 @@ class AnalysisMixin:
             class_type (str or list of str, optional): Legacy-style class label(s) to interpret `values`.
             method (str): Statistical test to use. Options: "ttest", "mannwhitneyu", "wilcoxon".
             layer (str): Name of the data layer to use (default is "X").
-            pval (float): P-value cutoff used for labeling significance.
+            threshold (float): Significance cutoff. Applied to raw ``p_value`` when
+                ``correct_fdr=False``, and to ``adj_p_value`` when ``correct_fdr=True``. Defaults to 0.05.
 
             log2fc (float): Minimum log2 fold change threshold for significance labeling.
+
+            correct_fdr (bool): If True, apply Benjamini-Hochberg FDR correction and
+                label significance using adjusted p-values. Default is False.
+
+            equal_var (bool): Passed to :func:`scipy.stats.ttest_ind` when ``method='ttest'``.
+                ``True`` (default) uses Student's t-test; ``False`` uses Welch's t-test.
 
             fold_change_mode (str): Strategy for computing fold change. Options:
 
@@ -128,6 +136,18 @@ class AnalysisMixin:
                         {"cellline": "HCT116", "treatment": "DMSO"},
                         {"cellline": "HCT116", "treatment": "DrugX"}
                     ]
+                )
+                ```
+
+            DE comparison adjusted for multiple testing with BH correction, and with unequal sample size:
+                ```python
+                pdata.de(
+                    values=[
+                        {"cellline": "HCT116", "treatment": "DMSO"},
+                        {"cellline": "HCT116", "treatment": "DrugX"}
+                    ],
+                    correct_fdr=True,
+                    equal_var=False
                 )
                 ```
         """
@@ -194,7 +214,10 @@ class AnalysisMixin:
             f"{'(log-transformed)' if _layer_is_log else '(non-log)'}"
         )
         print(f"   🔸 Method: {method} | Fold Change: {fold_change_mode}")
-        print(f"   🔸 P-value threshold: {pval} | Log2FC threshold: {log2fc}")
+        if correct_fdr:
+            print(f"   🔸 Adj p-value threshold: {threshold} | Log2FC threshold: {log2fc}")
+        else:
+            print(f"   🔸 P-value threshold: {threshold} | Log2FC threshold: {log2fc}")
 
         # --- Compute fold change ---
         if fold_change_mode == 'mean':
@@ -315,7 +338,7 @@ class AnalysisMixin:
             x1, x2 = data1[:, i], data2[:, i]
             try:
                 if method == 'ttest':
-                    res = ttest_ind(x1, x2, nan_policy='omit')
+                    res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
                 elif method == 'mannwhitneyu':
                     res = mannwhitneyu(x1, x2, alternative='two-sided')
                 elif method == 'wilcoxon':
@@ -341,13 +364,25 @@ class AnalysisMixin:
         df_stats['p_value'] = pvals
         df_stats['test_statistic'] = stats
 
-        df_stats['-log10(p_value)'] = -np.log10(df_stats['p_value'].replace(0, np.nan).astype(float))
+        df_stats['-log10(p_value)'] = -np.log10(
+            df_stats['p_value'].replace(0, np.nan).astype(float)
+        )
         df_stats['significance_score'] = df_stats['-log10(p_value)'] * df_stats['log2fc']
+
+        if correct_fdr:
+            df_stats['adj_p_value'] = bh_adjust_pvalues(np.asarray(pvals, dtype=float))
+            df_stats['-log10(adj_p_value)'] = -np.log10(
+                df_stats['adj_p_value'].replace(0, np.nan).astype(float)
+            )
+            p_for_sig = df_stats['adj_p_value']
+        else:
+            p_for_sig = df_stats['p_value']
+
         df_stats['significance'] = 'not significant'
         mask_not_comparable = df_stats['log2fc'].isna()
         df_stats.loc[mask_not_comparable, 'significance'] = 'not comparable'
-        df_stats.loc[(df_stats['p_value'] < pval) & (df_stats['log2fc'] > log2fc), 'significance'] = 'upregulated'
-        df_stats.loc[(df_stats['p_value'] < pval) & (df_stats['log2fc'] < -log2fc), 'significance'] = 'downregulated'
+        df_stats.loc[(p_for_sig < threshold) & (df_stats['log2fc'] > log2fc), 'significance'] = 'upregulated'
+        df_stats.loc[(p_for_sig < threshold) & (df_stats['log2fc'] < -log2fc), 'significance'] = 'downregulated'
         df_stats['significance'] = pd.Categorical(df_stats['significance'], categories=['upregulated', 'downregulated', 'not significant', 'not comparable'], ordered=True)
 
         df_stats = df_stats.sort_values(by='significance')
@@ -363,7 +398,8 @@ class AnalysisMixin:
 
         print(f"{format_log_prefix('result_only', indent=2)} DE complete. Results stored in:")
         print(f'       • .stats["{comparison_string}"]')
-        print(f"       • Columns: log2fc, p_value, significance, etc.")
+        col_hint = "log2fc, p_value, adj_p_value, significance, etc." if correct_fdr else "log2fc, p_value, significance, etc."
+        print(f"       • Columns: {col_hint}")
         print(f"       • Upregulated: {n_up} | Downregulated: {n_down} | Not significant: {n_ns}")
 
         return df_stats

@@ -549,7 +549,7 @@ Before exploring dimensionality reduction or differential expression, it is usef
 
 ### PCA
 
-PCA reduces the high-dimensional protein abundance matrix into a smaller number of orthogonal components that capture the largest sources of variance in the dataset. We can color cells by (multiple) discrete sample class or by the abundance of a selected protein. For more options with coloring and marker shapes, see the [API reference](https://gnaprs.github.io/scpviz/reference/plotting/#src.scpviz.plotting.plot_pca).
+PCA reduces the high-dimensional protein abundance matrix into a smaller number of orthogonal components that capture the largest sources of variance in the dataset. We can color cells by (multiple) discrete sample class or by the abundance of a selected protein. For more options with coloring and marker shapes, see the [API reference](https://gnaprs.github.io/scpviz/reference/plotting/#src.scpviz.plotting.plot_pca). For **tuple-key `mapping`** (combined metadata styling) and **sequential overlay** examples on the same axes, see the [Plotting tutorial](plotting.md#pca-and-umap-tuple-key-mapping).
 
 === "2D PCA by class"
 
@@ -785,7 +785,7 @@ ax, volcano_df = scplt.plot_volcano(
     ax,
     pdata_sc_norm,
     values=case_values,
-    pval=0.05,
+    threshold=0.05,
     return_df=True,
     color=color_dict,
     fold_change_mode="mean",

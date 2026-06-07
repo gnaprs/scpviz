@@ -414,6 +414,7 @@ def test_de_passes_on_valid_inputs(pdata, fold_change_mode, test):
     )
     assert isinstance(df, pd.DataFrame)
     assert "p_value" in df.columns
+    assert "adj_p_value" not in df.columns
     assert "log2fc" in df.columns
     assert "[{'cellline': 'BE', 'treatment': 'kd'}]" in df.columns
     assert "[{'cellline': 'AS', 'treatment': 'sc'}]" in df.columns
@@ -487,6 +488,40 @@ def test_de_ignores_inf_foldchange_in_annotations(pdata):
     fc_val = df.loc[prot_name, "log2fc"]
     assert np.isnan(fc_val), f"Expected NaN log2fc for not comparable protein, got {fc_val}"
     assert df.loc[prot_name, "significance"] == "not comparable"
+
+def test_de_correct_fdr_adds_adjusted_columns(pdata):
+    df = pdata.de(
+        values=[{"cellline": "BE"}, {"cellline": "AS"}],
+        correct_fdr=True,
+    )
+    assert "adj_p_value" in df.columns
+    assert "-log10(adj_p_value)" in df.columns
+    assert "adj_p_value" not in pdata.de(
+        values=[{"cellline": "BE"}, {"cellline": "AS"}],
+        correct_fdr=False,
+    ).columns
+
+def test_de_deprecated_pval_alias(pdata, capsys):
+    values = [{"cellline": "BE"}, {"cellline": "AS"}]
+    df_threshold = pdata.de(values=values, threshold=0.05)
+    out_before = capsys.readouterr().out
+    df_pval = pdata.de(values=values, pval=0.05)
+    out_after = capsys.readouterr().out
+    assert "deprecated" in out_after.lower()
+    assert "pval" in out_after.lower()
+    assert df_threshold["significance"].equals(df_pval["significance"])
+
+def test_de_equal_var_welch_changes_pvalues(pdata):
+    df_student = pdata.de(
+        values=[{"cellline": "BE"}, {"cellline": "AS"}],
+        equal_var=True,
+    )
+    df_welch = pdata.de(
+        values=[{"cellline": "BE"}, {"cellline": "AS"}],
+        equal_var=False,
+    )
+    # Welch and Student should differ for at least one protein in typical data
+    assert not df_student["p_value"].equals(df_welch["p_value"])
 
 # test cv()
 

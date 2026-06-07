@@ -1534,6 +1534,49 @@ def test_plot_volcano_with_label_list():
     assert any(g in texts for g in ["G1", "G2"]), "❌ Gene labels should appear on volcano plot"
     plt.close(fig)
 
+def test_plot_volcano_invalid_p_col():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="p_col must be"):
+        scplt.plot_volcano(ax, de_data=df, p_col="q_value")
+    plt.close(fig)
+
+def test_plot_volcano_adj_p_col_missing_raises():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="adj_p_value"):
+        scplt.plot_volcano(ax, de_data=df, p_col="adj_p_value")
+    plt.close(fig)
+
+def test_plot_volcano_adj_p_col_with_fdr_data():
+    df = mock_volcano_df()
+    df["adj_p_value"] = df["p_value"] * 2
+    df["-log10(adj_p_value)"] = -np.log10(df["adj_p_value"])
+    fig, ax = plt.subplots()
+    scplt.plot_volcano(ax, de_data=df, p_col="adj_p_value")
+    assert "adjusted" in ax.get_ylabel().lower()
+    plt.close(fig)
+
+def test_mark_volcano_adj_p_col_missing_raises():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="adj_p_value"):
+        scplt.mark_volcano(ax, df, label=["G1"], p_col="adj_p_value")
+    plt.close(fig)
+
+def test_mark_volcano_auto_p_col_prefers_adj():
+    df = mock_volcano_df()
+    df["adj_p_value"] = [0.1, 0.2, 0.3, 0.4]
+    df["-log10(adj_p_value)"] = -np.log10(df["adj_p_value"])
+    fig, ax = plt.subplots()
+    scplt.mark_volcano(ax, df, label=["G1"], show_names=False)
+    y_adj = -np.log10(0.1)
+    y_raw = -np.log10(0.001)
+    y_marked = ax.collections[-1].get_offsets()[0, 1]
+    assert np.isclose(y_marked, y_adj)
+    assert not np.isclose(y_marked, y_raw)
+    plt.close(fig)
+
 # test scplt.plot_rankquant() and related functions
 
 def test_plot_rankquant_runs_without_error(pdata):
