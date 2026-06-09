@@ -1,9 +1,11 @@
 import pytest
 import pandas as pd
+import numpy as np
+from scipy import sparse
 from scpviz import pAnnData
 from pathlib import Path
 
-from scpviz.pAnnData.io import _safe_strip
+from scpviz.pAnnData.io import _create_pAnnData_from_parts, _safe_strip
 
 def test_safe_strip_dataframe_and_series():
     # --- DataFrame case ---
@@ -300,6 +302,40 @@ def test_build_identifier_maps_peptide_warn(monkeypatch, pdata):
     with pytest.warns(UserWarning, match="Could not build peptide-to-protein map"):
         fwd, rev = pdata._build_identifier_maps(pdata.pep)
         assert fwd == {} and rev == {}
+
+# ----------------------------------------------------------------------
+# fetch_uniprot during import
+def test_import_skips_uniprot_when_fetch_false(monkeypatch, capsys):
+    """fetch_uniprot=False should not call UniProt and should leave Genes as NA."""
+    called = {"uniprot": False}
+
+    def fail_uniprot(*args, **kwargs):
+        called["uniprot"] = True
+        raise AssertionError("get_uniprot_fields should not be called")
+
+    monkeypatch.setattr("scpviz.utils.get_uniprot_fields", fail_uniprot)
+
+    prot_X = sparse.csr_matrix(np.array([[1.0, 0.0], [0.0, 2.0]]))
+    prot_var = pd.DataFrame({"Genes": [pd.NA, "GENE2"]}, index=["P1", "P2"])
+    prot_obs = pd.DataFrame({"sample": ["s1", "s2"]})
+
+    pdata = _create_pAnnData_from_parts(
+        prot_X,
+        None,
+        None,
+        prot_obs,
+        prot_var,
+        ["s1", "s2"],
+        ["P1", "P2"],
+        obs_columns=["sample"],
+        fetch_uniprot=False,
+    )
+
+    assert not called["uniprot"]
+    assert pd.isna(pdata.prot.var.loc["P1", "Genes"])
+    assert pdata.prot.var.loc["P2", "Genes"] == "GENE2"
+    out = capsys.readouterr().out
+    assert "Skipping UniProt gene lookup" in out
 
 # ----------------------------------------------------------------------
 # update_missing_genes coverage

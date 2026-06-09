@@ -14,6 +14,17 @@ This tutorial shows how to import **DIA-NN** or **Proteome Discoverer (PD)** out
 - **DIA-NN** reports contain everything required.
 - **PD** protein exports are required; peptide exports are optional but recommended for peptide-level filtering and analysis.
 
+During import, missing values in `.prot.var["Genes"]` are filled from UniProt by default (`fetch_uniprot=True`). If you are offline or want to avoid API calls, pass `fetch_uniprot=False`; missing gene names stay as `NA` until you call `pdata.update_missing_genes()` later:
+
+```python
+pdata = pAnnData.import_data(
+    source_type="diann",
+    report_file="diann_report.parquet",
+    obs_columns=obs_columns,
+    fetch_uniprot=False,
+)
+```
+
 ---
 
 ## Encoding metadata

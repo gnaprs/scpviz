@@ -60,6 +60,11 @@ def import_data(source_type: str, **kwargs):
             - `'fragpipe'`, `'fp'`: Not yet implemented  
             - `'spectronaut'`, `'sn'`: Not yet implemented
 
+        fetch_uniprot (bool): If True (default), query UniProt during import to fill
+            missing values in `.prot.var["Genes"]`. Set to False when offline or
+            to avoid slow API calls; missing gene names remain as NA until you call
+            `pdata.update_missing_genes()` later.
+
         **kwargs: Additional keyword arguments forwarded to the relevant import function.
 
     Returns:
@@ -160,6 +165,8 @@ def import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Optiona
     return import_data(source_type='pd', prot_file=prot_file, pep_file=pep_file, obs_columns=obs_columns)
 
 def _import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Optional[str] = None, obs_columns: Optional[List[str]] = ['sample'], **kwargs):
+    fetch_uniprot = kwargs.pop("fetch_uniprot", True)
+
     if not prot_file and not pep_file:
         raise ValueError(f"{format_log_prefix('error')} At least one of prot_file or pep_file must be provided to function. Try prot_file='proteome_discoverer_prot.txt' or pep_file='proteome_discoverer_pep.txt'.")
     print("--------------------------\nStarting import [Proteome Discoverer]\n")
@@ -344,7 +351,8 @@ def _import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Option
             "prot_file": prot_file,
             "pep_file": pep_file
         },
-        history_msg=f"Imported Proteome Discoverer data using source file(s): {prot_file}, {pep_file}."
+        history_msg=f"Imported Proteome Discoverer data using source file(s): {prot_file}, {pep_file}.",
+        fetch_uniprot=fetch_uniprot,
     )
 
     return pdata
@@ -392,6 +400,8 @@ def import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[s
     return import_data(source_type='diann', report_file=report_file, obs_columns=obs_columns, delimiter = delimiter, prot_value=prot_value, pep_value=pep_value, prot_var_columns=prot_var_columns, pep_var_columns=pep_var_columns, **kwargs)
 
 def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[str]] = None, delimiter: Optional[str] = '_', obs: Optional[pd.DataFrame] = None, prot_value = 'PG.MaxLFQ', pep_value = 'Precursor.Normalised', prot_var_columns = ['Genes', 'Master.Protein'], pep_var_columns = ['Genes', 'Protein.Group', 'Precursor.Charge','Modified.Sequence', 'Stripped.Sequence', 'Precursor.Id', 'All Mapped Proteins', 'All Mapped Genes'], **kwargs):
+    fetch_uniprot = kwargs.pop("fetch_uniprot", True)
+
     if not report_file:
         raise ValueError(f"{format_log_prefix('error')} Importing from DIA-NN: report.tsv or report.parquet must be provided to function. Try report_file='report.tsv' or report_file='report.parquet'")
     print("--------------------------\nStarting import [DIA-NN]\n")
@@ -530,7 +540,8 @@ def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[
             "protein_metric": prot_value,
             "peptide_metric": pep_value
         },
-        history_msg=f"Imported DIA-NN report from {report_file} using {prot_value} (protein) and {pep_value} (peptide)."
+        history_msg=f"Imported DIA-NN report from {report_file} using {prot_value} (protein) and {pep_value} (peptide).",
+        fetch_uniprot=fetch_uniprot,
     )
 
     return pdata
@@ -588,7 +599,8 @@ def _create_pAnnData_from_parts(
     found_threshold=0,
     fdr_threshold=0.01,
     metadata=None,
-    history_msg=""
+    history_msg="",
+    fetch_uniprot: bool = True,
 ):
     """
     Assemble a `pAnnData` object from processed matrices and metadata.
@@ -618,6 +630,9 @@ def _create_pAnnData_from_parts(
         X_precursor_pep (np.ndarray or DataFrame, optional): Optional peptide-level precursor quantity info. (for directLFQ normalization)
         metadata (dict, optional): Optional dictionary of import metadata (e.g. `{'source': 'diann'}`).
         history_msg (str): Operation description to append to the history log.
+        fetch_uniprot (bool): If True (default), fill missing `.prot.var["Genes"]`
+            via UniProt during assembly. If False, skip the API call and leave
+            missing gene names as NA.
 
     Returns:
         pAnnData: Initialized object with `.prot`, `.pep`, `.summary`, `.rs`, and other metadata filled in.
@@ -648,8 +663,23 @@ def _create_pAnnData_from_parts(
         if X_qval_prot is not None:
             pdata.prot.layers['X_qval'] = X_qval_prot # type: ignore[attr-defined]
 
+    gene_history_suffix = ""
     if "Genes" in pdata.prot.var.columns and pdata.prot.var["Genes"].isna().any(): # type: ignore[attr-defined]
-        pdata.update_missing_genes(gene_col="Genes", verbose=True)
+        if fetch_uniprot:
+            pdata.update_missing_genes(gene_col="Genes", verbose=True)
+            gene_history_suffix = (
+                " Queried UniProt API to fill missing gene names in .prot.var['Genes']."
+            )
+        else:
+            n_missing = int(pdata.prot.var["Genes"].isna().sum()) # type: ignore[attr-defined]
+            print(
+                f"{format_log_prefix('warn')} Skipping UniProt gene lookup during import "
+                f"({n_missing} missing). Set fetch_uniprot=True on import, or call "
+                f"pdata.update_missing_genes() later."
+            )
+            gene_history_suffix = (
+                " Skipped UniProt gene lookup during import (missing gene names left as NA)."
+            )
 
     # --- PEPTIDE ---
     if pep_X is not None:
@@ -691,7 +721,7 @@ def _create_pAnnData_from_parts(
         print(f"{format_log_prefix('warn')} Validation issues found. Use `pdata.validate()` to inspect.")
 
     if history_msg:
-        pdata._append_history(history_msg)
+        pdata._append_history(history_msg + gene_history_suffix)
 
     print(f"{format_log_prefix('result')} Import complete. Use `print(pdata)` to view the object.")
     print("--------------------------")
@@ -1155,6 +1185,11 @@ class IOMixin:
 
                 - `'fragpipe'`, `'fp'`: Not yet implemented  
                 - `'spectronaut'`, `'sn'`: Not yet implemented
+
+            fetch_uniprot (bool): If True (default), query UniProt during import to fill
+                missing values in `.prot.var["Genes"]`. Set to False when offline or
+                to avoid slow API calls; missing gene names remain as NA until you call
+                `pdata.update_missing_genes()` later.
 
             **kwargs: Additional keyword arguments forwarded to the relevant import function.
 
