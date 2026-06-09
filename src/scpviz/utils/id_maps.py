@@ -708,27 +708,79 @@ def convert_identifiers(
 
     Args:
         ids (list of str): Input identifiers.
-        from_type (str): Source identifier type ('accession', 'gene').
-            'organism_id' cannot be used as a source.
-        to_type (str or list of str): Target identifier type(s).
-            May include any of: ['gene', 'string', 'organism_id'].
+        from_type (str): Source identifier type (``"accession"`` or ``"gene"``).
+            ``"organism_id"`` cannot be used as a source.
+        to_type (str or list of str): Target identifier type(s). May include
+            any of ``"gene"``, ``"string"``, or ``"organism_id"``.
         pdata (pAnnData, optional): pAnnData object providing cached
-            accession–gene mappings. If provided, `use_cache` is
+            accession–gene mappings. If provided, ``use_cache`` is
             automatically set to True.
-        use_cache (bool): Whether to use cached mappings from `pdata`.
-            (default: True)
-        return_type (str): Output format:
-            - 'dict': {input → {to_type → value}}
-            - 'df': DataFrame with columns [from_type, *to_type]
-            - 'both': (dict, DataFrame)
-        verbose (bool): Whether to print progress messages.
+        use_cache (bool): Whether to use cached mappings from ``pdata``.
+            Default is True.
+        return_type (str): Output format. ``"dict"`` returns a nested dict
+            mapping each input ID to requested fields; ``"df"`` returns a
+            DataFrame with columns for ``from_type`` and all ``to_type``
+            fields; ``"both"`` returns ``(dict, DataFrame)``.
+        verbose (bool): Whether to print progress messages. Default is True.
 
     Returns:
-        dict, pandas.DataFrame, or tuple: Depending on `return_type`.
+        dict, pandas.DataFrame, or tuple: Depends on ``return_type``.
 
     Example:
-        >>> convert_identifiers(["P12345", "Q9XYZ1"], "accession", "gene", pdata=pdata)
-        >>> convert_identifiers(["P12345"], "accession", ["gene", "string", "organism_id"], return_type="df")
+        Map one accession to a gene name using cached ``pdata`` mappings
+        (dict output):
+            ```python
+            from scpviz import utils as scutils
+
+            scutils.convert_identifiers(
+                ["P40925"], "accession", "gene", return_type="dict", pdata=pdata
+            )
+            ```
+
+        Convert accessions to gene, STRING, and organism ID in one table—gene
+        names come from ``pdata``, STRING and organism ID from UniProt:
+            ```python
+            scutils.convert_identifiers(
+                ["P40925", "P55072", "P04637"],
+                "accession",
+                ["gene", "string", "organism_id"],
+                return_type="df",
+                pdata=pdata,
+            )
+            ```
+
+        Reverse lookup: gene symbols to accession (cached) plus STRING and
+        organism ID (UniProt):
+            ```python
+            scutils.convert_identifiers(
+                ["MDH1", "VCP", "TP53"],
+                "gene",
+                ["accession", "string", "organism_id"],
+                return_type="df",
+                pdata=pdata,
+            )
+            ```
+
+        Same multi-field conversion without ``pdata``—queries UniProt for
+        all fields:
+            ```python
+            scutils.convert_identifiers(
+                ["P40925", "P55072", "P04637"],
+                "accession",
+                ["gene", "string", "organism_id"],
+                return_type="df",
+            )
+            ```
+
+        Return a nested dict mapping each input ID to all requested fields:
+            ```python
+            scutils.convert_identifiers(
+                ["P40925", "P55072"],
+                "accession",
+                ["gene", "string", "organism_id"],
+                return_type="dict",
+            )
+            ```
     """
     import pandas as pd
     import numpy as np
@@ -789,8 +841,8 @@ def convert_identifiers(
     # --- Tier 3: UniProt API
     df = pd.DataFrame()
     if len(to_query) > 0:
-        # Hybrid case: gene → STRING / organism_id
-        if from_type == "gene":
+        # Hybrid case: gene → STRING / organism_id (not gene → accession, which would recurse infinitely)
+        if from_type == "gene" and to_type != ["accession"]:
             gene_to_acc = convert_identifiers(to_query, "gene", "accession", pdata=pdata, use_cache=use_cache, verbose=False)
             accs = [v.get("accession") for v in gene_to_acc.values() if v.get("accession")]
             if accs:
