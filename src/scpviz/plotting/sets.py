@@ -104,7 +104,8 @@ def plot_venn(
             ```            
 
     See Also:
-        plot_upset: Plot an UpSet diagram for >3 sets.  
+        plot_upset: Plot an UpSet diagram for >3 sets.
+        get_upset_query: Query an intersection and build a mark_df for highlighting.
         plot_rankquant: Rank-based visualization of protein/peptide distributions.
     """
     upset_contents = _plotting_pkg_utils().get_upset_contents(pdata, classes, upsetForm=False)
@@ -253,7 +254,8 @@ def plot_upset(
         ![Plot upset styled](../../assets/plots/plot_upset_styled.png)
 
     See Also:
-        plot_venn: Plot a Venn diagram for 2 to 3 sets.  
+        plot_venn: Plot a Venn diagram for 2 to 3 sets.
+        get_upset_query: Query an intersection and build a mark_df for highlighting.
         plot_rankquant: Rank-based visualization of protein/peptide distributions.
     """
 

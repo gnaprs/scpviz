@@ -484,7 +484,9 @@ def test_get_upset_query_returns_dataframe(monkeypatch):
     monkeypatch.setattr(utils.upsetplot, "query", lambda c, present, absent: dummy_query_result)
     monkeypatch.setattr(utils, "get_uniprot_fields",
                         lambda ids, verbose=False: pd.DataFrame({"Accession": ids}))
-    result = utils.get_upset_query(pd.DataFrame(), present=["A"], absent=["B"])
+    result = utils.get_upset_query(
+        pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True
+    )
     assert isinstance(result, pd.DataFrame)
     assert set(result["Accession"]) == {"P12345", "Q67890"}
 
@@ -498,8 +500,10 @@ def test_get_upset_query_handles_empty(monkeypatch):
     monkeypatch.setattr(utils, "get_uniprot_fields", lambda ids, verbose=False: pd.DataFrame())
     
     # Run
-    result = utils.get_upset_query(pd.DataFrame(), present=["X"], absent=["Y"])
-    
+    result = utils.get_upset_query(
+        pd.DataFrame(), present=["X"], absent=["Y"], fetch_uniprot=True
+    )
+
     assert isinstance(result, pd.DataFrame)
     assert result.empty
 
@@ -518,11 +522,80 @@ def test_get_upset_query_passes_verbose_flag(monkeypatch):
     monkeypatch.setattr(utils, "get_uniprot_fields", mock_get_uniprot_fields)
 
     # Run
-    utils.get_upset_query(pd.DataFrame(), present=["A"], absent=["B"])
+    utils.get_upset_query(
+        pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True
+    )
 
     # Assertions
     assert called["verbose"] is False
     assert called["ids"] == ["A1"]
+
+def test_get_upset_query_skips_uniprot_when_fetch_false(monkeypatch, pdata):
+    """fetch_uniprot=False should not call get_uniprot_fields."""
+    accessions = pdata.prot.var_names[:2].tolist()
+    dummy_query_result = type("DummyQuery", (), {
+        "data": {"id": np.array(accessions)}
+    })()
+    monkeypatch.setattr(utils.upsetplot, "query", lambda c, present, absent: dummy_query_result)
+
+    called = {"uniprot": False}
+
+    def fail_uniprot(*args, **kwargs):
+        called["uniprot"] = True
+        raise AssertionError("get_uniprot_fields should not be called")
+
+    monkeypatch.setattr(utils, "get_uniprot_fields", fail_uniprot)
+
+    result = utils.get_upset_query(
+        pd.DataFrame(),
+        present=["A"],
+        absent=["B"],
+        fetch_uniprot=False,
+        pdata=pdata,
+    )
+
+    assert not called["uniprot"]
+    assert list(result.columns) == ["accession", "gene_primary"]
+    assert result["accession"].tolist() == accessions
+    assert result["gene_primary"].notna().all()
+
+def test_get_upset_query_fetch_false_warns_missing_genes(monkeypatch, pdata):
+    """fetch_uniprot=False should warn when some gene names are missing."""
+    acc_with_gene = pdata.prot.var_names[0]
+    acc_missing_gene = pdata.prot.var_names[1]
+    pdata.prot.var.at[acc_missing_gene, "Genes"] = pd.NA
+
+    dummy_query_result = type("DummyQuery", (), {
+        "data": {"id": np.array([acc_with_gene, acc_missing_gene])}
+    })()
+    monkeypatch.setattr(utils.upsetplot, "query", lambda c, present, absent: dummy_query_result)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = utils.get_upset_query(
+            pd.DataFrame(),
+            present=["A"],
+            absent=["B"],
+            fetch_uniprot=False,
+            pdata=pdata,
+        )
+
+    assert "missing gene names" in str(w[-1].message).lower()
+    assert pd.isna(result.loc[result["accession"] == acc_missing_gene, "gene_primary"].iloc[0])
+
+def test_get_upset_query_fetch_false_requires_pdata(monkeypatch):
+    dummy_query_result = type("DummyQuery", (), {
+        "data": {"id": np.array(["P1"])}
+    })()
+    monkeypatch.setattr(utils.upsetplot, "query", lambda c, present, absent: dummy_query_result)
+
+    with pytest.raises(ValueError, match="pdata is required"):
+        utils.get_upset_query(
+            pd.DataFrame(),
+            present=["A"],
+            absent=["B"],
+            fetch_uniprot=False,
+        )
 
 # test de_adata()
 

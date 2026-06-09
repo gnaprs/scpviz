@@ -1191,7 +1191,10 @@ def mark_rankquant(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, cla
               `scutils.get_upset_query()`, e.g.:
               ```python
               size_upset = scutils.get_upset_contents(pdata_filter, classes="size")
-              prot_sc_df = scutils.get_upset_query(size_upset, present=["sc"], absent=["5k", "10k", "20k"])
+              prot_sc_df = scutils.get_upset_query(
+                  size_upset, present=["sc"], absent=["5k", "10k", "20k"],
+                  fetch_uniprot=False, pdata=pdata_filter,
+              )
               ```
     
         class_values (list of str): Class values to highlight (must match those

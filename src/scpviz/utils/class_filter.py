@@ -370,7 +370,9 @@ def get_upset_contents(
         Query proteins from a set and highlight them in a plot:
             ```python
             upset_data = scutils.get_upset_contents(pdata, classes="condition")
-            prot_df = scutils.get_upset_query(upset_data, present=["treated"], absent=["control"])
+            prot_df = scutils.get_upset_query(
+                upset_data, present=["treated"], absent=["control"], fetch_uniprot=False, pdata=pdata
+            )
             scplt.plot_rankquant(ax, pdata, classes="condition", cmap=cmaps, color=colors)
             scplt.mark_rankquant(ax, pdata, mark_df=prot_df, class_values=["treated"], color="black")
             ```
@@ -378,6 +380,7 @@ def get_upset_contents(
     Related Functions:
         - plot_upset: Plot UpSet diagrams directly.
         - plot_venn: Plot Venn diagrams for up to 3 sets.
+        - get_upset_query: Query an intersection and build a mark_df for highlighting.
     """
     import scpviz.utils as _u
 
@@ -410,43 +413,138 @@ def get_upset_contents(
 
     else:
         return upset_dict
-    
+
+_GENE_VAR_PRECEDENCE = (
+    "gene_primary",
+    "Gene Names",
+    "Genes",
+    "gene_names",
+    "Gene",
+)
+
 def get_upset_query(
-    upset_content: pd.DataFrame, present: list[str], absent: list[str]
+    upset_content: pd.DataFrame,
+    present: list[str],
+    absent: list[str],
+    *,
+    fetch_uniprot: bool,
+    pdata: pAnnData | None = None,
+    on: str = "protein",
 ) -> pd.DataFrame:
     """
     Query features from UpSet contents given inclusion and exclusion criteria.
 
     This function extracts the set of features (proteins or peptides) that are
-    present in all specified groups and absent in others. It then queries
-    UniProt metadata for the resulting accessions.
+    present in all specified groups and absent in others. You decide whether to
+    query UniProt metadata for the resulting accessions via ``fetch_uniprot``
+    (set ``False`` for large intersections to avoid slow API calls). The result
+    is returned as a ``mark_df``-compatible DataFrame for use with
+    ``mark_rankquant`` or ``mark_raincloud``.
 
     Args:
         upset_content (pandas.DataFrame): Output from `get_upset_contents` with
-            presence/absence encoding of features.
+            ``upsetForm=True`` (the default).
         present (list of str): List of groups in which the features must be present.
         absent (list of str): List of groups in which the features must be absent.
+        fetch_uniprot (bool): If True, query UniProt for full metadata via
+            `get_uniprot_fields`. If False, build a lightweight DataFrame from
+            ``pdata`` using accessions and any available gene names in ``.var``
+            (recommended for large intersections, e.g. 1000+ proteins).
+        pdata (pAnnData, optional): Required when ``fetch_uniprot=False`` so gene
+            names can be read from ``.var``. Ignored when ``fetch_uniprot=True``.
+        on (str): Data level for gene lookup when ``fetch_uniprot=False``.
+            Options are ``"protein"`` (default) or ``"peptide"``.
 
     Returns:
-        prot_query_df (pandas.DataFrame): DataFrame of features matching the query,
-        annotated with UniProt metadata via `get_uniprot_fields`.
+        prot_query_df (pandas.DataFrame): Features matching the query. When
+        ``fetch_uniprot=True``, includes UniProt metadata. When
+        ``fetch_uniprot=False``, includes at least an ``accession`` column and,
+        when available, ``gene_primary``.
 
     Example:
-        Query proteins unique to one group and highlight them in a plot:
+        Small intersection - Query proteins unique to one group and highlight them in a plot, also fetches UniProt metadata for gene labels:
             ```python
             upset_data = scutils.get_upset_contents(pdata, classes="condition")
-            prot_df = scutils.get_upset_query(upset_data, present=["treated"], absent=["control"])
+            prot_df = scutils.get_upset_query(
+                upset_data, present=["treated"], absent=["control"], fetch_uniprot=True
+            )
             scplt.plot_rankquant(ax, pdata, classes="condition", cmap=cmaps, color=colors)
             scplt.mark_rankquant(ax, pdata, mark_df=prot_df, class_values=["treated"], color="black")
+            ```
+
+        Large intersection - skip UniProt and use local gene names:
+            ```python
+            upset_data = scutils.get_upset_contents(pdata, classes="condition")
+            prot_df = scutils.get_upset_query(
+                upset_data, present=["treated"], absent=["control"],
+                fetch_uniprot=False, pdata=pdata,
+            )
             ```
 
     Related Functions:
         - get_upset_contents: Generate presence/absence sets for UpSet analysis.
         - plot_upset: Plot UpSet diagrams from class-based sets.
+        - plot_venn: Plot Venn diagrams for 2 to 3 sets.
     """
     import scpviz.utils as _u
+    from scpviz.utils.formatting import format_log_prefix
 
-    prot_query = _u.upsetplot.query(upset_content, present=present, absent=absent).data['id'].tolist()
-    prot_query_df = _u.get_uniprot_fields(prot_query, verbose=False)
+    prot_query = (
+        _u.upsetplot.query(upset_content, present=present, absent=absent)
+        .data["id"]
+        .tolist()
+    )
 
-    return prot_query_df
+    if not prot_query:
+        return pd.DataFrame()
+
+    if fetch_uniprot:
+        return _u.get_uniprot_fields(prot_query, verbose=False)
+
+    if pdata is None:
+        raise ValueError(
+            "pdata is required when fetch_uniprot=False so gene names can be "
+            "read from .var. Pass pdata=pdata, or set fetch_uniprot=True to "
+            "query UniProt instead."
+        )
+
+    adata = _u.get_adata(pdata, on)
+    result = pd.DataFrame({"accession": prot_query})
+
+    gene_var_col = next((c for c in _GENE_VAR_PRECEDENCE if c in adata.var.columns), None)
+    if gene_var_col is None:
+        warnings.warn(
+            f"{format_log_prefix('warn')} No gene name column found in .{on}.var "
+            f"(tried: {', '.join(_GENE_VAR_PRECEDENCE)}). Returning accessions only.",
+            stacklevel=2,
+        )
+        return result
+
+    genes = pd.Series(
+        [
+            adata.var.at[acc, gene_var_col] if acc in adata.var_names else pd.NA
+            for acc in prot_query
+        ],
+        index=prot_query,
+        dtype=object,
+    )
+    result["gene_primary"] = genes.values
+
+    missing_mask = genes.isna() | (genes.astype(str).str.strip() == "")
+    n_missing = int(missing_mask.sum())
+    if n_missing:
+        warnings.warn(
+            f"{format_log_prefix('warn')} {n_missing}/{len(prot_query)} feature(s) "
+            f"have missing gene names in .{on}.var['{gene_var_col}'].",
+            stacklevel=2,
+        )
+
+    not_in_var = [acc for acc in prot_query if acc not in adata.var_names]
+    if not_in_var:
+        warnings.warn(
+            f"{format_log_prefix('warn')} {len(not_in_var)}/{len(prot_query)} "
+            f"feature(s) from the UpSet query are not in .{on}.var_names.",
+            stacklevel=2,
+        )
+
+    return result
