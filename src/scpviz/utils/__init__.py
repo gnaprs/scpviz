@@ -24,6 +24,8 @@ Functions:
     get_abundance: Extract abundance data from pAnnData or AnnData.
     resolve_accessions: Map gene names or accessions to ``.var_names``.
     get_pep_prot_mapping: Determine peptide-to-protein mapping column.
+    get_peptides_for_accessions: Map accessions or genes to observed peptides via RS.
+    get_accessions_for_peptides: Map peptide IDs or sequences to protein accessions via RS.
     update_layer_provenance: Register a matrix layer in ``adata.uns['layer_provenance']``.
     resolve_input_layer: Map ``layer='X'`` to ``uns['current_X_layer']`` for provenance.
     infer_layer_is_log: Infer log-transformed layers via provenance or name heuristic.

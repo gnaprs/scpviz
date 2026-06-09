@@ -767,6 +767,83 @@ def test_get_pep_prot_mapping_unknown_source_raises():
     with pytest.raises(ValueError, match="Unknown data source"):
         utils.get_pep_prot_mapping(pdata)
 
+def _pd_accession_with_peptides(pdata):
+    """Return a protein accession with at least one linked peptide in RS."""
+    counts = pdata.rs.getnnz(axis=1)
+    idx = int(np.argmax(counts))
+    return pdata.prot.var_names[idx], counts[idx]
+
+def test_get_peptides_for_accessions_by_accession(pdata):
+    acc, n_peps = _pd_accession_with_peptides(pdata)
+    df = utils.get_peptides_for_accessions(pdata, [acc])
+    assert list(df.columns) == ["accession", "peptide_id", "sequence"]
+    assert (df["accession"] == acc).all()
+    assert len(df) == n_peps
+    assert (df["sequence"] == df["peptide_id"]).all()
+
+def test_get_peptides_for_accessions_by_gene(pdata):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    gene = str(pdata.prot.var.loc[acc, "Genes"])
+    df = utils.get_peptides_for_accessions(pdata, [gene])
+    assert not df.empty
+    assert (df["accession"] == acc).all()
+
+def test_get_peptides_for_accessions_unknown_warns_partial(pdata, capsys):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    df = utils.get_peptides_for_accessions(pdata, [acc, "NOT_A_REAL_ID"])
+    out = capsys.readouterr().out
+    assert "NOT_A_REAL_ID" in out
+    assert not df.empty
+    assert (df["accession"] == acc).all()
+
+def test_get_peptides_for_accessions_empty_input(pdata):
+    df = utils.get_peptides_for_accessions(pdata, [])
+    assert df.empty
+    assert list(df.columns) == ["accession", "peptide_id", "sequence"]
+
+def test_get_peptides_for_accessions_no_rs_raises(pdata_nopep):
+    with pytest.raises(ValueError, match="requires protein, peptide, and RS"):
+        utils.get_peptides_for_accessions(pdata_nopep, ["P12345"])
+
+def test_get_peptides_for_accessions_diann_index_vs_stripped(pdata_diann):
+    acc = pdata_diann.prot.var_names[0]
+    df_index = utils.get_peptides_for_accessions(pdata_diann, [acc])
+    if df_index.empty:
+        pytest.skip("No peptides linked to first protein in DIA-NN fixture")
+    assert (df_index["sequence"] == df_index["peptide_id"]).all()
+
+    df_stripped = utils.get_peptides_for_accessions(
+        pdata_diann, [acc], sequence_from="Stripped.Sequence"
+    )
+    assert not df_stripped.empty
+    assert (df_stripped["sequence"] != df_stripped["peptide_id"]).any()
+
+def test_get_accessions_for_peptides_roundtrip(pdata):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    pep_df = utils.get_peptides_for_accessions(pdata, [acc])
+    peptide_id = pep_df.iloc[0]["peptide_id"]
+    df = utils.get_accessions_for_peptides(pdata, [peptide_id])
+    assert acc in df["accession"].values
+    assert (df["peptide_id"] == peptide_id).all()
+
+def test_get_accessions_for_peptides_by_sequence(pdata_diann):
+    stripped = str(pdata_diann.pep.var["Stripped.Sequence"].iloc[0])
+    df = utils.get_accessions_for_peptides(
+        pdata_diann, [stripped], sequence_from="Stripped.Sequence"
+    )
+    assert not df.empty
+    assert (df["sequence"] == stripped).all()
+
+def test_get_accessions_for_peptides_unknown_warns(pdata, capsys):
+    df = utils.get_accessions_for_peptides(pdata, ["NOT_A_REAL_PEPTIDE"])
+    out = capsys.readouterr().out
+    assert "NOT_A_REAL_PEPTIDE" in out
+    assert df.empty
+
+def test_get_peptides_for_accessions_bad_sequence_column(pdata):
+    with pytest.raises(ValueError, match="not found in .pep.var"):
+        utils.get_peptides_for_accessions(pdata, ["P12345"], sequence_from="NoSuchColumn")
+
 def test_get_datetime_format():
     from scpviz.setup import get_datetime
     dt = get_datetime()

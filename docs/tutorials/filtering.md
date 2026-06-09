@@ -376,6 +376,22 @@ pdata_filtered = pdata.filter_rs(min_unique_peptides_per_protein=2)
 > Proteins with **fewer than two unique peptides** are removed by default.  
 > The filtering operation updates both `.prot` and `.pep` tables and synchronizes their mappings in the RS matrix.
 
+### Inspecting RS mappings (without filtering)
+
+To look up which peptides map to a protein (or vice versa) **without** subsetting the dataset, use the utility functions introduced in the [importing tutorial](importing.md#mapping-accessions-and-peptides):
+
+``` py title="List peptides for an accession"
+from scpviz import utils as scutils
+
+df = scutils.get_peptides_for_accessions(pdata, ["GAPDH"])
+```
+
+``` py title="List accessions for a peptide ID or sequence"
+df = scutils.get_accessions_for_peptides(pdata, [pdata.pep.var_names[0]])
+```
+
+Both functions read from the RS matrix and return a DataFrame. They accept gene names or accession IDs on the protein side, and peptide IDs or amino-acid strings on the peptide side. See [get_peptides_for_accessions()](../reference/utils.md#src.scpviz.utils.get_peptides_for_accessions) and [get_accessions_for_peptides()](../reference/utils.md#src.scpviz.utils.get_accessions_for_peptides) in the API reference.
+
 ---
 
 *For more information, see the API documentation for [filter_rs()](https://gnaprs.github.io/scpviz/reference/pAnnData/filtering_mixin/#src.scpviz.pAnnData.filtering.FilterMixin.filter_rs)*

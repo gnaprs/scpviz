@@ -242,6 +242,87 @@ Proteins without gene names after UniProt lookup are assigned as `UNKNOWN_<acces
 
 ---
 
+## Mapping accessions and peptides
+
+After import, `pAnnData` stores three linked objects:
+
+- **`.prot`** — protein-level abundances (rows = samples, columns = accessions)
+- **`.pep`** — peptide-level abundances (rows = samples, columns = peptide IDs)
+- **`.rs`** — sparse protein × peptide relational matrix built during import
+
+Use the RS matrix to translate between protein accessions and the peptides observed in your dataset. Both directions accept flexible inputs (accessions or gene names; peptide IDs or amino-acid strings).
+
+```py title="Import utils"
+from scpviz import utils as scutils
+```
+
+### Accession → peptides
+
+`get_peptides_for_accessions()` returns a DataFrame with columns `accession`, `peptide_id`, and `sequence`.
+
+```py title="Look up peptides for accessions or gene names"
+# by UniProt accession
+df = scutils.get_peptides_for_accessions(pdata, ["Q9CZW5"])
+
+# by gene name
+df = scutils.get_peptides_for_accessions(pdata, ["Tomm70"])
+
+df.head()
+```
+
+By default, `sequence` is taken from `.pep.var_names` (`sequence_from="index"`):
+
+| Source | `.pep.var_names` | Default `sequence` column |
+|:-------|:-----------------|:--------------------------|
+| **Proteome Discoverer** | Annotated sequence (+ optional modifications) | Same as `peptide_id` |
+| **DIA-NN** | `Precursor.Id` | Same as `peptide_id` (precursor ID, not amino acids) |
+
+For DIA-NN, request amino-acid strings explicitly:
+
+```py title="DIA-NN: return stripped sequences"
+df = scutils.get_peptides_for_accessions(
+    pdata,
+    ["Q9CZW5"],
+    sequence_from="Stripped.Sequence",
+)
+```
+
+Unmatched accessions or genes are skipped with a warning; remaining matches are still returned.
+
+### Peptide → accessions
+
+`get_accessions_for_peptides()` returns `peptide_id`, `accession`, and `sequence`. Inputs may be `.pep.var_names` or amino-acid strings (matched against `Stripped.Sequence`, `Modified.Sequence`, or `Annotated Sequence`).
+
+```py title="Look up accessions from peptide IDs"
+pep_id = pdata.pep.var_names[0]
+df = scutils.get_accessions_for_peptides(pdata, [pep_id])
+```
+
+```py title="DIA-NN: look up by stripped sequence"
+seq = pdata.pep.var["Stripped.Sequence"].iloc[0]
+df = scutils.get_accessions_for_peptides(
+    pdata,
+    [seq],
+    sequence_from="Stripped.Sequence",
+)
+```
+
+Shared peptides linked to multiple proteins produce **one row per accession**. A single sequence string can also match **multiple precursor IDs** when several precursors share the same stripped sequence.
+
+### Round-trip check
+
+```py title="Verify accession ↔ peptide mapping"
+acc = pdata.prot.var_names[0]
+peps = scutils.get_peptides_for_accessions(pdata, [acc])
+prots = scutils.get_accessions_for_peptides(pdata, [peps.iloc[0]["peptide_id"]])
+assert acc in prots["accession"].values
+```
+
+!!! note
+    These functions require protein, peptide, and RS data (peptide import must be included). They inspect the RS matrix without modifying `pdata`. To **filter** by peptide support instead, see [`filter_rs()`](filtering.md#filter_rs) in the filtering tutorial.
+
+---
+
 ## Metadata parsing
 
 Sample metadata (columns in `.obs`) can be inferred directly from filenames:

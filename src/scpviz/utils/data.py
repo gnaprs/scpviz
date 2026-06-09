@@ -499,6 +499,272 @@ def get_pep_prot_mapping(
 
     return col
 
+_PEPTIDE_SEQUENCE_SEARCH_COLS = ("Stripped.Sequence", "Modified.Sequence", "Annotated Sequence")
+
+def get_peptides_for_accessions(
+    pdata: pAnnData,
+    accessions: list[str],
+    *,
+    sequence_from: str = "index",
+) -> pd.DataFrame:
+    """
+    Map protein accessions (or gene names) to observed peptides via the RS matrix.
+
+    Args:
+        pdata (pAnnData): Object with ``.prot``, ``.pep``, and ``.rs``.
+        accessions (list of str): Protein accession IDs or gene names.
+        sequence_from (str): Column in ``.pep.var`` for the ``sequence`` output,
+            or ``"index"`` (default) to use ``.pep.var_names`` (precursor IDs for
+            DIA-NN; annotated sequences for Proteome Discoverer).
+
+    Returns:
+        pd.DataFrame: Columns ``accession``, ``peptide_id``, ``sequence``.
+            One row per accession–peptide pair. Unmatched inputs are skipped with
+            a warning.
+
+    Raises:
+        ValueError: If ``.prot``, ``.pep``, or ``.rs`` is missing, or if
+            ``sequence_from`` is not ``"index"`` and the column is absent.
+
+    Example:
+        Map accessions to observed peptides (default ``sequence`` = ``.pep.var_names``):
+            ```python
+            from scpviz import utils as scutils
+
+            df = scutils.get_peptides_for_accessions(pdata, ["P34932"])
+            df.head()
+            #   accession  peptide_id  sequence
+            # 0   P34932    ...         ...
+            ```
+
+        Resolve gene names instead of accessions:
+            ```python
+            df = scutils.get_peptides_for_accessions(pdata, ["HSPA4"])
+            ```
+
+        DIA-NN: return amino-acid strings instead of precursor IDs:
+            ```python
+            df = scutils.get_peptides_for_accessions(
+                pdata,
+                ["P34932"],
+                sequence_from="Stripped.Sequence",
+            )
+            ```
+
+        Proteome Discoverer: use annotated sequence column explicitly:
+            ```python
+            df = scutils.get_peptides_for_accessions(
+                pdata,
+                ["P34932"],
+                sequence_from="Annotated Sequence",
+            )
+            ```
+
+    Note:
+        With ``sequence_from="index"``, DIA-NN datasets return precursor IDs in
+        both ``peptide_id`` and ``sequence``; use ``"Stripped.Sequence"`` or
+        ``"Modified.Sequence"`` for amino-acid strings.
+
+    Related Functions:
+        - get_accessions_for_peptides: Reverse lookup (peptide → accession).
+        - resolve_accessions: Resolve gene or accession names to protein ``.var_names``.
+        - filter_prot: Filter ``pAnnData`` by accession list (also syncs peptides via RS).
+    """
+    columns = ["accession", "peptide_id", "sequence"]
+    if not accessions:
+        return pd.DataFrame(columns=columns)
+
+    if pdata.prot is None or pdata.pep is None or pdata.rs is None:
+        raise ValueError(
+            "get_peptides_for_accessions requires protein, peptide, and RS data."
+        )
+
+    if sequence_from != "index" and sequence_from not in pdata.pep.var.columns:
+        available = ", ".join(map(str, pdata.pep.var.columns))
+        raise ValueError(
+            f"Column '{sequence_from}' not found in .pep.var. Available: {available}"
+        )
+
+    rs = pdata.rs
+    pep_names = np.array(pdata.pep.var_names)
+    prot_var_names = pdata.prot.var_names.astype(str)
+    gene_to_acc, _ = pdata.get_identifier_maps(on="protein")
+
+    rows = []
+    unmatched = []
+    for query in accessions:
+        query = str(query)
+        if query in prot_var_names.values:
+            accession = query
+        elif query in gene_to_acc:
+            accession = gene_to_acc[query]
+        else:
+            unmatched.append(query)
+            continue
+
+        prot_idx = prot_var_names.get_loc(accession)
+        pep_idx = rs[prot_idx, :].nonzero()[1]
+        for j in pep_idx:
+            peptide_id = pep_names[j]
+            if sequence_from == "index":
+                sequence = peptide_id
+            else:
+                sequence = pdata.pep.var.iloc[j][sequence_from]
+            rows.append({"accession": accession, "peptide_id": peptide_id, "sequence": sequence})
+
+    if unmatched:
+        print(f"{format_log_prefix('warn')} A match was not found for the following:")
+        for u in unmatched:
+            print(f"  - {u}")
+
+    if not rows:
+        return pd.DataFrame(columns=columns)
+
+    return (
+        pd.DataFrame(rows)
+        .drop_duplicates()
+        .sort_values(["accession", "peptide_id"], kind="mergesort")
+        .reset_index(drop=True)
+    )
+
+def get_accessions_for_peptides(
+    pdata: pAnnData,
+    peptides: list[str],
+    *,
+    sequence_from: str = "index",
+) -> pd.DataFrame:
+    """
+    Map peptides to protein accessions via the RS matrix.
+
+    Peptide inputs may be ``.pep.var_names`` or amino-acid strings matched
+    against ``Stripped.Sequence``, ``Modified.Sequence``, or ``Annotated Sequence``.
+
+    Args:
+        pdata (pAnnData): Object with ``.prot``, ``.pep``, and ``.rs``.
+        peptides (list of str): Peptide IDs or sequence strings.
+        sequence_from (str): Column in ``.pep.var`` for the ``sequence`` output,
+            or ``"index"`` (default) to use ``.pep.var_names``.
+
+    Returns:
+        pd.DataFrame: Columns ``peptide_id``, ``accession``, ``sequence``.
+            One row per peptide–accession pair (shared peptides yield multiple rows).
+            Unmatched inputs are skipped with a warning.
+
+    Raises:
+        ValueError: If ``.prot``, ``.pep``, or ``.rs`` is missing, or if
+            ``sequence_from`` is not ``"index"`` and the column is absent.
+
+    Example:
+        Map peptide IDs (``.pep.var_names``) to protein accessions:
+            ```python
+            from scpviz import utils as scutils
+
+            pep_id = pdata.pep.var_names[0]
+            df = scutils.get_accessions_for_peptides(pdata, [pep_id])
+            df.head()
+            #   peptide_id  accession  sequence
+            # 0  ...         P34932     ...
+            ```
+
+        DIA-NN: look up by stripped amino-acid sequence (may match multiple precursors):
+            ```python
+            seq = pdata.pep.var["Stripped.Sequence"].iloc[0]
+            df = scutils.get_accessions_for_peptides(
+                pdata,
+                [seq],
+                sequence_from="Stripped.Sequence",
+            )
+            ```
+
+        Round-trip from accession → peptide → accession:
+            ```python
+            acc = pdata.prot.var_names[0]
+            peps = scutils.get_peptides_for_accessions(pdata, [acc])
+            prots = scutils.get_accessions_for_peptides(
+                pdata, [peps.iloc[0]["peptide_id"]]
+            )
+            assert acc in prots["accession"].values
+            ```
+
+    Note:
+        Shared peptides linked to multiple proteins in the RS matrix return one
+        row per accession. A single sequence string can also match multiple
+        precursor IDs when resolved from ``.pep.var`` columns.
+
+    Related Functions:
+        - get_peptides_for_accessions: Reverse lookup (accession → peptide).
+        - get_pep_prot_mapping: Column name for peptide-to-protein metadata in ``.pep.var``.
+    """
+    columns = ["peptide_id", "accession", "sequence"]
+    if not peptides:
+        return pd.DataFrame(columns=columns)
+
+    if pdata.prot is None or pdata.pep is None or pdata.rs is None:
+        raise ValueError(
+            "get_accessions_for_peptides requires protein, peptide, and RS data."
+        )
+
+    if sequence_from != "index" and sequence_from not in pdata.pep.var.columns:
+        available = ", ".join(map(str, pdata.pep.var.columns))
+        raise ValueError(
+            f"Column '{sequence_from}' not found in .pep.var. Available: {available}"
+        )
+
+    rs = pdata.rs
+    pep_var_names = pdata.pep.var_names.astype(str)
+    prot_names = np.array(pdata.prot.var_names)
+
+    rows = []
+    unmatched = []
+    for query in peptides:
+        query = str(query)
+        matched_ids = []
+        if query in pep_var_names.values:
+            matched_ids = [query]
+        else:
+            for col in _PEPTIDE_SEQUENCE_SEARCH_COLS:
+                if col not in pdata.pep.var.columns:
+                    continue
+                hits = pep_var_names[pdata.pep.var[col].astype(str) == query]
+                if len(hits):
+                    matched_ids = hits.tolist()
+                    break
+
+        if not matched_ids:
+            unmatched.append(query)
+            continue
+
+        for peptide_id in matched_ids:
+            pep_idx = pep_var_names.get_loc(peptide_id)
+            prot_idx = rs[:, pep_idx].nonzero()[0]
+            if sequence_from == "index":
+                sequence = peptide_id
+            else:
+                sequence = pdata.pep.var.loc[peptide_id, sequence_from]
+            for i in prot_idx:
+                rows.append(
+                    {
+                        "peptide_id": peptide_id,
+                        "accession": prot_names[i],
+                        "sequence": sequence,
+                    }
+                )
+
+    if unmatched:
+        print(f"{format_log_prefix('warn')} A match was not found for the following:")
+        for u in unmatched:
+            print(f"  - {u}")
+
+    if not rows:
+        return pd.DataFrame(columns=columns)
+
+    return (
+        pd.DataFrame(rows)
+        .drop_duplicates()
+        .sort_values(["peptide_id", "accession"], kind="mergesort")
+        .reset_index(drop=True)
+    )
+
 def update_layer_provenance(
     adata: ad.AnnData,
     layer_name: str,
