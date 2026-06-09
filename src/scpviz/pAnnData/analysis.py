@@ -83,7 +83,7 @@ class AnalysisMixin:
 
         self._history.append(f"{on}: Coefficient of Variation (CV) calculated for {layer} data by {classes}. CV stored in var['CV: {class_value}'].") # type: ignore[attr-defined]
 
-    def de(self, values=None, class_type=None, method='ttest', layer='X', threshold=0.05, log2fc=1.0, fold_change_mode='mean', correct_fdr=False, equal_var=True):
+    def de(self, values=None, class_type=None, method='ttest', layer='X', threshold=0.05, log2fc=1.0, fold_change_mode='mean', correct_fdr=False, equal_var=True, pval=None):
         """
         Perform differential expression (DE) analysis on proteins across sample groups.
 
@@ -102,6 +102,7 @@ class AnalysisMixin:
             layer (str): Name of the data layer to use (default is "X").
             threshold (float): Significance cutoff. Applied to raw ``p_value`` when
                 ``correct_fdr=False``, and to ``adj_p_value`` when ``correct_fdr=True``. Defaults to 0.05.
+            pval (float, optional): Deprecated alias for ``threshold``.
 
             log2fc (float): Minimum log2 fold change threshold for significance labeling.
 
@@ -151,6 +152,18 @@ class AnalysisMixin:
                 )
                 ```
         """
+
+        if pval is not None:
+            print(
+                f"{format_log_prefix('warn')} `pval` is deprecated in de(); "
+                f"use `threshold` instead (applied pval={pval})."
+            )
+            if pval != threshold:
+                print(
+                    f"{format_log_prefix('warn')} Both `threshold`={threshold} and "
+                    f"`pval={pval}` were passed to de(); using `pval`."
+                )
+            threshold = pval
 
         # --- Handle legacy input ---
         if values is None:

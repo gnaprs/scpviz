@@ -92,6 +92,7 @@ def de_adata(
     log2fc: float = 1.0,
     correct_fdr: bool = False,
     equal_var: bool = True,
+    pval: float | None = None,
     data_is_log: bool = False,
     log_base: float = 2.0,
     pseudocount: float = 1.0,
@@ -119,6 +120,7 @@ def de_adata(
         layer (str): Layer to use. Default is 'X'.
         threshold (float): Significance cutoff. Applied to raw ``p_value`` when
             ``correct_fdr=False``, and to ``adj_p_value`` when ``correct_fdr=True``.
+        pval (float, optional): Deprecated alias for ``threshold``.
         log2fc (float): Minimum absolute log2 fold change for significance labeling.
         correct_fdr (bool): If True, apply Benjamini-Hochberg FDR correction and
             label significance using adjusted p-values.
@@ -138,6 +140,17 @@ def de_adata(
     Returns:
         pandas.DataFrame: DE results with volcano-ready columns.
     """
+    if pval is not None:
+        print(
+            f"{format_log_prefix('warn')} `pval` is deprecated in de_adata(); "
+            f"use `threshold` instead (applied pval={pval})."
+        )
+        if pval != threshold:
+            print(
+                f"{format_log_prefix('warn')} Both `threshold`={threshold} and "
+                f"`pval={pval}` were passed to de_adata(); using `pval`."
+            )
+        threshold = pval
 
     def to_dict_list(class_type, val):
         """Convert legacy values into a list of dictionary filters."""
