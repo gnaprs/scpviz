@@ -76,6 +76,14 @@ accessions = ['GAPDH', 'P53']
 pdata_filtered = pdata.filter_prot(accessions=accessions)
 ```
 
+By default, a **gene name** resolves to **one** protein accession (the last isoform in `.var` order if several share the same `Genes` value). Set `all_matches=True` to retain **every** isoform that matches the gene symbol:
+
+``` py title="Filter by gene name, keeping all isoforms"
+pdata_filtered = pdata.filter_prot(accessions=['GAPDH'], all_matches=True)
+```
+
+When multiple accessions match, an `[INFO]` message lists the resolved isoforms. The same `all_matches` flag is available on [`get_abundance()`](../reference/pAnnData/editing_mixin.md#src.scpviz.pAnnData.editing.EditingMixin.get_abundance) for extracting abundance from every isoform.
+
 ### Valid genes
 
 This removes rows with missing gene names and resolves duplicate gene names by appending numeric suffixes.
@@ -226,12 +234,15 @@ pdata_filtered = pdata.filter_prot_significant(group=["groupA_control", "groupB_
 
 ## `filter_sample()`
 
-Filter samples in a `pAnnData` object based on categorical, numeric, or identifier-based criteria.  
+Filter samples in a `pAnnData` object based on categorical, numeric, identifier-based, or POI abundance criteria.  
 Accepts **exactly one** of the following arguments:
 
 - `values`: A dictionary or list of dictionaries specifying class-based filters (e.g., treatment, cellline).  
 - `condition`: A logical condition string evaluated against summary-level numeric metadata (e.g., protein count).  
-- `file_list`: A list of sample or file names to retain.
+- `min_prot`: Minimum number of proteins detected per sample (shortcut for `condition="protein_count >= N"`).  
+- `file_list`: A list of sample or file names to retain.  
+- `exclude_file_list`: A list of sample or file names to remove.  
+- `poi`: A protein or peptide of interest; retain samples whose POI abundance meets a threshold.
 
 ---
 
@@ -295,9 +306,9 @@ pdata_filtered = pdata.filter_sample(condition="protein_count > 1000")
 
 #### Using `min_prot`
 
-A convenience shortcut for filtering based on a minimum protein count.
+Convenience shortcut equivalent to `condition="protein_count >= N"`. Keeps samples with **at least** `N` proteins detected.
 
-``` py title="Filter samples with fewer than 1000 proteins"
+``` py title="Keep samples with at least 1000 proteins detected"
 pdata_filtered = pdata.filter_sample(min_prot=1000)
 ```
 
@@ -314,6 +325,67 @@ pdata_filtered = pdata.filter_sample(file_list=['Sample_001', 'Sample_007'])
 ``` py title="Exclude specific samples by name"
 pdata_filtered = pdata.filter_sample(exclude_file_list=['Sample_001', 'Sample_007'])
 ```
+
+---
+
+### Filter by POI abundance
+
+Select samples based on the **raw abundance** of a protein or peptide of interest (POI) in that sample. This is typically a **second step** after a metadata filter (e.g. control samples only):
+
+``` py title="Two-step workflow: metadata, then POI threshold"
+control = pdata.filter_sample(values={'treatment': 'control'})
+high_poi = control.filter_sample(poi='GAPDH', min_abundance=1e4, match_any=True)
+```
+
+`poi` accepts a gene name, UniProt accession, or peptide ID (`on='peptide'`). When several isoforms or peptides match, an `[INFO]` note is appended after the main log message. At least one of `min_abundance` or `max_abundance` is required. If the POI does not resolve, the result is a valid object with **zero samples** retained.
+
+#### `match_any`: AND vs OR across multiple matches
+
+When `poi` resolves to more than one protein isoform or peptide, each **detected** match (abundance &gt; 0, not NaN) is evaluated against the threshold. Undetected matches are **ignored** (they do not pass or fail the sample).
+
+`match_any=False` (**AND**, default): the sample is kept only if **every detected** match passes.
+
+`match_any=True` (**OR**): the sample is kept if **any one detected** match passes.
+
+Example: `poi='GeneX'` maps to isoforms **P1** and **P2**, with `min_abundance=1e4`:
+
+| Sample | P1 abundance | P2 abundance | Detected | `match_any=False` | `match_any=True` |
+|:------:|:------------:|:------------:|:--------:|:-----------------:|:----------------:|
+| S1 | 1e5 | 1e2 | P1, P2 | ❌ P2 below threshold | ✅ P1 passes |
+| S2 | 1e5 | NaN | P1 only | ✅ P1 passes (P2 ignored) | ✅ P1 passes |
+| S3 | 1e2 | 1e2 | P1, P2 | ❌ Both below threshold | ❌ Neither passes |
+| S4 | NaN | NaN | none | ❌ (see `require_detected`) | ❌ (see `require_detected`) |
+
+``` py title="Require every detected isoform to pass (AND)"
+strict = pdata.filter_sample(poi='GAPDH', min_abundance=1e4, match_any=False)
+```
+
+``` py title="Require any detected isoform to pass (OR)"
+lenient = pdata.filter_sample(poi='GAPDH', min_abundance=1e4, match_any=True)
+```
+
+#### `require_detected`: samples with no usable POI signal
+
+Controls what happens when a sample has **no detected** POI values (all NaN or zero for the matched features).
+
+`require_detected=True` (default): if nothing is detected for that sample, it **fails** the filter.
+
+`require_detected=False`: undetected samples **pass** the POI filter (they are not removed by abundance thresholds).
+
+| Sample | P1 | P2 | `require_detected=True`, `match_any=True`, `min=1e4` | `require_detected=False`, same settings |
+|:------:|:--:|:--:|:----------------------------------------------------:|:---------------------------------------:|
+| S1 | 1e5 | NaN | ✅ P1 passes | ✅ |
+| S2 | NaN | NaN | ❌ Nothing detected | ✅ Passes (no detection required) |
+| S3 | 1e2 | NaN | ❌ Below threshold | ❌ Below threshold |
+
+#### Other parameters
+
+| Parameter | Default | Description |
+|:----------|:--------|:------------|
+| `min_abundance` | — | Minimum raw abundance (inclusive) |
+| `max_abundance` | — | Maximum raw abundance (inclusive); use with `min_abundance` for a range |
+| `layer` | `"X"` | Abundance layer on `.prot` or `.pep` |
+| `on` | `"protein"` | `"protein"` or `"peptide"` |
 
 ---
 
