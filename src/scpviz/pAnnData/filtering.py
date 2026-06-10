@@ -59,9 +59,10 @@ class FilterMixin:
         filter_prot: Filters proteins using `.var` metadata conditions or a list of accessions/genes to retain.
         filter_prot_found: Keeps proteins or peptides found in a minimum number or proportion of samples within a group or file list.
         _filter_sync_peptides_to_proteins: Removes peptides orphaned by upstream protein filtering.
-        filter_sample: Filters samples using categorical metadata, numeric thresholds, or file/sample lists.
+        filter_sample: Filters samples using categorical metadata, numeric thresholds, file/sample lists, or POI abundance.
         _filter_sample_condition: Internal helper for filtering samples using `.summary` conditions or name lists.
         _filter_sample_values: Filters samples using dictionary-style matching on metadata fields.
+        _filter_sample_poi: Filters samples by protein/peptide abundance thresholds for a POI.
         _filter_sample_query: Parses and applies a raw pandas-style query string to `.obs` or `.summary`.
         filter_rs: Filters the RS matrix by peptide count and ambiguity, and updates `.prot`/`.pep` accordingly.
         _apply_rs_filter: Applies protein/peptide masks to `.prot`, `.pep`, and `.rs` matrices.
@@ -70,7 +71,7 @@ class FilterMixin:
         _annotate_found_samples: Computes per-sample detection flags for use by `annotate_found()`.
     """
     
-    def filter_prot(self, condition = None, accessions=None, valid_genes=False, unique_profiles=False, return_copy = True, debug=False):
+    def filter_prot(self, condition = None, accessions=None, valid_genes=False, unique_profiles=False, all_matches=False, return_copy = True, debug=False):
         """
         Filter protein data based on metadata conditions or accession list (protein name and gene name).
 
@@ -84,6 +85,9 @@ class FilterMixin:
                 - Standard comparisons, e.g. `"Protein FDR Confidence: Combined == 'High'"`
                 - Substring queries using `includes`, e.g. `"Description includes 'p97'"`
             accessions (list of str, optional): List of accession numbers (var_names) to keep.
+            all_matches (bool): When filtering by gene name via ``accessions``, if True keep every
+                protein whose ``Genes`` value matches; if False (default) keep one accession per
+                gene (last duplicate in ``.var`` order).
             valid_genes (bool): If True, removes rows with missing gene names and resolves duplicate gene names by appending numeric suffixes.
             unique_profiles (bool): If True, remove rows with duplicate abundance profiles across samples.
             return_copy (bool): If True, returns a filtered copy. If False, modifies in place.
@@ -151,23 +155,13 @@ class FilterMixin:
         # 2. Filter by accession list or gene names
         if accessions is not None:
             gene_map, _ = pdata.get_gene_maps(on='protein') # type: ignore[attr-defined]
-
-            resolved, unmatched = [], []
-            var_names = pdata.prot.var_names.astype(str)
-
-            for name in accessions:
-                name = str(name)
-                if name in var_names:
-                    resolved.append(name)
-                elif name in gene_map:
-                    resolved.append(gene_map[name])
-                else:
-                    unmatched.append(name)
-
-            if unmatched:
-                warnings.warn(
-                    f"The following accession(s) or gene name(s) were not found and will be ignored: {unmatched}"
-                )
+            resolved = utils.resolve_accessions(
+                pdata.prot,
+                list(accessions),
+                gene_map=gene_map,
+                all_matches=all_matches,
+                on_empty="return",
+            )
 
             if not resolved:
                 warnings.warn("No matching accessions found. No proteins will be retained.")
@@ -901,15 +895,38 @@ class FilterMixin:
 
         return proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names
 
-    def filter_sample(self, values=None, exact_cases=False, condition=None, file_list=None, exclude_file_list=None, min_prot=None, cleanup=True, return_copy=True, debug=False, query_mode=False):
+    def filter_sample(
+        self,
+        values=None,
+        exact_cases=False,
+        condition=None,
+        file_list=None,
+        exclude_file_list=None,
+        min_prot=None,
+        poi=None,
+        min_abundance=None,
+        max_abundance=None,
+        require_detected=True,
+        match_any=False,
+        layer="X",
+        on="protein",
+        cleanup=True,
+        return_copy=True,
+        debug=False,
+        query_mode=False,
+    ):
         """
         Filter samples in a pAnnData object based on categorical, numeric, or identifier-based criteria.
 
         You must specify **exactly one** of the following:
-        
+
         - `values`: Dictionary or list of dictionaries specifying class-based filters (e.g., treatment, cellline).
         - `condition`: A string condition evaluated against summary-level numeric metadata (e.g., protein count).
         - `file_list`: List of sample or file names to retain.
+        - `exclude_file_list`: List of sample or file names to exclude.
+        - `min_prot`: Minimum protein count per sample (shortcut for a summary condition).
+        - `poi`: Protein or peptide of interest; keep samples whose POI abundance meets ``min_abundance``
+          and/or ``max_abundance`` (see ``_filter_sample_poi``).
 
         Args:
             values (dict or list of dict, optional): Categorical metadata filter. Matches rows in `.summary` or `.obs` with those field values.
@@ -920,6 +937,16 @@ class FilterMixin:
             file_list (list of str, optional): List of sample names or file identifiers to keep. Filters to only those samples (must match obs_names).
             exclude_file_list (list of str, optional): Similar to `file_list`, but excludes the specified files/samples instead of keeping them.
             min_prot (int, optional): Minimum number of proteins required in a sample to retain it.
+            poi (str, optional): Gene name, accession, or peptide ID whose abundance is used to select samples.
+            min_abundance (float, optional): Minimum raw abundance for the POI in a sample.
+            max_abundance (float, optional): Maximum raw abundance for the POI in a sample.
+            require_detected (bool): If True (default), undetected (NaN/zero) feature values are ignored;
+                samples with no detected POI features fail. If False, undetected values are ignored and
+                samples pass when nothing is detected.
+            match_any (bool): When ``poi`` resolves to multiple isoforms/peptides, if False (default) all
+                detected matches must pass the threshold; if True, any one detected match passing is enough.
+            layer (str): Data layer for abundance values (default ``"X"``).
+            on (str): ``"protein"`` or ``"peptide"``.
             cleanup (bool): If True (default), remove proteins that become all-NaN or all-zero after sample filtering and synchronize RS/peptide matrices. Set to False to retain all proteins for consistent feature alignment (e.g. during DE analysis).
             return_copy (bool): If True, returns a filtered pAnnData object; otherwise modifies in place.
             debug (bool): If True, prints query strings and filter summaries.
@@ -929,7 +956,7 @@ class FilterMixin:
             pAnnData: Filtered pAnnData object if `return_copy=True`; otherwise, modifies in place and returns None.
 
         Raises:
-            ValueError: If more than one or none of `values`, `condition`, or `file_list` is specified.
+            ValueError: If more than one or none of the filter mode arguments (`values`, `condition`, `file_list`, `exclude_file_list`, `min_prot`, `poi`) is specified.
 
         Examples:
             Filter by metadata values:
@@ -968,8 +995,14 @@ class FilterMixin:
                 pdata.filter_sample(exclude_file_list=['Sample_001', 'Sample_007'])
                 ```
 
+            Filter control samples where a POI exceeds an abundance threshold (two-step):
+                ```python
+                control = pdata.filter_sample(values={'treatment': 'control'})
+                high_poi = control.filter_sample(poi='ProteinA', min_abundance=1e4)
+                ```
+
             For advanced usage using query mode, see the note below.
-            
+
             !!! note "Advanced Usage"
                 To enable **advanced filtering**, set `query_mode=True` to evaluate raw pandas-style queries:
 
@@ -981,20 +1014,40 @@ class FilterMixin:
                 - Query `.summary` metadata:
                     ```python
                     pdata.filter_sample(condition="protein_count > 1000 and missing_pct < 0.2", query_mode=True)
-                    ```            
+                    ```
         """
         # Ensure exactly one of the filter modes is specified
-        provided = [values, condition, file_list, min_prot, exclude_file_list]
+        provided = [values, condition, file_list, min_prot, exclude_file_list, poi]
         if sum(arg is not None for arg in provided) != 1:
             raise ValueError(
                 "Invalid filter input. You must specify exactly one of the following keyword arguments:\n"
                 "- `values=...` for categorical metadata filtering,\n"
-                "- `condition=...` for summary-level condition filtering, or\n"
-                "- `min_prot=...` to filter by minimum protein count.\n"
-                "- `file_list=...` to filter by sample IDs.\n"
-                "- `exclude_file_list=...` to exclude specific sample IDs.\n\n"
+                "- `condition=...` for summary-level condition filtering,\n"
+                "- `min_prot=...` to filter by minimum protein count,\n"
+                "- `file_list=...` to filter by sample IDs,\n"
+                "- `exclude_file_list=...` to exclude specific sample IDs,\n"
+                "- `poi=...` to filter by protein/peptide abundance.\n\n"
                 "Examples:\n"
-                "  pdata.filter_sample(condition='protein_quant > 0.2')"
+                "  pdata.filter_sample(condition='protein_quant > 0.2')\n"
+                "  pdata.filter_sample(poi='GAPDH', min_abundance=1e4)"
+            )
+
+        if poi is not None:
+            if min_abundance is None and max_abundance is None:
+                raise ValueError(
+                    "When filtering by `poi`, specify at least one of `min_abundance` or `max_abundance`."
+                )
+            return self._filter_sample_poi(
+                poi=poi,
+                min_abundance=min_abundance,
+                max_abundance=max_abundance,
+                require_detected=require_detected,
+                match_any=match_any,
+                layer=layer,
+                on=on,
+                cleanup=cleanup,
+                return_copy=return_copy,
+                debug=debug,
             )
 
         if min_prot is not None:
@@ -1024,6 +1077,155 @@ class FilterMixin:
 
         if condition is not None and query_mode:
             return self._filter_sample_query(query_string=condition, source='summary', return_copy=return_copy, debug=debug, cleanup=cleanup)
+
+    def _filter_sample_poi(
+        self,
+        poi,
+        min_abundance=None,
+        max_abundance=None,
+        require_detected=True,
+        match_any=False,
+        layer="X",
+        on="protein",
+        cleanup=True,
+        return_copy=True,
+        debug=False,
+    ):
+        """
+        Filter samples by raw abundance thresholds for a protein or peptide of interest.
+
+        See ``filter_sample(poi=...)`` for parameter documentation.
+        """
+        on_user = on.lower()
+        feature_kind = "peptides" if on_user in ("peptide", "pep") else "proteins"
+        notes: list[str] = []
+
+        if on_user in ("peptide", "pep"):
+            if self.pep is None:  # type: ignore[attr-defined]
+                raise ValueError("Peptide data (.pep) is not available.")
+            features = utils.resolve_peptides(
+                self, [poi], all_matches=True, on_empty="return", quiet=True
+            )  # type: ignore[arg-type]
+        else:
+            if not self._check_data("protein"):  # type: ignore[attr-defined]
+                raise ValueError("No protein data found.")
+            adata = self.prot  # type: ignore[attr-defined]
+            features = utils.resolve_accessions(
+                adata, [poi], all_matches=True, on_empty="return", quiet=True
+            )
+
+        if features and len(features) > 1:
+            notes.append(
+                f"{format_log_prefix('info')} "
+                f"'{poi}' resolved to multiple {feature_kind}: {features}"
+            )
+
+        pdata = self.copy() if return_copy else self  # type: ignore[attr-defined], EditingMixin
+        action = "Returning a copy of" if return_copy else "Filtered and modified"
+        ref_adata = pdata.prot if pdata.prot is not None else pdata.pep  # type: ignore[attr-defined]
+        orig_sample_count = len(ref_adata.obs)
+
+        if not features:
+            notes.append(
+                f"{format_log_prefix('warn')} POI '{poi}' did not resolve to any "
+                f"{feature_kind}. No samples retained."
+            )
+            index_filter = []
+        else:
+            adata = getattr(pdata, "pep" if on_user in ("peptide", "pep") else "prot")
+            missing = [f for f in features if f not in adata.var_names]
+            if missing:
+                notes.append(
+                    f"{format_log_prefix('warn')} POI features not in .var_names (skipped): {missing}"
+                )
+            features = [f for f in features if f in adata.var_names]
+            if not features:
+                index_filter = []
+            else:
+                X = adata[:, features].layers[layer] if layer in adata.layers else adata[:, features].X
+                if hasattr(X, "toarray"):
+                    X = X.toarray()
+                else:
+                    X = np.asarray(X)
+
+                keep_mask = np.zeros(X.shape[0], dtype=bool)
+                for i in range(X.shape[0]):
+                    evaluated = []
+                    for j in range(X.shape[1]):
+                        val = X[i, j]
+                        if np.isnan(val) or val <= 0:
+                            continue
+                        passes = True
+                        if min_abundance is not None and val < min_abundance:
+                            passes = False
+                        if max_abundance is not None and val > max_abundance:
+                            passes = False
+                        evaluated.append(passes)
+
+                    if not evaluated:
+                        keep_mask[i] = not require_detected
+                    elif match_any:
+                        keep_mask[i] = any(evaluated)
+                    else:
+                        keep_mask[i] = all(evaluated)
+
+                index_filter = adata.obs_names[keep_mask].tolist()
+
+        if debug:
+            print(f"POI features: {features}")
+            print(f"Samples kept: {len(index_filter)} / {orig_sample_count}")
+
+        if pdata.prot is not None:
+            pdata.prot = pdata.prot[pdata.prot.obs_names.isin(index_filter)]  # type: ignore[attr-defined]
+        if pdata.pep is not None:
+            pdata.pep = pdata.pep[pdata.pep.obs_names.isin(index_filter)]  # type: ignore[attr-defined]
+
+        if cleanup:
+            cleanup_message = pdata._cleanup_proteins_after_sample_filter(verbose=True)  # type: ignore[attr-defined]
+        else:
+            cleanup_message = None
+        pdata.update_summary(recompute=False, verbose=False)  # type: ignore[attr-defined], SummaryMixin
+
+        log_prefix = format_log_prefix("user")
+        logic = "OR" if match_any else "AND"
+        threshold_parts = []
+        if min_abundance is not None:
+            threshold_parts.append(f"min_abundance={min_abundance}")
+        if max_abundance is not None:
+            threshold_parts.append(f"max_abundance={max_abundance}")
+        threshold_str = ", ".join(threshold_parts)
+
+        if len(index_filter) == 0:
+            message = (
+                f"{log_prefix} Filtering samples [poi]:\n"
+                f"    → No matching samples found.\n"
+                f"{format_log_prefix('filter_conditions')}POI: {poi} ({on}, {len(features)} feature(s))\n"
+                f"{format_log_prefix('filter_conditions')}Threshold: {threshold_str}\n"
+                f"    → Samples kept: 0, Samples dropped: {orig_sample_count}"
+            )
+        else:
+            message = (
+                f"{log_prefix} Filtering samples [poi]:\n"
+                f"    {action} sample data based on POI abundance ({logic} across detected matches):\n"
+                f"{format_log_prefix('filter_conditions')}POI: {poi} ({on}, {len(features)} feature(s))\n"
+                f"{format_log_prefix('filter_conditions')}Threshold: {threshold_str}\n"
+                f"{format_log_prefix('filter_conditions')}require_detected={require_detected}, match_any={match_any}\n"
+            )
+            message += (
+                f"    → Samples kept: {len(index_filter)}, "
+                f"Samples dropped: {orig_sample_count - len(index_filter)}\n"
+            )
+            if pdata.prot is not None:
+                message += f"    → Proteins kept: {len(pdata.prot.var)}\n"
+
+        if notes:
+            message += "\n".join(notes) + "\n"
+        if cleanup_message:
+            message += cleanup_message + "\n"
+
+        print(message)
+        pdata._append_history(message)  # type: ignore[attr-defined], HistoryMixin
+        return pdata if return_copy else None
 
     def _filter_sample_condition(self, condition = None, return_copy = True, file_list=None, exclude_file_list=None, cleanup=True, debug=False):
         """
@@ -1153,6 +1355,8 @@ class FilterMixin:
 
         if len(index_filter) == 0:
             message = f"{log_prefix} Filtering samples [{filter_type}]:\n    → No matching samples found. No filtering applied."
+            if cleanup_message:
+                message += "\n" + cleanup_message
         else:
             message = f"{log_prefix} Filtering samples [{filter_type}]:\n"
             message += f"    {action} sample data based on {filter_type}:\n"
@@ -1427,7 +1631,7 @@ class FilterMixin:
         # skip cleanup entirely if no samples or no protein data remain
         if self.prot is None or self.prot.n_obs == 0 or self.prot.n_vars == 0:
             if verbose:
-                print(f"{format_log_prefix('warn_only',2)} No samples or proteins to clean up. Skipping RS sync.")
+                return f"{format_log_prefix('warn_only',2)} No samples or proteins to clean up. Skipping RS sync."
             return None
 
         # Backup original for RS/peptide syncing, ensure summary and obs are aligned before making copy

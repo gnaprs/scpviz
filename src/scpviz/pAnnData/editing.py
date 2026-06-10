@@ -71,7 +71,7 @@ class EditingMixin:
 
         self._history.append(f"{on}: Set X to layer {layer}.") # type: ignore[attr-defined]
 
-    def get_abundance(self, namelist=None, layer='X', on='protein', classes=None, log=True, x_label='gene'):
+    def get_abundance(self, namelist=None, layer='X', on='protein', classes=None, log=True, x_label='gene', all_matches=False):
         """
         Extract a long-form abundance DataFrame from a pAnnData object.
 
@@ -85,6 +85,8 @@ class EditingMixin:
             classes (str or list of str, optional): Sample-level `.obs` column(s) to include for grouping or plotting.
             log (bool): If True, applies log2 transform to abundance values.
             x_label (str): Whether to label features by "gene" or "accession" in the output.
+            all_matches (bool): If False (default), each gene name in ``namelist`` resolves to one
+                accession; if True, returns every matching isoform (see ``resolve_accessions``).
 
         Returns:
             pd.DataFrame: Long-form DataFrame with abundance values and associated metadata.
@@ -120,7 +122,9 @@ class EditingMixin:
 
             adata = None
             if len(matched_peptides) < len(namelist):
-                filtered = self.filter_prot(accessions=non_peptides, return_copy=True) # type: ignore[attr-defined]
+                filtered = self.filter_prot(
+                    accessions=non_peptides, all_matches=all_matches, return_copy=True
+                ) # type: ignore[attr-defined]
                 adata = filtered.pep
 
             if matched_peptides:
@@ -136,7 +140,9 @@ class EditingMixin:
             adata = utils.get_adata(self, on)
 
             if namelist:
-                resolved = utils.resolve_accessions(adata, namelist, gene_map=gene_to_acc)
+                resolved = utils.resolve_accessions(
+                    adata, namelist, gene_map=gene_to_acc, all_matches=all_matches
+                )
                 adata = adata[:, resolved]
 
         # Extract the abundance matrix

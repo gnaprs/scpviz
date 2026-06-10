@@ -72,6 +72,19 @@ def test_filter_prot_by_gene_name(pdata):
     pdata_filt = pdata.filter_prot(accessions=[gene], return_copy=True)
     assert gene in pdata_filt.prot.var["Genes"].values
 
+def test_filter_prot_all_matches_keeps_all_isoforms(pdata):
+    pdata = pdata.copy()
+    dup_gene = "TEST_DUP_GENE"
+    idx = pdata.prot.var_names[:2]
+    pdata.prot.var.loc[idx, "Genes"] = dup_gene
+
+    one = pdata.filter_prot(accessions=[dup_gene], return_copy=True)
+    both = pdata.filter_prot(accessions=[dup_gene], all_matches=True, return_copy=True)
+
+    assert one.prot.shape[1] == 1
+    assert both.prot.shape[1] == 2
+    assert set(both.prot.var_names) == set(idx)
+
 def test_filter_prot_valid_genes(pdata):
     """Ensure proteins with empty or missing gene names are filtered out."""
     # Inject a few invalid gene entries (empty and None)
@@ -294,6 +307,86 @@ def test_filter_sample_no_arguments_raises(pdata):
     """Must specify exactly one filter argument."""
     with pytest.raises(ValueError, match="exactly one"):
         pdata.filter_sample()
+
+def test_filter_sample_poi_requires_threshold(pdata):
+    with pytest.raises(ValueError, match="min_abundance"):
+        pdata.filter_sample(poi="GAPDH")
+
+def test_filter_sample_poi_min_abundance(pdata):
+    from scipy.sparse import csr_matrix, issparse
+
+    pdata = pdata.copy()
+    acc = str(pdata.prot.var_names[0])
+    col = pdata.prot.var_names.get_loc(acc)
+    n_obs = pdata.prot.n_obs
+    values = np.where(np.arange(n_obs) == 0, 1e6, 1e2)
+    if issparse(pdata.prot.X):
+        X = pdata.prot.X.toarray()
+        X[:, col] = values
+        pdata.prot.X = csr_matrix(X)
+    else:
+        pdata.prot.X[:, col] = values
+
+    out = pdata.filter_sample(poi=acc, min_abundance=1e4, return_copy=True)
+    assert out.prot.n_obs == 1
+    assert out.prot.obs_names[0] == pdata.prot.obs_names[0]
+
+def test_filter_sample_poi_unresolved_returns_zero_samples(pdata, capsys):
+    out = pdata.filter_sample(poi="NOT_A_REAL_POI_XYZ", min_abundance=1.0, return_copy=True)
+    assert out.prot.n_obs == 0
+    assert "did not resolve" in capsys.readouterr().out
+
+def test_filter_sample_poi_match_any_duplicate_isoforms(pdata):
+    from scipy.sparse import csr_matrix, issparse
+
+    pdata = pdata.copy()
+    dup_gene = "POI_DUP_TEST"
+    idx = list(pdata.prot.var_names[:2])
+    pdata.prot.var.loc[idx, "Genes"] = dup_gene
+
+    col0 = pdata.prot.var_names.get_loc(idx[0])
+    col1 = pdata.prot.var_names.get_loc(idx[1])
+    if issparse(pdata.prot.X):
+        X = pdata.prot.X.toarray()
+        for i in range(X.shape[0]):
+            if i == 0:
+                X[i, col0] = 1e6
+                X[i, col1] = 1e2
+            else:
+                X[i, col0] = 1e2
+                X[i, col1] = 1e2
+        pdata.prot.X = csr_matrix(X)
+    else:
+        for i in range(pdata.prot.n_obs):
+            if i == 0:
+                pdata.prot.X[i, col0] = 1e6
+                pdata.prot.X[i, col1] = 1e2
+            else:
+                pdata.prot.X[i, col0] = 1e2
+                pdata.prot.X[i, col1] = 1e2
+
+    and_out = pdata.filter_sample(poi=dup_gene, min_abundance=1e4, match_any=False, return_copy=True)
+    or_out = pdata.filter_sample(poi=dup_gene, min_abundance=1e4, match_any=True, return_copy=True)
+    assert and_out.prot.n_obs == 0
+    assert or_out.prot.n_obs == 1
+
+def test_filter_sample_poi_require_detected_false_all_nan(pdata):
+    from scipy.sparse import csr_matrix, issparse
+
+    pdata = pdata.copy()
+    acc = str(pdata.prot.var_names[0])
+    col = pdata.prot.var_names.get_loc(acc)
+    if issparse(pdata.prot.X):
+        X = pdata.prot.X.toarray()
+        X[:, col] = np.nan
+        pdata.prot.X = csr_matrix(X)
+    else:
+        pdata.prot.X[:, col] = np.nan
+
+    out = pdata.filter_sample(
+        poi=acc, min_abundance=1e4, require_detected=False, return_copy=True
+    )
+    assert out.prot.n_obs == pdata.prot.n_obs
 
 # ---------------------------------------------------------------------
 # Tests for _filter_sample_condition

@@ -74,6 +74,21 @@ def test_get_abundance_peptide_no_match_raises(pdata_diann):
         with pytest.raises(ValueError, match="No matching peptides found"):
             pdata_diann.get_abundance(namelist=["not_a_real_peptide_123"], on="peptide")
 
+def test_get_abundance_all_matches_expands_isoforms(pdata):
+    pdata = pdata.copy()
+    dup_gene = "TEST_DUP_GENE_ABUND"
+    idx = list(pdata.prot.var_names[:2])
+    pdata.prot.var.loc[idx, "Genes"] = dup_gene
+
+    df_one = pdata.get_abundance(namelist=[dup_gene], on="protein", log=False)
+    df_all = pdata.get_abundance(
+        namelist=[dup_gene], on="protein", log=False, all_matches=True
+    )
+
+    assert set(df_one["accession"]) == {idx[1]}
+    assert set(df_all["accession"]) == set(idx)
+    assert len(df_all) == len(df_one) * 2
+
 def test_get_abundance_peptide_partial_match(pdata_diann):
     # Choose one valid peptide and one invalid one
     real_pep = pdata_diann.pep.var_names[0]
