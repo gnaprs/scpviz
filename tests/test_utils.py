@@ -36,6 +36,14 @@ def adata_gene():
     adata = AnnData(X=X, obs=obs, var=var)
     return adata
 
+@pytest.fixture
+def adata_duplicate_gene():
+    """Two isoforms share Genes='GAPDH'; ACTB is unique (controlled duplicate-gene fixture)."""
+    obs = pd.DataFrame({"cellline": ["A", "B"]})
+    var = pd.DataFrame({"Genes": ["GAPDH", "GAPDH", "ACTB"]}, index=["P1", "P2", "P3"])
+    X = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    return AnnData(X=X, obs=obs, var=var)
+
 # --- utility tests
 def test_parse_filename_index_success():
     idx = ["20250101_A_123_10um_mouse_ctx_A1", "20250102_B_456_20um_mouse_snpc_B7", ]
@@ -427,6 +435,45 @@ def test_resolve_accessions_with_pdata(pdata):
     assert isinstance(result, list)
     assert len(result) == 1
     assert result[0] in adata.var_names
+
+def test_resolve_accessions_all_matches_false_duplicate_gene(adata_duplicate_gene):
+    result = utils.resolve_accessions(adata_duplicate_gene, ["GAPDH"], all_matches=False)
+    assert result == ["P2"]
+
+def test_resolve_accessions_all_matches_true_duplicate_gene(adata_duplicate_gene):
+    result = utils.resolve_accessions(adata_duplicate_gene, ["GAPDH"], all_matches=True)
+    assert result == ["P1", "P2"]
+
+def test_resolve_accessions_all_matches_info_message(adata_duplicate_gene, capsys):
+    utils.resolve_accessions(adata_duplicate_gene, ["GAPDH"], all_matches=True)
+    out = capsys.readouterr().out
+    assert "[INFO]" in out
+    assert "multiple accessions" in out
+    assert "P1" in out and "P2" in out
+
+def test_resolve_accessions_on_empty_return(adata_duplicate_gene):
+    result = utils.resolve_accessions(
+        adata_duplicate_gene, ["NOT_A_GENE"], on_empty="return"
+    )
+    assert result == []
+
+def test_resolve_accessions_all_matches_accession_unchanged(adata_duplicate_gene):
+    for all_matches in (False, True):
+        result = utils.resolve_accessions(
+            adata_duplicate_gene, ["P3"], all_matches=all_matches
+        )
+        assert result == ["P3"]
+
+def test_get_abundance_from_adata_all_matches_expands_isoforms(adata_duplicate_gene):
+    df_default = utils._get_abundance_from_adata(
+        adata_duplicate_gene, namelist=["GAPDH"], log=False
+    )
+    df_all = utils._get_abundance_from_adata(
+        adata_duplicate_gene, namelist=["GAPDH"], log=False, all_matches=True
+    )
+    assert set(df_default["accession"]) == {"P2"}
+    assert set(df_all["accession"]) == {"P1", "P2"}
+    assert len(df_all) == len(df_default) * 2
 
 def test_get_upset_contents_returns_dataframe(monkeypatch, pdata):
     """Test that get_upset_contents returns UpSet-compatible DataFrame."""

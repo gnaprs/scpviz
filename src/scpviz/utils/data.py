@@ -324,6 +324,7 @@ def _get_abundance_from_adata(
     x_label: str = "gene",
     classes: str | list[str] | None = None,
     gene_col: str = "Genes",
+    all_matches: bool = False,
 ) -> pd.DataFrame:
     """
     Abundance extraction for plain AnnData, including gene/accession support.
@@ -335,7 +336,7 @@ def _get_abundance_from_adata(
 
     # Resolve gene names → accessions
     if namelist:
-        resolved = resolve_accessions(adata, namelist, gene_col=gene_col)
+        resolved = resolve_accessions(adata, namelist, gene_col=gene_col, all_matches=all_matches)
         adata = adata[:, resolved]
 
     # Extract matrix
@@ -368,6 +369,10 @@ def resolve_accessions(
     namelist: list[str],
     gene_col: str = "Genes",
     gene_map: dict[str, str] | None = None,
+    *,
+    all_matches: bool = False,
+    on_empty: str = "raise",
+    quiet: bool = False,
 ) -> list[str] | None:
     """
     Resolve gene or accession names to accession IDs from `.var_names`.
@@ -382,14 +387,21 @@ def resolve_accessions(
         namelist (list of str): Input identifiers to resolve (genes or accessions).
         gene_col (str): Column in `.var` containing gene names (default: `"Genes"`).
         gene_map (dict, optional): Precomputed mapping of gene → accession. If None,
-            a mapping is constructed from `gene_col`.
+            a mapping is constructed from `gene_col`. Used only when ``all_matches=False``.
+        all_matches (bool): If False (default), each gene name resolves to a single
+            accession (last duplicate wins in ``gene_map``). If True, returns every
+            accession whose ``gene_col`` value equals the name; logs ``info`` when
+            a name expands to more than one accession.
+        on_empty (str): ``"raise"`` (default) raises ``ValueError`` when nothing resolves;
+            ``"return"`` returns an empty list.
+        quiet (bool): If True, suppress ``info`` / ``warn`` print messages (for callers that
+            embed notes in their own log output).
 
     Returns:
         resolved (list of str): List of accession IDs corresponding to the input names.
 
     Raises:
-        ValueError: If none of the provided names can be resolved to `.var_names`
-            or the gene column.
+        ValueError: If none of the provided names can be resolved and ``on_empty="raise"``.
 
     Example:
         Resolve gene symbols to accession IDs:
@@ -397,11 +409,16 @@ def resolve_accessions(
             accs = resolve_accessions(adata, namelist=["UBE4B", "GAPDH"])
             ```
 
-        Resolve accessions directly:    
+        Resolve all isoforms for a gene:
+            ```python
+            accs = resolve_accessions(adata, namelist=["GAPDH"], all_matches=True)
+            ```
+
+        Resolve accessions directly:
             ```python
             accs = resolve_accessions(adata, namelist=["P12345", "Q67890"])
             ```
-    
+
     Related Functions:
         - get_gene_maps: Build full accession → gene mapping dictionaries.
         - get_abundance: Extract abundance values by gene or accession.
@@ -411,10 +428,13 @@ def resolve_accessions(
     if not namelist:
         return None
 
+    if on_empty not in ("raise", "return"):
+        raise ValueError(f"on_empty must be 'raise' or 'return', got {on_empty!r}")
+
     var_names = adata.var_names.astype(str)
 
-    # Use passed-in gene_map or build one
-    if gene_map is None:
+    # Use passed-in gene_map or build one (one-to-one mode only)
+    if gene_map is None and not all_matches:
         gene_map = {}
         if gene_col in adata.var.columns:
             for acc, gene in zip(var_names, adata.var[gene_col]):
@@ -426,21 +446,125 @@ def resolve_accessions(
         name = str(name)
         if name in var_names:
             resolved.append(name)
-        elif name in gene_map:
+        elif all_matches and gene_col in adata.var.columns:
+            matches = [
+                acc for acc, gene in zip(var_names, adata.var[gene_col])
+                if pd.notna(gene) and str(gene) == name
+            ]
+            if matches:
+                resolved.extend(matches)
+                if len(matches) > 1 and not quiet:
+                    print(
+                        f"{format_log_prefix('info')} "
+                        f"'{name}' resolved to multiple accessions: {matches}"
+                    )
+            else:
+                unmatched.append(name)
+        elif gene_map is not None and name in gene_map:
             resolved.append(gene_map[name])
         else:
             unmatched.append(name)
 
     if not resolved:
+        if on_empty == "return":
+            return []
         raise ValueError(
             f"No valid names found in `namelist`: {namelist}.\n"
             f"Check against .var_names or '{gene_col}' column."
         )
 
-    if unmatched:
+    if unmatched and not quiet:
         print(f"{format_log_prefix('warn')} A match was not found for the following:")
         for u in unmatched:
             print(f"  - {u}")
+
+    return resolved
+
+def resolve_peptides(
+    pdata: pAnnData,
+    namelist: list[str],
+    *,
+    all_matches: bool = True,
+    on_empty: str = "return",
+    quiet: bool = False,
+) -> list[str] | None:
+    """
+    Resolve peptide IDs from ``.pep.var_names``, or expand gene/accession names to peptides.
+
+    Direct peptide IDs in ``namelist`` are returned as-is. Otherwise each name is resolved
+    to protein accessions (``resolve_accessions`` with ``all_matches``) and linked peptides
+    are collected via the RS matrix when available, or via the peptide-to-protein mapping
+    column otherwise.
+
+    Args:
+        pdata (pAnnData): Object with ``.pep``; protein expansion requires ``.prot``.
+        namelist (list of str): Peptide IDs, gene names, or protein accessions.
+        all_matches (bool): When expanding gene names to proteins, return every isoform
+            (default True).
+        on_empty (str): ``"raise"`` or ``"return"`` (empty list) when nothing resolves.
+        quiet (bool): If True, suppress ``info`` print messages.
+
+    Returns:
+        list of str | None: Unique ``.pep.var_names`` entries, or ``None`` for empty input.
+    """
+    if not namelist:
+        return None
+
+    if on_empty not in ("raise", "return"):
+        raise ValueError(f"on_empty must be 'raise' or 'return', got {on_empty!r}")
+
+    if pdata.pep is None:
+        raise ValueError("Peptide data (.pep) is not available.")
+
+    pep_names = set(pdata.pep.var_names.astype(str))
+    resolved: list[str] = []
+
+    for name in namelist:
+        name = str(name)
+        if name in pep_names:
+            resolved.append(name)
+            continue
+
+        if pdata.prot is None:
+            continue
+
+        accs = resolve_accessions(
+            pdata.prot, [name], all_matches=all_matches, on_empty="return", quiet=quiet
+        )
+        if not accs:
+            continue
+
+        if pdata.rs is not None:
+            pep_df = get_peptides_for_accessions(pdata, accs)
+            matches = pep_df["peptide_id"].astype(str).tolist()
+        else:
+            prot_col = get_pep_prot_mapping(pdata)
+            acc_set = set(accs)
+            matches = []
+            for pep_id, prot_val in zip(pdata.pep.var_names, pdata.pep.var[prot_col]):
+                if pd.isna(prot_val):
+                    continue
+                linked = {p.strip() for p in str(prot_val).split(";")}
+                if linked & acc_set:
+                    matches.append(str(pep_id))
+
+        if matches:
+            resolved.extend(matches)
+            if len(matches) > 1 and not quiet:
+                print(
+                    f"{format_log_prefix('info')} "
+                    f"'{name}' resolved to multiple peptides: {matches}"
+                )
+
+    resolved = list(dict.fromkeys(resolved))
+
+    if not resolved:
+        if on_empty == "return":
+            return []
+        raise ValueError(
+            f"No valid peptides found in `namelist`: {namelist}.\n"
+            "Check against .pep.var_names or provide a gene/accession with linked peptides."
+        )
 
     return resolved
 

@@ -23,6 +23,7 @@ Functions:
     get_adata: Retrieve the ``.prot`` or ``.pep`` AnnData from a ``pAnnData`` object.
     get_abundance: Extract abundance data from pAnnData or AnnData.
     resolve_accessions: Map gene names or accessions to ``.var_names``.
+    resolve_peptides: Map gene/accession/peptide names to ``.pep.var_names``.
     get_pep_prot_mapping: Determine peptide-to-protein mapping column.
     get_peptides_for_accessions: Map accessions or genes to observed peptides via RS.
     get_accessions_for_peptides: Map peptide IDs or sequences to protein accessions via RS.
