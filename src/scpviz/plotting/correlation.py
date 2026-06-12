@@ -19,7 +19,7 @@ from matplotlib.gridspec import GridSpec
 
 from scpviz import utils
 
-from .style import _resolve_subset_mask, get_color
+from .style import _get_cmap, _resolve_subset_mask, get_color
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -474,7 +474,7 @@ def plot_pairwise_correlation(
                 for i, v in enumerate(unique_vals)
             }
         if isinstance(annotation_cmap, str):
-            cmap_obj = cm.get_cmap(annotation_cmap)
+            cmap_obj = _get_cmap(annotation_cmap)
             if n_uv == 0:
                 return {}
             rgba = cmap_obj(np.linspace(0.0, 1.0, n_uv))
@@ -543,7 +543,7 @@ def plot_pairwise_correlation(
     if vmax is None:
         vmax = 1.0 if method_used in ("pearson", "spearman") else float(np.nanmax(mat))
 
-    _cmap_base = cm.get_cmap(cmap)
+    _cmap_base = _get_cmap(cmap)
     try:
         cmap_obj = _cmap_base.copy()
     except AttributeError:

@@ -419,10 +419,12 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
 
     x_col = 'x_label_name'
     y_col = 'log2_abundance' if log else 'abundance'
+    df = df.dropna(subset=[y_col])
 
     if kind == 'auto':
-        sample_counts = df.groupby([x_col, 'class', 'facet']).size()
-        kind = 'bar' if sample_counts.min() <= 3 else 'violin'
+        sample_counts = df.groupby([x_col, 'class', 'facet'], observed=False).size()
+        min_count = sample_counts.min() if len(sample_counts) else np.inf
+        kind = 'bar' if min_count <= 3 else 'violin'
 
     def _plot_bar(df):
         bar_kwargs = dict(
@@ -433,7 +435,8 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
         )
         bar_kwargs.update(kwargs)
         if facet and df['facet'].nunique() > 1:
-            g = sns.FacetGrid(df, col='facet', height=height, aspect=aspect, sharey=True)
+            plot_df = df[[x_col, y_col, 'class', 'facet']]
+            g = sns.FacetGrid(plot_df, col='facet', height=height, aspect=aspect, sharey=True, dropna=False)
             g.map_dataframe(sns.barplot, x=x_col, y=y_col, hue='class', **bar_kwargs)
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
@@ -465,7 +468,8 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
         violin_kwargs = dict(inner="box", linewidth=1, cut=0, alpha=0.5, density_norm="width")
         violin_kwargs.update(kwargs)
         if facet and df['facet'].nunique() > 1:
-            g = sns.FacetGrid(df, col='facet', height=height, aspect=aspect, sharey=True)
+            plot_df = df[[x_col, y_col, 'class', 'facet']]
+            g = sns.FacetGrid(plot_df, col='facet', height=height, aspect=aspect, sharey=True, dropna=False)
             g.map_dataframe(sns.violinplot, x=x_col, y=y_col, hue='class', palette=palette, **violin_kwargs)
             if plot_points:
                 def _strip(data, color, **kwargs_inner):

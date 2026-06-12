@@ -23,7 +23,7 @@ from sklearn.decomposition import PCA
 
 from scpviz import utils
 
-from .style import _resolve_subset_mask, get_color
+from .style import _get_cmap, _resolve_subset_mask, get_color
 from ._pca_gsea_data import (
     N_VECTORS_UNSET,
     _apply_pathway_name_filters,
@@ -491,7 +491,7 @@ def resolve_plot_colors(
         elif isinstance(cmap, dict):
             color_dict = cmap
         else:
-            cmap_obj = cm.get_cmap(cmap)
+            cmap_obj = _get_cmap(cmap)
             palette = [mcolors.to_hex(cmap_obj(i / max(len(class_labels) - 1, 1))) for i in range(len(class_labels))]
             color_dict = {c: palette[i] for i, c in enumerate(class_labels)}
         color_mapped = [color_dict[val] for val in y]
@@ -510,7 +510,7 @@ def resolve_plot_colors(
         elif isinstance(cmap, dict):
             color_dict = cmap
         else:
-            cmap_obj = cm.get_cmap(cmap)
+            cmap_obj = _get_cmap(cmap)
             palette = [mcolors.to_hex(cmap_obj(i / max(len(class_labels) - 1, 1))) for i in range(len(class_labels))]
             color_dict = {c: palette[i] for i, c in enumerate(class_labels)}
         color_mapped = [color_dict[val] for val in y]
@@ -526,7 +526,7 @@ def resolve_plot_colors(
         color_mapped = X[:, idx]
         if cmap == 'default':
             cmap = 'viridis'
-        cmap = cm.get_cmap(cmap) if isinstance(cmap, str) else cmap
+        cmap = _get_cmap(cmap) if isinstance(cmap, str) else cmap
 
         # Add default colorbar handling for abundance-based coloring
         norm = mcolors.Normalize(vmin=color_mapped.min(), vmax=color_mapped.max())
@@ -812,9 +812,9 @@ def _resolve_embedding_style_mapping(
             face_mapped = face_float_buf
             if face_cmap_resolved is None:
                 if cmap == "default":
-                    face_cmap_resolved = cm.get_cmap("viridis")
+                    face_cmap_resolved = _get_cmap("viridis")
                 else:
-                    face_cmap_resolved = cm.get_cmap(cmap) if isinstance(cmap, str) else cmap
+                    face_cmap_resolved = _get_cmap(cmap) if isinstance(cmap, str) else cmap
 
     # --- edges ---
     edge_list: list[Any] = []
@@ -1262,9 +1262,7 @@ def _plot_embedding_scatter(
             return {c: ellipse_cmap[i % len(ellipse_cmap)] for i, c in enumerate(class_labels)}
         if ellipse_cmap != "default":
             # treat non-default string as a matplotlib cmap name
-            import matplotlib.cm as cm
-            import matplotlib.colors as mcolors
-            cmap_obj = cm.get_cmap(ellipse_cmap)
+            cmap_obj = _get_cmap(ellipse_cmap)
             pal = [mcolors.to_hex(cmap_obj(i / max(len(class_labels) - 1, 1))) for i in range(len(class_labels))]
             return {c: pal[i] for i, c in enumerate(class_labels)}
 

@@ -6,6 +6,7 @@ from typing import Any, Literal, TYPE_CHECKING, overload
 import warnings
 
 import anndata as ad
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
@@ -14,6 +15,12 @@ import seaborn as sns
 
 if TYPE_CHECKING:
     from scpviz.pAnnData.pAnnData import pAnnData
+
+
+def _get_cmap(cmap: str | mcolors.Colormap) -> mcolors.Colormap:
+    """Resolve a matplotlib colormap by name or instance (compatible with mpl >= 3.9)."""
+    return mpl.colormaps.get_cmap(cmap)
+
 
 @overload
 def get_color(resource_type: Literal["colors"], n: int) -> list[str]: ...
