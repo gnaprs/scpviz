@@ -20,7 +20,8 @@ When a single-cell bundle loads (large cohort or parquet), the script also write
 
 Output: docs/assets/plots/<name>.png at 150 dpi.
 Also writes ``plot_abundance_boxgrid_bar.png``, ``plot_abundance_boxgrid_line.png``,
-``plot_abundance_boxgrid_violin.png``, and ``plot_abundance_boxgrid_custom.png`` alongside ``plot_abundance_boxgrid.png``.
+``plot_abundance_boxgrid_violin.png``, and ``plot_abundance_boxgrid_custom.png`` alongside ``plot_abundance_boxgrid.png``,
+and ``plot_cv_annotate.png`` / ``plot_cv_custom_annotate.png`` alongside ``plot_cv.png``.
 Existing files are overwritten.
 """
 from __future__ import annotations
@@ -348,9 +349,29 @@ def main(*, skip_umap: bool = False) -> None:
     save_current_fig("plot_significance")
 
     # ── abundance.py ─────────────────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(4, 4))
+    fig, ax = plt.subplots(figsize=(3, 3))
     scplt.plot_cv(ax, pdata, classes=classes_2)
     save_current_fig("plot_cv")
+
+    fig, ax = plt.subplots(figsize=(3, 3))
+    scplt.plot_cv(
+        ax,
+        pdata,
+        classes=classes_2,
+        show_n=True,
+        annotate="median",
+        annotate_kwargs={"fontsize": 7},
+    )
+    save_current_fig("plot_cv_annotate")
+
+    fig, ax = plt.subplots(figsize=(3, 3))
+    scplt.plot_cv(
+        ax,
+        pdata,
+        classes=classes_2,
+        annotate={"AS_kd": "replicate set A"},
+    )
+    save_current_fig("plot_cv_custom_annotate")
 
     fig, ax = plt.subplots(figsize=(4, 4))
     scplt.plot_abundance(

@@ -34,13 +34,19 @@ def plot_cv(
     palette: Any = None,
     return_df: bool = False,
     extra_cols: list[str] = ["Accession", "Genes"],
+    show_n: bool = False,
+    annotate: str | dict[str, str] | None = None,
+    n_kwargs: dict[str, Any] | None = None,
+    annotate_kwargs: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> Any:
     """
-    Generate a box-and-whisker plot for the coefficient of variation (CV).
+    Plot coefficient of variation (CV) distributions as violins.
 
     This function computes CV values across proteins or peptides, grouped by
-    sample-level classes, and visualizes their distribution as a box plot.
+    sample-level classes, and visualizes their distribution. CV is stored as a
+    ratio in ``pdata.var``; the plot and ``CV_pct`` column use percent
+    (ratio × 100).
 
     Args:
         ax (matplotlib.axes.Axes): Axis on which to plot.
@@ -55,65 +61,88 @@ def plot_cv(
             If None, defaults to `scviz` package color palette.
         return_df (bool): If True, returns the underlying DataFrame used for plotting.
         extra_cols (list): Additional columns to include in returned dataframe.
+        show_n (bool): If True, annotate each violin with the total sample count
+            in that group (``n={count}``), placed below the x-axis tick labels.
+        annotate (str or dict, optional): Per-violin annotations along the top of
+            the plotting area (just above the upper axis spine).
+            - ``"median"`` or ``"mean"``: summary stat of ``CV_pct`` on two lines
+              (e.g. ``median`` / ``12.3%``).
+            - ``dict``: custom label per class key; keys not present are skipped.
+        n_kwargs (dict, optional): Styling for ``show_n`` labels. Recognized keys
+            include Matplotlib text options plus ``offset`` (distance below the
+            x-axis in axes coordinates; default ``0.12``).
+        annotate_kwargs (dict, optional): Styling for ``annotate`` labels. Recognized
+            keys include Matplotlib text options plus ``offset`` (y position in axes
+            coordinates above the top spine; default ``1.03``).
         **kwargs: Additional keyword arguments passed to seaborn plotting functions.
 
     Returns:
         ax (matplotlib.axes.Axes): The axis with the plotted CV distribution.
-        cv_df (pandas.DataFrame): Optional, returned if `return_df=True`.
+        cv_df (pandas.DataFrame): Optional, returned if `return_df=True`. Columns
+            include ``CV`` (ratio) and ``CV_pct`` (percent).
 
     Example:
-        CV distribution grouped by cell line and condition:
+        Basic CV violins grouped by cell line and condition:
             ```python
             import matplotlib.pyplot as plt
             from scpviz import plotting as scplt
 
-            fig, ax = plt.subplots(figsize=(4, 4))
+            fig, ax = plt.subplots(figsize=(3, 3))
             scplt.plot_cv(ax, pdata, classes=["cellline", "condition"])
             plt.show()
             ```
 
         ![Plot cv](../../assets/plots/plot_cv.png)
 
-        Extract ``cv_df`` and plot with your own seaborn/matplotlib code (e.g. horizontal violins, custom order and palette):
+        Sample counts below each violin and median CV above the plot:
             ```python
-            import matplotlib.pyplot as plt
-            import seaborn as sns
-            from scpviz import plotting as scplt
-
-            classes = ["cellline", "condition"]
-            fig, ax = plt.subplots(figsize=(4, 4))
-            cv_df = scplt.plot_cv(ax, pdata, classes=classes, return_df=True)
-            cv_df = cv_df.reset_index()
-            order = sorted(cv_df["Class"].unique())  # replace with your preferred order
-            colors = sns.color_palette("Blues", n_colors=len(order))
-            sns.violinplot(
-                data=cv_df,
-                y="Class",
-                x="CV",
-                orient="h",
-                order=order,
-                palette=colors,
-                linewidth=1,
-                inner="quartile",
-                saturation=1,
-                ax=ax,
+            fig, ax = plt.subplots(figsize=(3, 3))
+            scplt.plot_cv(
+                ax, pdata, classes=["cellline", "condition"],
+                show_n=True,
+                annotate="median",
+                annotate_kwargs={"fontsize": 7},
             )
             plt.show()
             ```
+
+        ![Plot cv annotate](../../assets/plots/plot_cv_annotate.png)
+
+        Custom per-group labels:
+            ```python
+            fig, ax = plt.subplots(figsize=(3, 3))
+            scplt.plot_cv(
+                ax, pdata, classes=["cellline", "condition"],
+                annotate={"AS_kd": "replicate set A"},
+            )
+            plt.show()
+            ```
+
+        ![Plot cv custom annotate](../../assets/plots/plot_cv_custom_annotate.png)
+
+        Export the underlying table (``CV`` ratio and ``CV_pct`` percent columns):
+            ```python
+            cv_df = scplt.plot_cv(
+                None, pdata, classes=["cellline", "condition"], return_df=True
+            )
+            ```
     """
+    if annotate is not None and annotate not in ("median", "mean") and not isinstance(annotate, dict):
+        raise ValueError("annotate must be 'median', 'mean', a dict keyed by class, or None.")
+
     # Compute CVs for the selected layer
-    pdata.cv(classes = classes, on = on, layer = layer)
-    adata = utils.get_adata(pdata, on)    
-    classes_list = utils.get_classlist(adata, classes = classes, order = order)
-    
+    pdata.cv(classes=classes, on=on, layer=layer)
+    adata = utils.get_adata(pdata, on)
+    classes_list = utils.get_classlist(adata, classes=classes, order=order)
+
     ex_cols = [col for col in extra_cols if col in adata.var.columns]
 
     cv_data = []
     for class_value in classes_list:
-        cv_col = f'CV: {class_value}'
+        cv_col = f"CV: {class_value}"
         if cv_col in adata.var.columns:
             cv_values = adata.var[cv_col].values
-            row = {'Class': class_value, 'CV': cv_values}
+            row = {"Class": class_value, "CV": cv_values}
             for col in ex_cols:
                 row[col] = adata.var[col].values
             cv_data.append(pd.DataFrame(row))
@@ -121,34 +150,93 @@ def plot_cv(
     if not cv_data:
         print(f"{utils.format_log_prefix('warn')} No valid CV subsets found — skipping plot.")
         return ax if ax is not None else None
-    
-    cv_df = pd.concat(cv_data, ignore_index=True)
 
-    # return cv_df for user to plot themselves
+    cv_df = pd.concat(cv_data, ignore_index=True)
+    cv_df["CV_pct"] = cv_df["CV"] * 100
+
     if return_df:
         return cv_df
-    
+
     if palette is None:
-        palette = get_color('palette')
+        palette = get_color("palette")
 
     # Ensure consistent class ordering
     if order is not None:
         cat_type = pd.api.types.CategoricalDtype(order, ordered=True)
-        cv_df['Class'] = cv_df['Class'].astype(cat_type)
+        cv_df["Class"] = cv_df["Class"].astype(cat_type)
     else:
-        cv_df['Class'] = pd.Categorical(cv_df['Class'],
-                                        categories=sorted(cv_df['Class'].unique()),
-                                        ordered=True)    
+        cv_df["Class"] = pd.Categorical(
+            cv_df["Class"],
+            categories=sorted(cv_df["Class"].unique()),
+            ordered=True,
+        )
+
+    plot_df = cv_df.copy()
+    plot_df.loc[~np.isfinite(plot_df["CV_pct"]), "CV_pct"] = np.nan
 
     violin_kwargs = dict(inner="box", linewidth=1, cut=0, alpha=0.6, density_norm="width")
     violin_kwargs.update(kwargs)
 
-    sns.violinplot(x='Class', y='CV', data=cv_df, ax=ax, palette=palette, **violin_kwargs)
-    
-    plt.title('Coefficient of Variation (CV) by Class')
-    plt.xlabel('Class')
-    plt.ylabel('CV')
-    
+    sns.violinplot(x="Class", y="CV_pct", data=plot_df, ax=ax, palette=palette, **violin_kwargs)
+
+    ax.set_xlabel("")
+    ax.set_ylabel("CV (%)")
+
+    if show_n or annotate is not None:
+        n_defaults = dict(fontsize=7, color="black", ha="center", va="top", zorder=10, offset=0.12)
+        if n_kwargs is not None:
+            n_defaults.update(n_kwargs)
+
+        annotate_defaults = dict(fontsize=7, color="black", ha="center", va="bottom", zorder=10, offset=1.03)
+        if annotate_kwargs is not None:
+            annotate_defaults.update(annotate_kwargs)
+
+        categories = list(cv_df["Class"].cat.categories)
+        for x_center, class_value in enumerate(categories):
+            sub = plot_df.loc[plot_df["Class"] == class_value, "CV_pct"]
+            sub_finite = sub[np.isfinite(sub)]
+
+            annotate_text = None
+            if annotate == "median":
+                val = np.nanmedian(sub_finite.to_numpy()) if len(sub_finite) else np.nan
+                if np.isfinite(val):
+                    annotate_text = f"median\n{val:.1f}%"
+            elif annotate == "mean":
+                val = np.nanmean(sub_finite.to_numpy()) if len(sub_finite) else np.nan
+                if np.isfinite(val):
+                    annotate_text = f"mean\n{val:.1f}%"
+            elif isinstance(annotate, dict) and class_value in annotate:
+                annotate_text = annotate[class_value]
+
+            if annotate_text is not None:
+                ax.text(
+                    x_center,
+                    annotate_defaults["offset"],
+                    annotate_text,
+                    transform=ax.get_xaxis_transform(),
+                    fontsize=annotate_defaults["fontsize"],
+                    color=annotate_defaults["color"],
+                    ha=annotate_defaults["ha"],
+                    va=annotate_defaults["va"],
+                    zorder=annotate_defaults["zorder"],
+                    clip_on=False,
+                )
+
+            if show_n:
+                filtered = utils.resolve_class_filter(adata, classes, class_value)
+                ax.text(
+                    x_center,
+                    -n_defaults["offset"],
+                    f"n={filtered.n_obs}",
+                    transform=ax.get_xaxis_transform(),
+                    fontsize=n_defaults["fontsize"],
+                    color=n_defaults["color"],
+                    ha=n_defaults["ha"],
+                    va=n_defaults["va"],
+                    zorder=n_defaults["zorder"],
+                    clip_on=False,
+                )
+
     return ax
 
 def plot_abundance_housekeeping(ax: "plt.Axes", pdata: pAnnData, classes: str | list[str] | None = None, loading_control: str = "all", **kwargs: Any) -> Any:

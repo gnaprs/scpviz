@@ -325,7 +325,7 @@ In this dataset, samples cluster by both cell line and condition, indicating goo
 ---
 
 Finally, we can examine the coefficient of variation (CV) of each sample.
-Here, the samples show overall low variability (median ~0.1), with slightly higher CVs observed in the AS_sc group (~0.35).
+Here, the samples show overall low variability (median ~10%), with slightly higher CVs observed in the AS_sc group (~35%).
 
 ```py title="Plot sample CVs"
 fig, ax = plt.subplots(figsize = (4,4))
@@ -518,7 +518,7 @@ pdata_norm.enrichment_functional(from_de=True, de_key="BE_kd vs BE_sc")
 
 Once enrichment is complete, you can visualize the results (defaults shows **Gene Ontology (Biological Process)** terms). We can check what is enriched in the downregulated proteins:
 
-```py title="Plot sample CVs"
+```py title="Plot enrichment barplot"
 pdata_norm.plot_enrichment_svg("BE_kd vs BE_sc", direction="down")
 ```
 

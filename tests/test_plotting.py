@@ -116,7 +116,9 @@ def test_plot_cv_returns_dataframe(pdata):
     assert isinstance(df, pd.DataFrame)
     assert "Class" in df.columns
     assert "CV" in df.columns
+    assert "CV_pct" in df.columns
     assert not df.empty
+    assert np.allclose(df["CV_pct"], df["CV"] * 100, equal_nan=True)
 
 def test_plot_cv_respects_custom_order(pdata):
     fig, ax = plt.subplots()
@@ -136,6 +138,67 @@ def test_plot_cv_return_df_only(pdata):
     df = scplt.plot_cv(None, pdata, classes="treatment", return_df=True)
     assert isinstance(df, pd.DataFrame)
     assert "CV" in df.columns
+    assert "CV_pct" in df.columns
+    plt.close("all")
+
+def test_plot_cv_axis_labels_and_no_title(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_cv(ax, pdata, classes="treatment")
+    assert ax.get_xlabel() == ""
+    assert ax.get_ylabel() == "CV (%)"
+    assert ax.get_title() == ""
+    plt.close("all")
+
+def test_plot_cv_show_n(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_cv(ax, pdata, classes="treatment", show_n=True)
+    texts = [t.get_text() for t in ax.texts]
+    assert any(t.startswith("n=") for t in texts)
+    plt.close("all")
+
+def test_plot_cv_annotate_median(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_cv(ax, pdata, classes="treatment", annotate="median")
+    texts = [t.get_text() for t in ax.texts]
+    assert any(t.startswith("median\n") and t.endswith("%") for t in texts)
+    plt.close("all")
+
+def test_plot_cv_annotate_custom_dict(pdata):
+    fig, ax = plt.subplots()
+    class_val = pdata.prot.obs["treatment"].unique()[0]
+    scplt.plot_cv(ax, pdata, classes="treatment", annotate={class_val: "custom label"})
+    texts = [t.get_text() for t in ax.texts]
+    assert "custom label" in texts
+    plt.close("all")
+
+def test_plot_cv_show_n_below_axis(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_cv(ax, pdata, classes="treatment", show_n=True)
+    n_texts = [t for t in ax.texts if t.get_text().startswith("n=")]
+    assert n_texts
+    for t in n_texts:
+        assert t.get_transform() == ax.get_xaxis_transform()
+        assert t.get_position()[1] < 0
+    plt.close("all")
+
+def test_plot_cv_show_n_and_annotate_positions(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_cv(ax, pdata, classes="treatment", show_n=True, annotate="mean")
+    n_texts = [t for t in ax.texts if t.get_text().startswith("n=")]
+    stat_texts = [t for t in ax.texts if t.get_text().startswith("mean\n")]
+    assert n_texts and stat_texts
+    for t in n_texts:
+        assert t.get_transform() == ax.get_xaxis_transform()
+        assert t.get_position()[1] < 0
+    for t in stat_texts:
+        assert t.get_transform() == ax.get_xaxis_transform()
+        assert t.get_position()[1] > 1.0
+    plt.close("all")
+
+def test_plot_cv_invalid_annotate_raises(pdata):
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="annotate must be"):
+        scplt.plot_cv(ax, pdata, classes="treatment", annotate="invalid")
     plt.close("all")
 
 # Tests for scplt.plot_summary

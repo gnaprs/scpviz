@@ -15,7 +15,7 @@ Functions are written to work seamlessly with the `pAnnData` object structure an
 ## Distribution and Abundance Plots
 
 Functions:
-    plot_cv: Boxplots of coefficient of variation (CV) across groups.
+    plot_cv: Violin plots of coefficient of variation (CV) across groups.
     plot_abundance: Violin/box/strip plots of protein or peptide abundance.
     plot_abundance_housekeeping: Plot abundance of housekeeping proteins.
     plot_abundance_boxgrid: Multi-panel abundance summary grids (box/bar/violin/line).
