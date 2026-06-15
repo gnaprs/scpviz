@@ -440,11 +440,10 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
             g.map_dataframe(sns.barplot, x=x_col, y=y_col, hue='class', **bar_kwargs)
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
-            g.add_legend(title='Class', frameon=True)
-
             if not log:
                 for ax_ in g.axes.flatten():
-                    ax_.set_yscale("log")                
+                    ax_.set_yscale("log")
+            g.add_legend(title='Class', frameon=True)
             return g
         else:
             if ax is None:
@@ -453,12 +452,12 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
                 _ax = ax
 
             sns.barplot(data=df, x=x_col, y=y_col, hue='class', ax=_ax, **bar_kwargs)
+            _ax.set_yscale("log") if not log else None
 
             # deduplicate legend
             handles, labels = _ax.get_legend_handles_labels()
             by_label = dict(zip(labels, handles))
             _ax.legend(by_label.values(), by_label.keys(), title='Class', frameon=True)
-            _ax.set_yscale("log") if not log else None
             _ax.set_ylabel("log2(Abundance)" if log else "Abundance")
             _ax.set_xlabel("Gene" if x_label == 'gene' else "Accession")
 
