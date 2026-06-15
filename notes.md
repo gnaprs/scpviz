@@ -1,9 +1,9 @@
 # about versions
 1. For scikit-learn, need ver >1.2 so that we can handle sparse arrays in Imputer 
 
-# rebuild git bash
+# rebuild docs
 `pip install -e ".[docs]"`    # after changing pyproject / first time
-1. open git bash
+1. open command prompt
 2. conda activate scpviz-docs
 3. mkdocs serve
 
@@ -38,7 +38,7 @@ Use format:
 git fetch origin
 VERSION=$(grep -m1 version pyproject.toml | cut -d'"' -f2)
 git tag -a "v$VERSION" origin/main -m "Release v$VERSION"
-CHECK: name of tag with `git tag -n`
+CHECK: name of tag with `git tag -n` (q to quit)
 git push origin "v$VERSION"
 
 ## PyPI release
