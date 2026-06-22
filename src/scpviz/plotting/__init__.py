@@ -19,6 +19,7 @@ Functions:
     plot_abundance: Violin/box/strip plots of protein or peptide abundance.
     plot_abundance_housekeeping: Plot abundance of housekeeping proteins.
     plot_abundance_boxgrid: Multi-panel abundance summary grids (box/bar/violin/line).
+    annotate_abundance_boxgrid_significance: Pairwise test brackets on boxgrid panels.
     plot_abundance_2D: 2D scatter of abundance between two case groups.
     plot_rankquant: Rank abundance scatter distributions across groups.
     mark_rankquant: Highlight specific features on a rank abundance plot.

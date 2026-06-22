@@ -302,6 +302,24 @@ Alternatively, for a more styled visualization, you can use the [`plot_abundance
 
     </div>
 
+You can overlay **pairwise significance brackets** on boxgrid panels with `sig_pairs` — the same group definitions as [`plot_volcano`](https://gnaprs.github.io/scpviz/reference/plotting/#src.scpviz.plotting.plot_volcano) / [`de()`](https://gnaprs.github.io/scpviz/reference/pAnnData/analysis_mixin/#src.scpviz.pAnnData.pAnnData.de). scpviz runs the test on raw abundances and annotates each comparison with star labels; pass `return_df=True` to also get a `stats_df` of p-values.
+
+```py title="Boxgrid with significance brackets"
+fig, axes, df, stats = pdata_filtered.plot_abundance_boxgrid(
+    namelist=["GAPDH", "VCP"],
+    classes=["cellline", "condition"],
+    log_scale=True,
+    sig_pairs=[
+        ({"cellline": "BE", "condition": "sc"}, {"cellline": "BE", "condition": "kd"}),
+    ],
+    sig_kwargs={"fontsize": 8},
+    return_df=True,
+)
+plt.show()
+```
+
+See the [Plotting tutorial — Significance brackets](plotting.md#significance-brackets) for multi-pair comparisons, `sig_pairs=True` when only two groups exist, and further options.
+
 
 ---
 

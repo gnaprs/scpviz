@@ -364,6 +364,95 @@ def test_plot_abundance_boxgrid_return_df(pdata):
     assert {"gene", "abundance", "log_abundance"}.intersection(df.columns)
     assert not df.empty
 
+def test_plot_abundance_boxgrid_sig_pairs_true(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        sig_pairs=True,
+    )
+    assert isinstance(fig, plt.Figure)
+    assert len(axes) == 1
+    assert len(axes[0].lines) >= 1
+    plt.close("all")
+
+def test_plot_abundance_boxgrid_sig_pairs_return_stats(pdata):
+    fig, axes, df, stats = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        sig_pairs=True,
+        return_df=True,
+    )
+    assert isinstance(stats, pd.DataFrame)
+    assert not stats.empty
+    assert stats.iloc[0]["status"] == "ok"
+    assert "p_value" in stats.columns
+    assert np.isfinite(stats.iloc[0]["p_value"])
+    plt.close("all")
+
+def test_plot_abundance_boxgrid_sig_pairs_no_return_stats(pdata):
+    result = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        sig_pairs=True,
+        return_df=False,
+    )
+    assert len(result) == 2
+    plt.close("all")
+
+def test_plot_abundance_boxgrid_sig_pairs_dict_multiclass(pdata):
+    fig, axes, df, stats = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes=["cellline", "treatment"],
+        sig_pairs=[
+            ({"cellline": "BE", "treatment": "sc"}, {"cellline": "BE", "treatment": "kd"}),
+        ],
+        return_df=True,
+    )
+    assert stats.iloc[0]["group1"] == "BE_sc"
+    assert stats.iloc[0]["group2"] == "BE_kd"
+    assert stats.iloc[0]["status"] == "ok"
+    plt.close("all")
+
+def test_annotate_abundance_boxgrid_significance_standalone(pdata):
+    fig, axes, df = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        return_df=True,
+    )
+    panel_info = [
+        {
+            "gene": "ACTB",
+            "ax": axes[0],
+            "sub": df[df["gene"] == "ACTB"],
+            "unique_classes": list(df[df["gene"] == "ACTB"]["treatment"].unique()),
+            "x_centers": axes[0].get_xticks().tolist(),
+            "nd_groups": set(),
+        }
+    ]
+    stats = scplt.annotate_abundance_boxgrid_significance(
+        panel_info,
+        True,
+        classes="treatment",
+        classes_original="treatment",
+    )
+    assert not stats.empty
+    assert stats.iloc[0]["status"] == "ok"
+    plt.close("all")
+
+def test_plot_abundance_boxgrid_sig_pairs_requires_classes(pdata):
+    with pytest.raises(ValueError, match="requires sample grouping"):
+        scplt.plot_abundance_boxgrid(
+            pdata,
+            namelist=["ACTB"],
+            classes=None,
+            sig_pairs=True,
+        )
+
 @pytest.mark.parametrize("plot_type", ['box', 'line', 'bar', 'violin'])
 def test_plot_abundance_boxgrid_modes(pdata, plot_type):
     fig, axes = scplt.plot_abundance_boxgrid(

@@ -2,7 +2,7 @@
 Generate static figures for scpviz API documentation.
 
 Run from the repo root:
-    conda activate py311
+    conda activate py311-dev
     python docs/generate_plot_figures.py
     python docs/generate_plot_figures.py --skip-umap   # skips SC import, directlfq, plot_umap.png, and plot_*_sc.png
 
@@ -20,7 +20,9 @@ When a single-cell bundle loads (large cohort or parquet), the script also write
 
 Output: docs/assets/plots/<name>.png at 150 dpi.
 Also writes ``plot_abundance_boxgrid_bar.png``, ``plot_abundance_boxgrid_line.png``,
-``plot_abundance_boxgrid_violin.png``, and ``plot_abundance_boxgrid_custom.png`` alongside ``plot_abundance_boxgrid.png``,
+``plot_abundance_boxgrid_violin.png``, ``plot_abundance_boxgrid_custom.png``,
+``plot_abundance_boxgrid_significance.png``, and ``plot_abundance_boxgrid_significance_multi.png``
+alongside ``plot_abundance_boxgrid.png``,
 and ``plot_cv_annotate.png`` / ``plot_cv_custom_annotate.png`` alongside ``plot_cv.png``.
 Existing files are overwritten.
 """
@@ -432,6 +434,38 @@ def main(*, skip_umap: bool = False) -> None:
         figsize=(2, 2.5),
     )
     fig.savefig(OUT / "plot_abundance_boxgrid_custom.png", dpi=DPI, bbox_inches="tight")
+    plt.close("all")
+
+    sig_pairs_doc = [
+        ({"cellline": "BE", g2: "sc"}, {"cellline": "BE", g2: "kd"}),
+        ({"cellline": "AS", g2: "sc"}, {"cellline": "AS", g2: "kd"}),
+    ]
+    fig, axes = pdata.plot_abundance_boxgrid(
+        namelist=["GAPDH", "TUBB", "ACTB"],
+        classes=classes_2,
+        plot_type="box",
+        figsize=(2, 2.5),
+        sig_pairs=sig_pairs_doc,
+        sig_kwargs={"fontsize": 8},
+    )
+    fig.savefig(OUT / "plot_abundance_boxgrid_significance.png", dpi=DPI, bbox_inches="tight")
+    plt.close("all")
+
+    sig_pairs_multi = [
+        ({"cellline": "BE", g2: "sc"}, {"cellline": "BE", g2: "kd"}),
+        ({"cellline": "BE", g2: "kd"}, {"cellline": "AS", g2: "kd"}),
+    ]
+    fig, axes = pdata.plot_abundance_boxgrid(
+        namelist=["GAPDH", "TUBB", "ACTB"],
+        classes=classes_2,
+        plot_type="box",
+        figsize=(2, 2.5),
+        sig_pairs=sig_pairs_multi,
+        sig_kwargs={"fontsize": 8},
+    )
+    fig.savefig(
+        OUT / "plot_abundance_boxgrid_significance_multi.png", dpi=DPI, bbox_inches="tight"
+    )
     plt.close("all")
 
     fig, ax = plt.subplots(figsize=(4, 4))

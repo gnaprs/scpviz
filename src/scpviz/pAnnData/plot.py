@@ -122,16 +122,16 @@ class PlotMixin:
     def plot_abundance_boxgrid(self, namelist=None, ax=None, layer="X", on="protein", classes="Grouping", return_df=False, 
         order=None, plot_type="box", log_scale=False, figsize=(2,2), palette=None, y_min=None, y_max=None,
         label_x=True, show_n=False, global_legend=True, box_kwargs=None, hline_kwargs=None, bar_kwargs=None, bar_error="sd", violin_kwargs=None,
-        text_kwargs=None, strip_kwargs=None,):
+        text_kwargs=None, strip_kwargs=None, sig_pairs=None, sig_kwargs=None, nd_kwargs=None):
         """
     Plot abundance values in a one-row panel of boxplots, mean-lines, bars, or violins.
 
     This function generates a clean horizontal panel, with one subplot per gene,
     using ``plot_type`` to select boxplots (default), mean-lines, bar plots, or
-    violin plots. If ``log_scale=True``, abundance values are visualized in log10
-    units (with zero or negative values clipped to 0 before transformation). The
-    layout is optimized for compact manuscript figure panels and supports custom
-    global legends, count annotations, and flexible formatting via keyword
+    violin plots. If ``log_scale=True``, abundance values are visualized in
+    log10 units (with zero or negative values clipped to 0 before transformation).
+    The layout is optimized for compact manuscript figure panels and supports
+    custom global legends, count annotations, and flexible formatting via keyword
     dictionaries.
 
     Args:
@@ -140,12 +140,12 @@ class PlotMixin:
         ax (matplotlib.axes.Axes): Axis to plot on. Generates a new axis if None.
         layer (str): Data layer to use for abundance values. Default is ``"X"``.
         on (str): Data level to plot, either ``"protein"`` or ``"peptide"``.
-        classes (str or None): Column in the returned abundance DataFrame to use for
-            grouping samples. Defaults to ``"Grouping"``. If None, samples are not
-            grouped.
+        classes (str or list of str, optional): Column in ``.obs`` or list of columns
+            for compound grouping. Defaults to ``"Grouping"``. If None, samples are
+            not grouped.
         return_df (bool): If True, returns the DataFrame of replicate and summary values.
-        order (list of str, optional): Ordered list to plot by (class order). If None,
-            uses the order present in the data.
+        order (list of str, optional): Ordered list to plot by. If None, plots by
+            given dataframe order.
         plot_type (str): Type of plot, select from one of ``{"box", "line", "bar", "violin"}``.
             Defaults to ``"box"``.
         log_scale (bool): If True, plot log10-transformed abundances on a linear axis.
@@ -164,11 +164,13 @@ class PlotMixin:
         global_legend (bool): Whether to display a single global legend.
         box_kwargs (dict, optional): Additional arguments passed to ``sns.boxplot``
             (used when ``plot_type="box"``).
-        hline_kwargs (dict, optional): Keyword arguments for mean-lines
-            (used when ``plot_type="line"``). Note that ``half_width`` sets the length
-            of the mean line.
-        bar_kwargs (dict, optional): Additional arguments passed to bar plotting
-            (used when ``plot_type="bar"``).
+        hline_kwargs (dict, optional): Styling for mean segments when ``plot_type="line"``.
+            Recognized keys include Matplotlib ``hlines`` options plus ``half_width``
+            (float, default 0.15): half the segment length in x-axis units; use a
+            smaller value when dodged groups would otherwise overlap.
+        bar_kwargs (dict, optional): Passed to ``Axes.bar`` when ``plot_type="bar"``
+            (e.g. ``width`` in x-axis units; default here is 0.3—decrease when many
+            hue levels overlap on one gene tick).
         bar_error (str, optional): Error bar for bar plot. Select from one of
             ``{"sd", "sem", None, <callable>}``, where callable takes a 1D array and
             returns a scalar error. Defaults to ``"sd"``.
@@ -178,13 +180,30 @@ class PlotMixin:
             (e.g., fontsize, offset).
         strip_kwargs (dict, optional): Keyword arguments for strip (raw points),
             e.g. ``{"darken_factor": 0.65}``.
+        sig_pairs (list, bool, or None): Pairwise comparisons for significance brackets.
+            ``None`` (default) disables testing. ``True`` auto-compares the two hue groups
+            when exactly two are present. Otherwise pass a list of ``(group1, group2)`` specs
+            in the same dict/list/str format as :func:`plot_volcano` / ``de()`` values.
+        sig_kwargs (dict, optional): Significance options merged onto defaults
+            ``{"sig_test": "ttest", "sig_equal_var": True}``. Layout keys
+            ``spacing_frac``, ``h_frac``, and ``base_offset_frac`` are consumed locally;
+            remaining keys (e.g. ``col``, ``fontsize``, ``h``) are passed to
+            :func:`plot_significance`.
+        nd_kwargs (dict, optional): Not-detected annotation options merged onto defaults
+            ``{"nd_label": "ND", "color": "#888888", "fontsize": 7, "y_axes_offset": 0.06,
+            "y_log10_offset": 0.3}``. On linear scales, ``y_axes_offset`` is the vertical
+            offset in axes coordinates (blended transform). On log-scale panels,
+            ``y_log10_offset`` is added above the axis minimum in log10 data units.
+            Shown when a group has no valid (non-zero) abundances for a gene; plots are unchanged.
 
     Returns:
         fig (matplotlib.figure.Figure): The generated figure.
         axes (list of matplotlib.axes.Axes): One axis per gene.
         df (pandas.DataFrame, optional): Returned if ``return_df=True``.
+        stats_df (pandas.DataFrame, optional): Returned if ``return_df=True`` and
+            ``sig_pairs`` is set; one row per gene × comparison.
 
-    Note:
+    !!! note
         Default customizations for keyword dictionaries:
 
         Boxplot styling (used when ``plot_type="box"``):
@@ -208,7 +227,8 @@ class PlotMixin:
             "half_width": 0.15,
         }
         ```
-        Note: ``half_width`` sets the half-length of the mean line.
+        ``half_width`` is in x-axis units; lower it when several classes are dodged
+        and mean segments would cross.
 
         Bar styling (used when ``plot_type="bar"``):
         ```python
@@ -221,6 +241,8 @@ class PlotMixin:
             "zorder": 3,
         }
         ```
+        ``width`` is passed to ``Axes.bar`` (x-axis units); use a smaller value when
+        bars from neighboring hue levels overlap.
 
         Violin styling (used when ``plot_type="violin"``):
         ```python
@@ -258,79 +280,129 @@ class PlotMixin:
         Basic usage (grouped boxplots):
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="box",
-            figsize=(2,2.5),
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
+
+        ![Plot abundance boxgrid](../../assets/plots/plot_abundance_boxgrid.png)
 
         Bar plots with error bars:
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="bar",
             bar_error="sd",  # "sd", "sem", None, or callable
-            figsize=(2,2.5),
+            bar_kwargs={"width": 0.14},  # narrower bars when many groups dodge
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
+
+        ![Plot abundance boxgrid bar](../../assets/plots/plot_abundance_boxgrid_bar.png)
 
         Mean-lines with count annotations:
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="line",
             show_n=True,
-            figsize=(2,2.5),
+            hline_kwargs={"half_width": 0.08},  # shorter segments when groups dodge
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
+
+        ![Plot abundance boxgrid line](../../assets/plots/plot_abundance_boxgrid_line.png)
 
         Violin plots (distribution-focused):
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="violin",
-            figsize=(2,2.5),
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
+
+        ![Plot abundance boxgrid violin](../../assets/plots/plot_abundance_boxgrid_violin.png)
 
         Customizing appearance (palette, order, and styling):
         ```python
-        palette = {"Control": "#4C72B0", "Treatment": "#DD8452"}
-
         fig, axes = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp", "Ahnak"],
-            classes="condition",
-            order=["Control", "Treatment"],
-            palette=palette,
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="box",
             box_kwargs={"boxprops": {"alpha": 0.45}, "linewidth": 1.2},
             strip_kwargs={"size": 4, "alpha": 0.6},
-            y_min=2,
-            y_max=10,
-            log_scale=True,
-            figsize=(2,2.5),
+            figsize=(2, 2.5),
         )
         plt.show()
         ```
+
+        ![Plot abundance boxgrid custom](../../assets/plots/plot_abundance_boxgrid_custom.png)
 
         Return the plotting DataFrame for downstream checks:
         ```python
         fig, axes, df = pdata.plot_abundance_boxgrid(
-            namelist=["Gapdh", "Vcp"],
-            classes="condition",
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
             plot_type="box",
             return_df=True,
         )
 
         display(df.head())
+        plt.show()
+        ```
+
+        ![Plot abundance boxgrid](../../assets/plots/plot_abundance_boxgrid.png)
+
+        Significance brackets (explicit pairs, volcano-style dicts):
+        ```python
+        fig, axes, df, stats = pdata.plot_abundance_boxgrid(
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
+            sig_pairs=[
+                ({"cellline": "BE", "condition": "sc"}, {"cellline": "BE", "condition": "kd"}),
+                ({"cellline": "AS", "condition": "sc"}, {"cellline": "AS", "condition": "kd"}),
+            ],
+            sig_kwargs={"fontsize": 8},
+            return_df=True,
+        )
+        plt.show()
+        ```
+
+        ![Plot abundance boxgrid significance](../../assets/plots/plot_abundance_boxgrid_significance.png)
+
+        Multiple comparisons with a shared group (same group may appear in more than one pair):
+        ```python
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
+            sig_pairs=[
+                ({"cellline": "BE", "condition": "sc"}, {"cellline": "BE", "condition": "kd"}),
+                ({"cellline": "BE", "condition": "kd"}, {"cellline": "AS", "condition": "kd"}),
+            ],
+            sig_kwargs={"fontsize": 8},
+        )
+        plt.show()
+        ```
+
+        ![Plot abundance boxgrid significance multi](../../assets/plots/plot_abundance_boxgrid_significance_multi.png)
+
+        Two hue groups only — auto comparison:
+        ```python
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["GAPDH"],
+            classes="treatment",
+            sig_pairs=True,
+        )
         plt.show()
         ```
     """
@@ -340,6 +412,7 @@ class PlotMixin:
             label_x=label_x, show_n=show_n, global_legend=global_legend,
             box_kwargs=box_kwargs, hline_kwargs=hline_kwargs, bar_kwargs=bar_kwargs, bar_error=bar_error,
             violin_kwargs=violin_kwargs, text_kwargs=text_kwargs, strip_kwargs=strip_kwargs,
+            sig_pairs=sig_pairs, sig_kwargs=sig_kwargs, nd_kwargs=nd_kwargs,
         )
 
     def plot_pairwise_correlation(

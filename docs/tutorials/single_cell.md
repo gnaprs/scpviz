@@ -507,6 +507,7 @@ Before exploring dimensionality reduction or differential expression, it is usef
         namelist=["Itgam", "Cd68"],
         classes="condition",
         plot_type="box",
+        log_scale=True,
         figsize=figsize,
         text_kwargs=text_kwargs,
         palette=condition_color,
@@ -531,6 +532,7 @@ Before exploring dimensionality reduction or differential expression, it is usef
         namelist=["Itgam", "Cd68"],
         classes="condition",
         plot_type="bar",
+        log_scale=True,
         figsize=figsize,
         bar_kwargs=bar_kwargs,
         palette=condition_color,
@@ -546,6 +548,22 @@ Before exploring dimensionality reduction or differential expression, it is usef
     </figure>
 
     </div>
+
+    The same panels support **significance brackets**: pass `sig_pairs` to run pairwise tests between groups and draw p-value annotations on the plot. With exactly two conditions, `sig_pairs=True` compares them automatically.
+
+    ```py title="Boxgrid with significance brackets"
+    fig, axes = pdata_sc_norm.plot_abundance_boxgrid(
+        namelist=["Itgam", "Cd68"],
+        classes="condition",
+        plot_type="box",
+        figsize=figsize,
+        sig_pairs=True,
+        palette=condition_color,
+    )
+    plt.show()
+    ```
+
+    See the [Plotting tutorial — Significance brackets](plotting.md#significance-brackets) for explicit multi-group pairs, shared groups in several comparisons, and `sig_kwargs` (test method, bracket styling).
 
 ### PCA
 
