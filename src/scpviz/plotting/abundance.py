@@ -784,7 +784,7 @@ def annotate_abundance_boxgrid_significance(
 
 
 def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, ax: Any = None, layer: str = "X", on: str = "protein", classes: str | list[str] | None = None, return_df: bool = False,
-    order=None, plot_type="box", log_scale=False, figsize=(2,2), palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
+    order=None, plot_type="box", log_scale=False, figsize=(2,2.5), palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
     global_legend=True, box_kwargs=None, hline_kwargs=None, bar_kwargs=None, bar_error='sd', violin_kwargs=None, text_kwargs=None, strip_kwargs=None,
     sig_pairs: list[tuple[Any, Any]] | bool | None = None, sig_kwargs: dict[str, Any] | None = None, nd_kwargs: dict[str, Any] | None = None):
     """
