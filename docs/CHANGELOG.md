@@ -3,6 +3,105 @@
 ## scpviz
 
 
+### 1.1.0 <small>June 22, 2026</small> { id="1.1.0" }
+
+
+#### Added
+
+
+##### (Plotting)
+
+
+- Add significance brackets to plot_abundance_boxgrid (cb66595…)
+
+- Add abundance colorbar_norm and nan_color to PCA/UMAP #43 #47 (c671c8b…)
+
+- Add significance brackets to plot_abundance_boxgrid, add abundance colorbar_norm and nan_color to PCA/UMAP (ca2453e…)
+
+
+
+
+#### Build System
+
+
+##### (V1.1.0)
+
+
+- Bump version to 1.1.0 (d9179a3…)
+
+
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (c84e95a…)
+
+
+
+
+#### Documentation
+
+
+##### (PAnnData)
+
+
+- Expand plot mixin docstrings to match plotting module (04107e6…)
+
+
+
+##### (Tutorials)
+
+
+- Add boxgrid significance figures to quickstart and single_cell (a826945…)
+
+- Add boxgrid significance figures to quickstart and single_cell (278bf6b…)
+
+
+
+
+#### Fixed
+
+
+##### (Plotting)
+
+
+- Facet error on py3.11 (5e301e3…)
+
+- Apply log y-scale before facet violin strip overlay (f8f4c2c…)
+
+- Harden faceted violin strip overlay on headless backends (eca33bc…)
+
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update Paper PDF Draft (05bed69…)
+
+- Update Paper PDF Draft (ca69df0…)
+
+
+
+
+#### Tests
+
+
+##### (Plotting)
+
+
+- Cover boxgrid significance and facet branches in abundance.py (8ab3807…)
+
+
+
+
+
+
 ### 1.0.1 <small>June 15, 2026</small> { id="1.0.1" }
 
 
