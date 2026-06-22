@@ -507,6 +507,7 @@ Before exploring dimensionality reduction or differential expression, it is usef
         namelist=["Itgam", "Cd68"],
         classes="condition",
         plot_type="box",
+        log_scale=True,
         figsize=figsize,
         text_kwargs=text_kwargs,
         palette=condition_color,
@@ -531,6 +532,7 @@ Before exploring dimensionality reduction or differential expression, it is usef
         namelist=["Itgam", "Cd68"],
         classes="condition",
         plot_type="bar",
+        log_scale=True,
         figsize=figsize,
         bar_kwargs=bar_kwargs,
         palette=condition_color,
@@ -546,6 +548,22 @@ Before exploring dimensionality reduction or differential expression, it is usef
     </figure>
 
     </div>
+
+    The same panels support **significance brackets**: pass `sig_pairs` to run pairwise tests between groups and draw p-value annotations on the plot. With exactly two conditions, `sig_pairs=True` compares them automatically.
+
+    ```py title="Boxgrid with significance brackets"
+    fig, axes = pdata_sc_norm.plot_abundance_boxgrid(
+        namelist=["Itgam", "Cd68"],
+        classes="condition",
+        plot_type="box",
+        figsize=figsize,
+        sig_pairs=True,
+        palette=condition_color,
+    )
+    plt.show()
+    ```
+
+    See the [Plotting tutorial — Significance brackets](plotting.md#significance-brackets) for explicit multi-group pairs, shared groups in several comparisons, and `sig_kwargs` (test method, bracket styling).
 
 ### PCA
 
@@ -581,7 +599,7 @@ PCA reduces the high-dimensional protein abundance matrix into a smaller number 
 
 === "2D PCA by abundance"
 
-    ```py title="Plot 2D PCA colored by protein abundance"
+    ```py title="Plot 2D PCA colored by protein abundance (linear colorbar)"
     fig, ax = plt.subplots(1, 1, figsize=(3, 3))
     ax = scplt.plot_pca(
         ax,
@@ -599,6 +617,40 @@ PCA reduces the high-dimensional protein abundance matrix into a smaller number 
 
     <figure markdown="span">
     ![Venn diagram](../assets/sctutorial_6.png)
+    <figcaption></figcaption>
+    </figure>
+
+    </div>
+
+=== "2D PCA by abundance (log scale)"
+
+    For sparse markers such as ITGAM, many cells have zero or missing abundance. Use
+    ``colorbar_norm=mcolors.LogNorm(...)`` to emphasize differences among detected cells,
+    and ``nan_color`` to plot undetected cells underneath the colormap layer.
+
+    ```py title="Plot 2D PCA with LogNorm colorbar and black missing cells"
+    import matplotlib.colors as mcolors
+
+    fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+    ax = scplt.plot_pca(
+        ax,
+        pdata_sc_norm,
+        color="Itgam",
+        cmap="plasma",
+        colorbar_norm=mcolors.LogNorm(vmin=1, vmax=1e7),
+        nan_color="grey",
+        s=20,
+        alpha=.8,
+        force=True,
+    )
+    scplt.shift_legend(ax)
+    plt.show()
+    ```
+
+    <div class="result" markdown>
+
+    <figure markdown="span">
+    ![PCA ITGAM log scale](../assets/sctutorial_6_log.png)
     <figcaption></figcaption>
     </figure>
 
@@ -728,7 +780,7 @@ For datasets with stronger batch effects, `scpviz` also supports Harmony integra
 
 === "UMAP by abundance"
 
-    ```py title="Plot UMAP colored by protein abundance"
+    ```py title="Plot UMAP colored by protein abundance (linear colorbar)"
     fig, ax = plt.subplots(1, 1, figsize=(3, 3))
     umap_params = {"min_dist": 0.3, "n_neighbors": 7}
 
@@ -750,6 +802,39 @@ For datasets with stronger batch effects, `scpviz` also supports Harmony integra
 
     <figure markdown="span">
     ![Venn diagram](../assets/sctutorial_10.png)
+    <figcaption></figcaption>
+    </figure>
+
+    </div>
+
+=== "UMAP by abundance (log scale)"
+
+    ```py title="Plot UMAP with LogNorm colorbar and black missing cells"
+    import matplotlib.colors as mcolors
+
+    fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+    umap_params = {"min_dist": 0.3, "n_neighbors": 7}
+
+    ax = scplt.plot_umap(
+        ax,
+        pdata_sc_norm,
+        color="Itgam",
+        cmap="plasma",
+        colorbar_norm=mcolors.LogNorm(vmin=1, vmax=1e7),
+        nan_color="black",
+        s=20,
+        alpha=.8,
+        force=True,
+        umap_params=umap_params,
+    )
+    scplt.shift_legend(ax)
+    plt.show()
+    ```
+
+    <div class="result" markdown>
+
+    <figure markdown="span">
+    ![UMAP ITGAM log scale](../assets/sctutorial_10_log.png)
     <figcaption></figcaption>
     </figure>
 

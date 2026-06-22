@@ -9,7 +9,40 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import anndata as ad
 
+from scpviz.plotting.abundance import (
+    _resolve_sig_group_label,
+    annotate_abundance_boxgrid_significance,
+)
 from conftest import _is_axes_container, _count_artists
+
+
+def _zero_gene_for_obs_mask(pdata, gene: str, obs_mask) -> None:
+    """Set protein layer abundances to zero for one gene across masked samples."""
+    adata = scutils.get_adata(pdata, "protein")
+    var_idx = int(np.where(adata.var["Genes"] == gene)[0][0])
+    adata.X[obs_mask, var_idx] = 0
+
+
+def _minimal_sig_panel(*, nd_groups=None):
+    """Small synthetic panel for annotate_abundance_boxgrid_significance edge cases."""
+    fig, ax = plt.subplots()
+    sub = pd.DataFrame(
+        {
+            "treatment": ["sc", "sc", "kd", "kd"],
+            "abundance": [1.0, 2.0, 3.0, 4.0],
+            "plot_abundance": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+    return fig, [
+        {
+            "gene": "G",
+            "ax": ax,
+            "sub": sub,
+            "unique_classes": ["sc", "kd"],
+            "x_centers": [0.0, 1.0],
+            "nd_groups": set(nd_groups or ()),
+        }
+    ]
 
 # test get_color
 
@@ -305,6 +338,28 @@ def test_plot_abundance_with_facet(pdata, log):
     assert isinstance(result, sns.FacetGrid)
     plt.close(result.fig)
 
+@pytest.mark.parametrize("kind", ["bar", "violin"])
+def test_plot_abundance_facet_multi_panel(pdata, kind):
+    """Cover FacetGrid branches when facet has >1 level (bar and violin paths)."""
+    kwargs = {}
+    if kind == "violin":
+        # Facet violin + strip overlay is fragile on headless py3.11 CI; facet path
+        # is still exercised without point overlay (see test_plot_abundance_with_facet).
+        kwargs["plot_points"] = False
+    result = scplt.plot_abundance(
+        None,
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        facet="cellline",
+        kind=kind,
+        log=False,
+        **kwargs,
+    )
+    assert isinstance(result, sns.FacetGrid)
+    assert result.col_names is not None and len(result.col_names) > 1
+    plt.close(result.fig)
+
 def test_plot_abundance_raises_same_facet_class(pdata):
     fig, ax = plt.subplots()
     with pytest.raises(ValueError, match="must be different"):
@@ -363,6 +418,249 @@ def test_plot_abundance_boxgrid_return_df(pdata):
     assert isinstance(df, pd.DataFrame)
     assert {"gene", "abundance", "log_abundance"}.intersection(df.columns)
     assert not df.empty
+
+def test_plot_abundance_boxgrid_sig_pairs_true(pdata):
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        sig_pairs=True,
+    )
+    assert isinstance(fig, plt.Figure)
+    assert len(axes) == 1
+    assert len(axes[0].lines) >= 1
+    plt.close("all")
+
+def test_plot_abundance_boxgrid_sig_pairs_return_stats(pdata):
+    fig, axes, df, stats = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        sig_pairs=True,
+        return_df=True,
+    )
+    assert isinstance(stats, pd.DataFrame)
+    assert not stats.empty
+    assert stats.iloc[0]["status"] == "ok"
+    assert "p_value" in stats.columns
+    assert np.isfinite(stats.iloc[0]["p_value"])
+    plt.close("all")
+
+def test_plot_abundance_boxgrid_sig_pairs_no_return_stats(pdata):
+    result = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        sig_pairs=True,
+        return_df=False,
+    )
+    assert len(result) == 2
+    plt.close("all")
+
+def test_plot_abundance_boxgrid_sig_pairs_dict_multiclass(pdata):
+    fig, axes, df, stats = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes=["cellline", "treatment"],
+        sig_pairs=[
+            ({"cellline": "BE", "treatment": "sc"}, {"cellline": "BE", "treatment": "kd"}),
+        ],
+        return_df=True,
+    )
+    assert stats.iloc[0]["group1"] == "BE_sc"
+    assert stats.iloc[0]["group2"] == "BE_kd"
+    assert stats.iloc[0]["status"] == "ok"
+    plt.close("all")
+
+def test_annotate_abundance_boxgrid_significance_standalone(pdata):
+    fig, axes, df = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        return_df=True,
+    )
+    panel_info = [
+        {
+            "gene": "ACTB",
+            "ax": axes[0],
+            "sub": df[df["gene"] == "ACTB"],
+            "unique_classes": list(df[df["gene"] == "ACTB"]["treatment"].unique()),
+            "x_centers": axes[0].get_xticks().tolist(),
+            "nd_groups": set(),
+        }
+    ]
+    stats = scplt.annotate_abundance_boxgrid_significance(
+        panel_info,
+        True,
+        classes="treatment",
+        classes_original="treatment",
+    )
+    assert not stats.empty
+    assert stats.iloc[0]["status"] == "ok"
+    plt.close("all")
+
+def test_plot_abundance_boxgrid_sig_pairs_requires_classes(pdata):
+    with pytest.raises(ValueError, match="requires sample grouping"):
+        scplt.plot_abundance_boxgrid(
+            pdata,
+            namelist=["ACTB"],
+            classes=None,
+            sig_pairs=True,
+        )
+
+
+# --- _resolve_sig_group_label ---
+
+def test_resolve_sig_group_label_composite_dict():
+    assert (
+        _resolve_sig_group_label(
+            {"cellline": "BE", "treatment": "sc"}, "class", ["cellline", "treatment"]
+        )
+        == "BE_sc"
+    )
+
+
+def test_resolve_sig_group_label_composite_list():
+    assert _resolve_sig_group_label(["BE", "sc"], "class", ["cellline", "treatment"]) == "BE_sc"
+
+
+def test_resolve_sig_group_label_composite_str():
+    assert _resolve_sig_group_label("BE_sc", "class", ["cellline", "treatment"]) == "BE_sc"
+
+
+def test_resolve_sig_group_label_composite_list_length_mismatch():
+    with pytest.raises(ValueError, match="length must match"):
+        _resolve_sig_group_label(["BE"], "class", ["cellline", "treatment"])
+
+
+def test_resolve_sig_group_label_composite_bad_type():
+    with pytest.raises(TypeError, match="Group spec must be dict"):
+        _resolve_sig_group_label(42, "class", ["cellline", "treatment"])
+
+
+def test_resolve_sig_group_label_single_column_dict_with_key():
+    assert _resolve_sig_group_label({"treatment": "sc"}, "treatment", "treatment") == "sc"
+
+
+def test_resolve_sig_group_label_single_column_dict_single_entry():
+    assert _resolve_sig_group_label({"treatment": "sc"}, "wrong_col", "treatment") == "sc"
+
+
+def test_resolve_sig_group_label_single_column_dict_missing_key():
+    with pytest.raises(ValueError, match="must include column"):
+        _resolve_sig_group_label(
+            {"cellline": "BE", "foo": "bar"}, "treatment", "treatment"
+        )
+
+
+def test_resolve_sig_group_label_single_column_str():
+    assert _resolve_sig_group_label("kd", "treatment", "treatment") == "kd"
+
+
+# --- annotate_abundance_boxgrid_significance edge cases ---
+
+def test_annotate_abundance_boxgrid_significance_unsupported_method():
+    fig, panel_info = _minimal_sig_panel()
+    with pytest.raises(ValueError, match="Unsupported sig_test"):
+        annotate_abundance_boxgrid_significance(
+            panel_info,
+            True,
+            classes="treatment",
+            classes_original="treatment",
+            sig_kwargs={"sig_test": "anova"},
+        )
+    plt.close(fig)
+
+
+def test_annotate_abundance_boxgrid_significance_sig_pairs_true_wrong_n_groups():
+    fig, ax = plt.subplots()
+    panel_info = [
+        {
+            "gene": "G",
+            "ax": ax,
+            "sub": pd.DataFrame(),
+            "unique_classes": ["a", "b", "c"],
+            "x_centers": [0.0, 1.0, 2.0],
+            "nd_groups": set(),
+        }
+    ]
+    with pytest.raises(ValueError, match="exactly two groups"):
+        annotate_abundance_boxgrid_significance(
+            panel_info,
+            True,
+            classes="treatment",
+            classes_original="treatment",
+        )
+    plt.close(fig)
+
+
+def test_annotate_abundance_boxgrid_significance_skipped_nd(capsys):
+    fig, panel_info = _minimal_sig_panel(nd_groups={"kd"})
+    stats = annotate_abundance_boxgrid_significance(
+        panel_info,
+        [("sc", "kd")],
+        classes="treatment",
+        classes_original="treatment",
+    )
+    assert stats.iloc[0]["status"] == "skipped_nd"
+    assert "ND group" in stats.iloc[0]["reason"]
+    assert "ND group" in capsys.readouterr().out
+    plt.close(fig)
+
+
+def test_annotate_abundance_boxgrid_significance_skipped_pair(capsys):
+    fig, panel_info = _minimal_sig_panel()
+    stats = annotate_abundance_boxgrid_significance(
+        panel_info,
+        [("sc", "missing")],
+        classes="treatment",
+        classes_original="treatment",
+    )
+    assert stats.iloc[0]["status"] == "skipped_pair"
+    assert "Missing x position" in stats.iloc[0]["reason"]
+    assert "not on axis" in capsys.readouterr().out
+    plt.close(fig)
+
+
+def test_plot_abundance_boxgrid_sig_pairs_true_multigroup_raises(pdata):
+    with pytest.raises(ValueError, match="exactly two groups"):
+        scplt.plot_abundance_boxgrid(
+            pdata,
+            namelist=["ACTB"],
+            classes=["cellline", "treatment"],
+            sig_pairs=True,
+        )
+
+
+def test_plot_abundance_boxgrid_nd_linear(pdata):
+    adata = scutils.get_adata(pdata, "protein")
+    kd_mask = (adata.obs["treatment"] == "kd").to_numpy()
+    _zero_gene_for_obs_mask(pdata, "ACTB", kd_mask)
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        log_scale=False,
+        nd_kwargs={"nd_label": "ND"},
+    )
+    assert "ND" in [t.get_text() for t in axes[0].texts]
+    plt.close(fig)
+
+
+def test_plot_abundance_boxgrid_nd_log_scale(pdata):
+    adata = scutils.get_adata(pdata, "protein")
+    kd_mask = (adata.obs["treatment"] == "kd").to_numpy()
+    _zero_gene_for_obs_mask(pdata, "ACTB", kd_mask)
+    fig, axes = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes="treatment",
+        log_scale=True,
+        nd_kwargs={"nd_label": "ND"},
+    )
+    assert "ND" in [t.get_text() for t in axes[0].texts]
+    plt.close(fig)
+
 
 @pytest.mark.parametrize("plot_type", ['box', 'line', 'bar', 'violin'])
 def test_plot_abundance_boxgrid_modes(pdata, plot_type):
@@ -1010,6 +1308,59 @@ def test_resolve_plot_colors_invalid(dummy_adata, bad_input):
     with pytest.raises(ValueError):
         scplt.resolve_plot_colors(dummy_adata, classes=bad_input, cmap="default")
 
+def test_resolve_colorbar_norm_invalid_literal():
+    from scpviz.plotting.dimreduc import _resolve_colorbar_norm
+
+    with pytest.raises(ValueError, match="Invalid colorbar_norm"):
+        _resolve_colorbar_norm(np.array([1.0, 10.0]), "ln")
+
+def test_resolve_colorbar_norm_log10_decade_limits():
+    from scpviz.plotting.dimreduc import _resolve_colorbar_norm
+    import matplotlib.colors as mcolors
+
+    norm, tick_base = _resolve_colorbar_norm(np.array([37.0, 840.0]), "log10")
+    assert isinstance(norm, mcolors.LogNorm)
+    assert norm.vmin == 10.0
+    assert norm.vmax == 1000.0
+    assert tick_base == 10
+
+def test_resolve_colorbar_norm_log2_power_limits():
+    from scpviz.plotting.dimreduc import _resolve_colorbar_norm
+    import matplotlib.colors as mcolors
+
+    norm, tick_base = _resolve_colorbar_norm(np.array([5.0, 20.0]), "log2")
+    assert isinstance(norm, mcolors.LogNorm)
+    assert norm.vmin == 4.0
+    assert norm.vmax == 32.0
+    assert tick_base == 2
+
+def test_plot_pca_nan_color_layer(pdata):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    obs_mask = np.zeros(pdata.prot.n_obs, dtype=bool)
+    obs_mask[0] = True
+    _zero_gene_for_obs_mask(pdata, gene, obs_mask)
+    scplt.plot_pca(ax, pdata, color=gene, force=True, nan_color="red")
+    assert len(ax.collections) >= 2
+    face_colors = ax.collections[0].get_facecolors()
+    assert np.allclose(face_colors[0, :3], matplotlib.colors.to_rgb("red"))
+
+def test_plot_pca_colorbar_norm_log10_label(pdata):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    scplt.plot_pca(ax, pdata, color=gene, colorbar_norm="log10", force=True)
+    ylabels = [a.get_ylabel() for a in fig.axes if a.get_ylabel()]
+    assert any(f"{gene} Abundance (log10)" in lab for lab in ylabels)
+
+def test_plot_pca_negative_abundance_warns(pdata, capsys):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    var_idx = int(np.where(pdata.prot.var["Genes"] == gene)[0][0])
+    pdata.prot.X[0, var_idx] = -1.0
+    scplt.plot_pca(ax, pdata, color=gene, force=True)
+    captured = capsys.readouterr()
+    assert "negative abundance" in captured.out.lower()
+
 def _combo_mapping_literal(pdata):
     """Unique (cellline, treatment) pairs with simple face/edge styles."""
     adata = pdata.prot
@@ -1019,7 +1370,6 @@ def _combo_mapping_literal(pdata):
     for i, row in enumerate(adata.obs[mapping_keys].drop_duplicates().itertuples(index=False, name=None)):
         mapping[tuple(row)] = {"color": "#f0f0f0", "edge_color": edges[i % len(edges)]}
     return mapping_keys, mapping
-
 
 def test_plot_pca_mapping_literal_face_edge(pdata):
     fig, ax = plt.subplots()
@@ -1034,7 +1384,6 @@ def test_plot_pca_mapping_literal_face_edge(pdata):
     )
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
-
 
 def test_plot_pca_mapping_abundance_with_edges(pdata):
     fig, ax = plt.subplots()
@@ -1057,7 +1406,6 @@ def test_plot_pca_mapping_abundance_with_edges(pdata):
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
 
-
 def test_plot_pca_mapping_rejects_edge_color_kw(pdata):
     fig, ax = plt.subplots()
     mapping_keys, mapping = _combo_mapping_literal(pdata)
@@ -1071,7 +1419,6 @@ def test_plot_pca_mapping_rejects_edge_color_kw(pdata):
             force=True,
             on="protein",
         )
-
 
 def test_plot_pca_mapping_raises_missing_combo(pdata):
     fig, ax = plt.subplots()
@@ -1087,7 +1434,6 @@ def test_plot_pca_mapping_raises_missing_combo(pdata):
             on="protein",
             mapping_on_missing="raise",
         )
-
 
 def test_plot_pca_mapping_incomplete_warn_default(pdata):
     """Missing combos: default warn prints and grey face + no edge (except abundance color=)."""
@@ -1106,7 +1452,6 @@ def test_plot_pca_mapping_incomplete_warn_default(pdata):
     )
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
-
 
 # tests for plot_umap
 def test_plot_umap_runs_without_error(pdata):

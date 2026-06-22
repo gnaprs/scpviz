@@ -10,10 +10,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy.stats import mannwhitneyu, ttest_ind, wilcoxon
 
 from scpviz import utils
+from scpviz.utils.formatting import format_log_prefix
 
-from .style import get_color
+from .style import get_color, plot_significance
 
 if TYPE_CHECKING:
     from scpviz.pAnnData.pAnnData import pAnnData
@@ -436,14 +438,14 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
         bar_kwargs.update(kwargs)
         if facet and df['facet'].nunique() > 1:
             plot_df = df[[x_col, y_col, 'class', 'facet']]
-            g = sns.FacetGrid(plot_df, col='facet', height=height, aspect=aspect, sharey=True, dropna=False)
+            g = sns.FacetGrid(plot_df, col='facet', height=height, aspect=aspect, sharey=True, dropna=False, legend_out=log)
             g.map_dataframe(sns.barplot, x=x_col, y=y_col, hue='class', **bar_kwargs)
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
+            g.add_legend(title='Class', frameon=True)
             if not log:
                 for ax_ in g.axes.flatten():
                     ax_.set_yscale("log")
-            g.add_legend(title='Class', frameon=True)
             return g
         else:
             if ax is None:
@@ -468,17 +470,28 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
         violin_kwargs.update(kwargs)
         if facet and df['facet'].nunique() > 1:
             plot_df = df[[x_col, y_col, 'class', 'facet']]
-            g = sns.FacetGrid(plot_df, col='facet', height=height, aspect=aspect, sharey=True, dropna=False)
+            g = sns.FacetGrid(plot_df, col='facet', height=height, aspect=aspect, sharey=True, dropna=False, legend_out=log)
             g.map_dataframe(sns.violinplot, x=x_col, y=y_col, hue='class', palette=palette, **violin_kwargs)
-            if plot_points:
-                def _strip(data, color, **kwargs_inner):
-                    sns.stripplot(data=data, x=x_col, y=y_col, hue='class', dodge=True, jitter=True,
-                                  color='black', size=3, alpha=0.5, legend=False, **kwargs_inner)
-                g.map_dataframe(_strip)
-            g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             if not log:
                 for ax_ in g.axes.flatten():
                     ax_.set_yscale("log")
+            if plot_points:
+                # Use seaborn's map_dataframe API directly (not a nested callback) so FacetGrid
+                # passes facet axes correctly on headless backends (py3.11 CI).
+                g.figure.canvas.draw()
+                g.map_dataframe(
+                    sns.stripplot,
+                    x=x_col,
+                    y=y_col,
+                    hue='class',
+                    dodge=True,
+                    jitter=True,
+                    color='black',
+                    size=3,
+                    alpha=0.5,
+                    legend=False,
+                )
+            g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
             return g
@@ -501,9 +514,290 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
 
     return _plot_bar(df) if kind == 'bar' else _plot_violin(df)
 
+
+_SIG_KW_DEFAULTS = {
+    "sig_test": "ttest",
+    "sig_equal_var": True,
+    "spacing_frac": 0.08,
+    "h_frac": 0.03,
+    "base_offset_frac": 0.05,
+}
+
+_ND_KW_DEFAULTS = {
+    "nd_label": "ND",
+    "color": "#888888",
+    "fontsize": 7,
+    "y_axes_offset": 0.06,
+    "y_log10_offset": 0.3,
+    "zorder": 10,
+}
+
+_SIG_KW_LAYOUT_KEYS = frozenset(
+    {"sig_test", "sig_equal_var", "spacing_frac", "h_frac", "base_offset_frac"}
+)
+
+
+def _resolve_sig_group_label(
+    spec: Any,
+    group_col: str,
+    classes_original: str | list[str] | tuple[str, ...] | None,
+) -> str:
+    """Map volcano/de-style group spec to the plotted ``class`` label string."""
+    if isinstance(classes_original, (list, tuple)) or group_col == "class":
+        if isinstance(spec, dict):
+            return "_".join(str(v) for v in spec.values())
+        if isinstance(spec, (list, tuple)):
+            if isinstance(classes_original, (list, tuple)) and len(spec) != len(classes_original):
+                raise ValueError(
+                    f"Group spec {spec!r} length must match `classes` {list(classes_original)!r}."
+                )
+            return "_".join(str(v) for v in spec)
+        if isinstance(spec, str):
+            return spec
+        raise TypeError(
+            f"Group spec must be dict, list, or str for composite classes; got {type(spec).__name__}."
+        )
+
+    if isinstance(spec, dict):
+        if group_col in spec:
+            return str(spec[group_col])
+        if len(spec) == 1:
+            return str(next(iter(spec.values())))
+        raise ValueError(
+            f"Group dict {spec!r} must include column {group_col!r} when `classes` is a single column."
+        )
+    return str(spec)
+
+
+def annotate_abundance_boxgrid_significance(
+    panel_info: list[dict[str, Any]],
+    sig_pairs: list[tuple[Any, Any]] | bool,
+    *,
+    classes: str,
+    classes_original: str | list[str] | tuple[str, ...] | None,
+    sig_kwargs: dict[str, Any] | None = None,
+) -> pd.DataFrame:
+    """
+    Add pairwise significance brackets to ``plot_abundance_boxgrid`` panels.
+
+    Called internally by :func:`plot_abundance_boxgrid` when ``sig_pairs`` is set,
+    or directly on ``panel_info`` returned from a prior plotting pass.
+
+    Args:
+        panel_info: Per-gene dicts with keys ``gene``, ``ax``, ``sub``, ``unique_classes``,
+            ``x_centers``, and ``nd_groups``.
+        sig_pairs: ``True`` for an automatic two-group comparison on each panel, or a list
+            of ``(group1, group2)`` specs in volcano / ``de()`` format (dict, list, or str).
+        classes: Column in each ``sub`` DataFrame used for grouping (often ``"class"``).
+        classes_original: Original ``classes`` argument passed to boxgrid (for label resolution).
+        sig_kwargs: Optional overrides merged onto defaults. Known keys:
+
+            - ``sig_test``: ``"ttest"``, ``"mannwhitneyu"``, or ``"wilcoxon"`` (default ``"ttest"``).
+            - ``sig_equal_var``: Student vs Welch t-test when ``sig_test="ttest"`` (default ``True``).
+            - ``spacing_frac``, ``h_frac``, ``base_offset_frac``: bracket layout (axis fractions).
+
+            Remaining keys are forwarded to :func:`plot_significance` (e.g. ``col``, ``fontsize``).
+            See :func:`plot_significance` for full drawing options.
+
+    Returns:
+        stats_df: One row per gene × comparison with test results and draw status.
+    """
+    merged_sig = dict(_SIG_KW_DEFAULTS)
+    if sig_kwargs:
+        merged_sig.update(sig_kwargs)
+    layout = {k: merged_sig.pop(k) for k in _SIG_KW_LAYOUT_KEYS if k in merged_sig}
+    plot_sig_kwargs = merged_sig
+
+    method = layout.get("sig_test", "ttest")
+    equal_var = layout.get("sig_equal_var", True)
+    spacing_frac = layout.get("spacing_frac", 0.08)
+    h_frac = layout.get("h_frac", 0.03)
+    base_offset_frac = layout.get("base_offset_frac", 0.05)
+
+    if method not in {"ttest", "mannwhitneyu", "wilcoxon"}:
+        raise ValueError(f"Unsupported sig_test {method!r}.")
+
+    wilcoxon_warned = False
+    rows: list[dict[str, Any]] = []
+
+    for panel in panel_info:
+        gene = panel["gene"]
+        ax = panel["ax"]
+        sub = panel["sub"]
+        unique_classes = panel["unique_classes"]
+        x_centers = panel["x_centers"]
+        nd_groups = panel["nd_groups"]
+        class_to_x = dict(zip(unique_classes, x_centers))
+
+        if sig_pairs is True:
+            if len(unique_classes) != 2:
+                raise ValueError(
+                    f"sig_pairs=True requires exactly two groups on panel {gene!r}; "
+                    f"found {len(unique_classes)}: {unique_classes!r}."
+                )
+            pair_list = [(unique_classes[0], unique_classes[1])]
+        else:
+            pair_list = sig_pairs
+
+        ymin, ymax = ax.get_ylim()
+        y_range = ymax - ymin if ymax > ymin else 1.0
+        h = h_frac * y_range
+
+        bracket_level = 0
+        for g1_spec, g2_spec in pair_list:
+            label1 = _resolve_sig_group_label(g1_spec, classes, classes_original)
+            label2 = _resolve_sig_group_label(g2_spec, classes, classes_original)
+
+            base_row = {
+                "gene": gene,
+                "group1": label1,
+                "group2": label2,
+                "group1_spec": g1_spec,
+                "group2_spec": g2_spec,
+                "method": method,
+            }
+
+            if label1 in nd_groups or label2 in nd_groups:
+                nd_names = [lbl for lbl in (label1, label2) if lbl in nd_groups]
+                print(
+                    f"{format_log_prefix('warn')} {gene}: skipping comparison "
+                    f"{label1!r} vs {label2!r} — ND group(s): {nd_names!r}."
+                )
+                rows.append(
+                    {
+                        **base_row,
+                        "n1": np.nan,
+                        "n2": np.nan,
+                        "statistic": np.nan,
+                        "p_value": np.nan,
+                        "label": "",
+                        "status": "skipped_nd",
+                        "reason": f"ND group(s): {nd_names}",
+                    }
+                )
+                continue
+
+            x1 = class_to_x.get(label1)
+            x2 = class_to_x.get(label2)
+            if x1 is None or x2 is None or np.isnan(x1) or np.isnan(x2):
+                missing = [lbl for lbl, x in ((label1, x1), (label2, x2)) if x is None or (x is not None and np.isnan(x))]
+                print(
+                    f"{format_log_prefix('warn')} {gene}: skipping comparison "
+                    f"{label1!r} vs {label2!r} — group(s) not on axis: {missing!r}."
+                )
+                rows.append(
+                    {
+                        **base_row,
+                        "n1": np.nan,
+                        "n2": np.nan,
+                        "statistic": np.nan,
+                        "p_value": np.nan,
+                        "label": "",
+                        "status": "skipped_pair",
+                        "reason": f"Missing x position for {missing!r}",
+                    }
+                )
+                continue
+
+            x1_vals = sub.loc[sub[classes] == label1, "abundance"].to_numpy(dtype=float)
+            x1_vals = x1_vals[np.isfinite(x1_vals) & (x1_vals > 0)]
+            x2_vals = sub.loc[sub[classes] == label2, "abundance"].to_numpy(dtype=float)
+            x2_vals = x2_vals[np.isfinite(x2_vals) & (x2_vals > 0)]
+            n1, n2 = int(x1_vals.size), int(x2_vals.size)
+
+            if n1 < 2 or n2 < 2:
+                print(
+                    f"{format_log_prefix('warn')} {gene}: skipping comparison "
+                    f"{label1!r} vs {label2!r} — need ≥2 valid replicates per group "
+                    f"(n1={n1}, n2={n2})."
+                )
+                rows.append(
+                    {
+                        **base_row,
+                        "n1": n1,
+                        "n2": n2,
+                        "statistic": np.nan,
+                        "p_value": np.nan,
+                        "label": "",
+                        "status": "skipped_n",
+                        "reason": f"n1={n1}, n2={n2}",
+                    }
+                )
+                continue
+
+            if method == "wilcoxon" and not wilcoxon_warned:
+                warnings.warn(
+                    "wilcoxon is a paired test; ensure samples are matched before interpreting "
+                    "boxgrid significance brackets.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                wilcoxon_warned = True
+
+            try:
+                if method == "ttest":
+                    res = ttest_ind(x1_vals, x2_vals, equal_var=equal_var, nan_policy="omit")
+                elif method == "mannwhitneyu":
+                    res = mannwhitneyu(x1_vals, x2_vals, alternative="two-sided")
+                else:
+                    res = wilcoxon(x1_vals, x2_vals)
+                statistic = float(res.statistic)
+                p_value = float(res.pvalue)
+            except Exception as exc:
+                print(
+                    f"{format_log_prefix('warn')} {gene}: test failed for "
+                    f"{label1!r} vs {label2!r}: {exc}"
+                )
+                rows.append(
+                    {
+                        **base_row,
+                        "n1": n1,
+                        "n2": n2,
+                        "statistic": np.nan,
+                        "p_value": np.nan,
+                        "label": "",
+                        "status": "skipped_n",
+                        "reason": str(exc),
+                    }
+                )
+                continue
+
+            anchor_vals = []
+            for lbl in (label1, label2):
+                dat = sub.loc[sub[classes] == lbl, "plot_abundance"].to_numpy(dtype=float)
+                if dat.size:
+                    anchor_vals.append(float(np.nanmax(dat)))
+                    anchor_vals.append(float(np.nanpercentile(dat, 75)))
+            data_top = max(anchor_vals) if anchor_vals else ymin
+            y = data_top + base_offset_frac * y_range + bracket_level * spacing_frac * y_range
+
+            plot_significance(ax, y, h, x1=float(x1), x2=float(x2), pval=p_value, **plot_sig_kwargs)
+            label = "n.s." if p_value > 0.05 else "*" * int(np.floor(-np.log10(p_value)))
+            rows.append(
+                {
+                    **base_row,
+                    "n1": n1,
+                    "n2": n2,
+                    "statistic": statistic,
+                    "p_value": p_value,
+                    "label": label,
+                    "status": "ok",
+                    "reason": "",
+                }
+            )
+            bracket_level += 1
+
+        if bracket_level > 0:
+            cur_ymin, cur_ymax = ax.get_ylim()
+            ax.set_ylim(cur_ymin, cur_ymax + spacing_frac * y_range)
+
+    return pd.DataFrame(rows)
+
+
 def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, ax: Any = None, layer: str = "X", on: str = "protein", classes: str | list[str] | None = None, return_df: bool = False,
-    order=None, plot_type="box", log_scale=False, figsize=(2,2), palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
-    global_legend=True, box_kwargs=None, hline_kwargs=None, bar_kwargs=None, bar_error='sd', violin_kwargs=None, text_kwargs=None, strip_kwargs=None):
+    order=None, plot_type="box", log_scale=False, figsize=(2,2.5), palette=None, y_min=None, y_max=None, label_x=True, show_n=False,
+    global_legend=True, box_kwargs=None, hline_kwargs=None, bar_kwargs=None, bar_error='sd', violin_kwargs=None, text_kwargs=None, strip_kwargs=None,
+    sig_pairs: list[tuple[Any, Any]] | bool | None = None, sig_kwargs: dict[str, Any] | None = None, nd_kwargs: dict[str, Any] | None = None):
     """
     Plot abundance values in a one-row panel of boxplots, mean-lines, bars, or violins.
 
@@ -559,11 +853,28 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
             (e.g., fontsize, offset).
         strip_kwargs (dict, optional): Keyword arguments for strip (raw points),
             e.g. ``{"darken_factor": 0.65}``.
+        sig_pairs (list, bool, or None): Pairwise comparisons for significance brackets.
+            ``None`` (default) disables testing. ``True`` auto-compares the two hue groups
+            when exactly two are present. Otherwise pass a list of ``(group1, group2)`` specs
+            in the same dict/list/str format as :func:`plot_volcano` / ``de()`` values.
+        sig_kwargs (dict, optional): Significance options merged onto defaults
+            ``{"sig_test": "ttest", "sig_equal_var": True}``. Layout keys
+            ``spacing_frac``, ``h_frac``, and ``base_offset_frac`` are consumed locally;
+            remaining keys (e.g. ``col``, ``fontsize``, ``h``) are passed to
+            :func:`plot_significance`.
+        nd_kwargs (dict, optional): Not-detected annotation options merged onto defaults
+            ``{"nd_label": "ND", "color": "#888888", "fontsize": 7, "y_axes_offset": 0.06,
+            "y_log10_offset": 0.3}``. On linear scales, ``y_axes_offset`` is the vertical
+            offset in axes coordinates (blended transform). On log-scale panels,
+            ``y_log10_offset`` is added above the axis minimum in log10 data units.
+            Shown when a group has no valid (non-zero) abundances for a gene; plots are unchanged.
 
     Returns:
         fig (matplotlib.figure.Figure): The generated figure.
         axes (list of matplotlib.axes.Axes): One axis per gene.
-        df (pandas.DataFrame, optional): Returned if `return_df=True`.
+        df (pandas.DataFrame, optional): Returned if ``return_df=True``.
+        stats_df (pandas.DataFrame, optional): Returned if ``return_df=True`` and
+            ``sig_pairs`` is set; one row per gene × comparison.
 
     !!! note
         Default customizations for keyword dictionaries:
@@ -724,8 +1035,52 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
         ```
 
         ![Plot abundance boxgrid](../../assets/plots/plot_abundance_boxgrid.png)
+
+        Significance brackets (explicit pairs, volcano-style dicts):
+        ```python
+        fig, axes, df, stats = pdata.plot_abundance_boxgrid(
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
+            sig_pairs=[
+                ({"cellline": "BE", "condition": "sc"}, {"cellline": "BE", "condition": "kd"}),
+                ({"cellline": "AS", "condition": "sc"}, {"cellline": "AS", "condition": "kd"}),
+            ],
+            sig_kwargs={"fontsize": 8},
+            return_df=True,
+        )
+        plt.show()
+        ```
+
+        ![Plot abundance boxgrid significance](../../assets/plots/plot_abundance_boxgrid_significance.png)
+
+        Multiple comparisons with a shared group (same group may appear in more than one pair):
+        ```python
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["GAPDH", "TUBB", "ACTB"],
+            classes=["cellline", "condition"],
+            sig_pairs=[
+                ({"cellline": "BE", "condition": "sc"}, {"cellline": "BE", "condition": "kd"}),
+                ({"cellline": "BE", "condition": "kd"}, {"cellline": "AS", "condition": "kd"}),
+            ],
+            sig_kwargs={"fontsize": 8},
+        )
+        plt.show()
+        ```
+
+        ![Plot abundance boxgrid significance multi](../../assets/plots/plot_abundance_boxgrid_significance_multi.png)
+
+        Two hue groups only — auto comparison:
+        ```python
+        fig, axes = pdata.plot_abundance_boxgrid(
+            namelist=["GAPDH"],
+            classes="treatment",
+            sig_pairs=True,
+        )
+        plt.show()
+        ```
     """
     from matplotlib.colors import to_rgba
+    from matplotlib.transforms import blended_transform_factory
 
     if classes is None:
         df = pdata.get_abundance(
@@ -743,7 +1098,16 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
 
     df = df.copy()
 
+    if sig_pairs is not None and classes is None:
+        raise ValueError("`sig_pairs` requires sample grouping; pass `classes`.")
+
+    merged_nd = dict(_ND_KW_DEFAULTS)
+    if nd_kwargs:
+        merged_nd.update(nd_kwargs)
+    nd_label = merged_nd.pop("nd_label")
+
     # --- normalize classes (list/tuple -> df["class"]) ---
+    classes_original = classes
     classes_label = classes  # keep original for legend title
     if isinstance(classes, (list, tuple)):
         if "class" not in df.columns:
@@ -859,6 +1223,8 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
     else:
         fig = ax.get_figure()
         axes = [ax]  # treat external ax as a single-panel layout
+
+    panel_info: list[dict[str, Any]] = []
 
     for ax, gene in zip(axes, genes):
         sub = df[df["gene"] == gene]
@@ -1089,6 +1455,59 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
 
         ax.set_title(gene, fontsize=10)
 
+        nd_groups: set[str] = set()
+        if classes is not None:
+            for cls in unique_classes:
+                cls_vals = sub.loc[sub[classes] == cls, "abundance"].to_numpy(dtype=float)
+                n_valid = int(np.sum(np.isfinite(cls_vals) & (cls_vals > 0)))
+                if n_valid == 0:
+                    nd_groups.add(cls)
+                    print(
+                        f"{format_log_prefix('warn')} {gene}: group {cls!r} has no "
+                        f"detectable abundance ({nd_label!r})."
+                    )
+
+            if nd_groups:
+                nd_text_kwargs = dict(
+                    color=merged_nd.get("color", "#888888"),
+                    fontsize=merged_nd.get("fontsize", 7),
+                    ha="center",
+                    va="bottom",
+                    zorder=merged_nd.get("zorder", 10),
+                    clip_on=False,
+                )
+                if log_scale:
+                    nd_ymin, nd_ymax = ax.get_ylim()
+                    nd_range = nd_ymax - nd_ymin if nd_ymax > nd_ymin else 1.0
+                    y_log10_offset = merged_nd.get("y_log10_offset", 0.3)
+                    y_nd = nd_ymin + max(float(y_log10_offset), 0.05 * nd_range)
+                    for cls, x_center in zip(unique_classes, x_centers):
+                        if cls in nd_groups:
+                            ax.text(x_center, y_nd, nd_label, **nd_text_kwargs)
+                else:
+                    nd_trans = blended_transform_factory(ax.transData, ax.transAxes)
+                    y_axes_offset = merged_nd.get("y_axes_offset", 0.06)
+                    for cls, x_center in zip(unique_classes, x_centers):
+                        if cls in nd_groups:
+                            ax.text(
+                                x_center,
+                                y_axes_offset,
+                                nd_label,
+                                transform=nd_trans,
+                                **nd_text_kwargs,
+                            )
+
+        panel_info.append(
+            {
+                "gene": gene,
+                "ax": ax,
+                "sub": sub,
+                "unique_classes": unique_classes,
+                "x_centers": x_centers,
+                "nd_groups": nd_groups,
+            }
+        )
+
     # global legend
     if global_legend and classes is not None:
         # Build custom legend handles from palette
@@ -1116,10 +1535,21 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
 
     plt.tight_layout()
 
+    stats_df = None
+    if sig_pairs is not None:
+        stats_df = annotate_abundance_boxgrid_significance(
+            panel_info,
+            sig_pairs,
+            classes=classes,
+            classes_original=classes_original,
+            sig_kwargs=sig_kwargs,
+        )
+
+    if return_df and sig_pairs is not None:
+        return fig, axes, df, stats_df
     if return_df:
-        return fig,axes,df
-    else:
-        return fig, axes
+        return fig, axes, df
+    return fig, axes
     
 def plot_rankquant(ax: "plt.Axes", pdata: pAnnData, classes: str | list[str] | None = None, layer: str = "X", on: str = "protein", cmap: Any = ["Blues"], color: Any = ["blue"], order: Any = None, s: float = 20, alpha: float = 0.2, calpha: float = 1, exp_alpha: float = 70, debug: bool = False) -> Any:
     """

@@ -8,6 +8,7 @@ import anndata as ad
 import matplotlib.cm as cm
 import matplotlib.collections as clt
 import matplotlib.colors as mcolors
+import matplotlib.ticker as mticker
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.patheffects as PathEffects
@@ -49,6 +50,7 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
              force=False, basis='X_pca', text_size=9, show_labels=False, label_column=None,
              add_ellipses=False, ellipse_group=None, ellipse_cmap='default', ellipse_kwargs=None, 
              return_fit=False, mapping_keys=None, mapping=None, mapping_on_missing: str = "warn",
+             colorbar_norm: Any = None, nan_color: str = "lightgrey", colorbar_label: str | None = None,
              **kwargs: Any) -> "plt.Axes | tuple[plt.Axes, dict[str, Any]]":
     """
     Plot principal component analysis (PCA) of protein or peptide abundance.
@@ -164,6 +166,20 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
             face with no edge for missing combinations (abundance ``color=``: missing combo keeps
             abundance face, edges off). ``"raise"`` raises if any observed combination is absent from ``mapping``.
 
+        colorbar_norm (None, str, or matplotlib.colors.Normalize): Scaling for abundance face coloring
+            (protein/peptide ``color=`` or mapping abundance faces). ``None`` or ``"linear"``: linear
+            auto limits on strictly positive values. ``"log2"`` / ``"log10"``: ``LogNorm`` with limits
+            rounded to powers of 2 or 10. A ``matplotlib.colors.Normalize`` subclass (e.g.
+            ``Normalize(vmin=, vmax=)``, ``LogNorm(vmin=, vmax=)``) is used as-is; ``LogNorm`` objects
+            get log10 exponent colorbar ticks by default.
+
+        nan_color (str): Face color for zero, NaN, and negative abundances (default ``"lightgrey"``).
+            Plotted beneath colormap-mapped points.
+
+        colorbar_label (str or None): Override the abundance colorbar axis label. When ``None``,
+            uses ``"{feature} Abundance (raw)"``, ``"{feature} Abundance (log10)"``, or ``"{feature} Abundance (log2)"`` from
+            the ``color=`` feature name.
+
         return_fit (bool): If True, also return the fitted PCA object.
         **kwargs (Any): Extra keyword arguments passed to `ax.scatter()`.
 
@@ -235,6 +251,38 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         Face color by gene/protein abundance (continuous) with a matplotlib colormap:
             ```python
             plot_pca(ax, pdata, color="UBE4B", cmap="plasma")
+            ```
+
+        Log-scale abundance coloring with undetected cells in grey (`log10` or `log2`):
+            ```python
+            plot_pca(
+                ax, pdata, color="UBE4B", cmap="plasma",
+                colorbar_norm="log10", nan_color="grey",
+            )
+            ```
+
+        Log-scale with explicit ``LogNorm`` limits (common for sparse single-cell data):
+            ```python
+            import matplotlib.colors as mcolors
+
+            plot_pca(
+                ax, pdata, color="UBE4B", cmap="plasma",
+                colorbar_norm=mcolors.LogNorm(vmin=1, vmax=1e7),
+                nan_color="black",
+            )
+            ```
+
+        Custom colormap and linear range:
+            ```python
+            from matplotlib.colors import LinearSegmentedColormap, Normalize
+
+            cmap = LinearSegmentedColormap.from_list(
+                "expr", ["#ffffff", "#fee090", "#d73027"]
+            )
+            plot_pca(
+                ax, pdata, color="UBE4B", cmap=cmap,
+                colorbar_norm=Normalize(vmin=0, vmax=100), nan_color="grey",
+            )
             ```
 
         Face color and edge color by different categorical keys with a custom palette:
@@ -430,6 +478,7 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         show_labels=show_labels, label_series=label_series, add_ellipses=add_ellipses, ellipse_kwargs=ellipse_kwargs, ellipse_group=ellipse_group, ellipse_cmap=ellipse_cmap,
         plot_confidence_ellipse=_plot_confidence_ellipse,
         mapping_keys=mapping_keys, mapping=mapping, mapping_on_missing=mapping_on_missing,
+        colorbar_norm=colorbar_norm, nan_color=nan_color, colorbar_label=colorbar_label,
         **kwargs,
     )
 
@@ -437,6 +486,60 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         return ax, pca
     else:
         return ax
+
+
+def _resolve_colorbar_norm(
+    positive_vals: np.ndarray,
+    colorbar_norm: Any,
+) -> tuple[mcolors.Normalize, int | None]:
+    """
+    Resolve ``colorbar_norm`` for abundance coloring on strictly positive values.
+
+    Returns:
+        (norm, log_tick_base): ``log_tick_base`` is 2, 10, or ``None`` (plain matplotlib ticks).
+    """
+    _opts = (
+        "None, 'linear', 'log2', 'log10', or a matplotlib.colors.Normalize subclass "
+        "(e.g. Normalize, LogNorm)"
+    )
+
+    if positive_vals.size == 0:
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} No strictly positive abundance values to color; "
+            "cannot build a color scale."
+        )
+
+    pos_min = float(np.min(positive_vals))
+    pos_max = float(np.max(positive_vals))
+
+    if colorbar_norm is None or colorbar_norm == "linear":
+        if pos_min == pos_max:
+            pos_max = pos_min + 1.0
+        return mcolors.Normalize(vmin=pos_min, vmax=pos_max), None
+
+    if isinstance(colorbar_norm, str):
+        if colorbar_norm in ("log2", "log10"):
+            base = 2.0 if colorbar_norm == "log2" else 10.0
+            tick_base = 2 if colorbar_norm == "log2" else 10
+            vmin = 1.0 if pos_min <= 0 else float(base ** np.floor(np.log(pos_min) / np.log(base)))
+            vmax = float(base ** np.ceil(np.log(pos_max) / np.log(base)))
+            if vmin >= vmax:
+                vmax = vmin * base
+            return mcolors.LogNorm(vmin=vmin, vmax=vmax), tick_base
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} Invalid colorbar_norm={colorbar_norm!r}. "
+            f"Options: {_opts}"
+        )
+
+    if isinstance(colorbar_norm, mcolors.Normalize):
+        if isinstance(colorbar_norm, mcolors.LogNorm):
+            return colorbar_norm, 10
+        return colorbar_norm, None
+
+    raise ValueError(
+        f"{utils.format_log_prefix('error')} Invalid colorbar_norm={colorbar_norm!r}. "
+        f"Options: {_opts}"
+    )
 
 def resolve_plot_colors(
     adata: ad.AnnData, classes: Any, cmap: Any, layer: str = "X"
@@ -527,12 +630,6 @@ def resolve_plot_colors(
         if cmap == 'default':
             cmap = 'viridis'
         cmap = _get_cmap(cmap) if isinstance(cmap, str) else cmap
-
-        # Add default colorbar handling for abundance-based coloring
-        norm = mcolors.Normalize(vmin=color_mapped.min(), vmax=color_mapped.max())
-        sm = cm.ScalarMappable(norm=norm, cmap=cmap)
-        sm.set_array([])  # required for colorbar
-
         return color_mapped, cmap, None
 
     # Case 5: Gene name (mapped to accession)
@@ -610,7 +707,6 @@ def resolve_marker_shapes(
     ]
 
     return markers, shape_legend, shape_map
-
 
 def _resolve_embedding_style_mapping(
     adata: ad.AnnData,
@@ -914,7 +1010,6 @@ def _resolve_embedding_style_mapping(
         "combined_mapping_legend": combined_mapping_legend,
     }
 
-
 def _plot_confidence_ellipse(x, y, ax, n_std=2.4477, facecolor='none', edgecolor='black', alpha=0.2, **kwargs):
     from matplotlib.patches import Ellipse
     
@@ -947,6 +1042,9 @@ def _plot_embedding_scatter(
     color=None, edge_color=None, marker_shape=None, layer="X",
     cmap="default", edge_cmap="default", shape_cmap="default",
     edge_lw=0.8, s=20, alpha=0.8, text_size=10,
+    colorbar_norm: Any = None,
+    nan_color: str = "lightgrey",
+    colorbar_label: str | None = None,
     # embedding metadata
     axis_prefix="UMAP",              # "UMAP" or "PC"
     dim_labels=None,                 # list[str] length = n_dim plotted
@@ -978,13 +1076,13 @@ def _plot_embedding_scatter(
         base_kwargs,
         color_key,
         face_plot,
-        face_all,
         face_cmap_resolved,
+        face_norm_resolved,
         edge_key,
         edge_plot,
-        edge_all,
         edge_lw,
         n,
+        fixed_color=None,
     ):
         """
         Build kwargs for a single ax.scatter call (already subset-aligned).
@@ -997,10 +1095,17 @@ def _plot_embedding_scatter(
         if color_key is None:
             kw.setdefault("c", ["grey"] * n)
             kw.pop("cmap", None)
+            kw.pop("norm", None)
+        elif fixed_color is not None:
+            kw["c"] = fixed_color
+            kw.pop("cmap", None)
+            kw.pop("norm", None)
         else:
             kw["c"] = face_plot
             if face_cmap_resolved is not None:
                 kw["cmap"] = face_cmap_resolved
+            if face_norm_resolved is not None:
+                kw["norm"] = face_norm_resolved
 
         if edge_key is None:
             kw["edgecolors"] = "none"
@@ -1038,6 +1143,10 @@ def _plot_embedding_scatter(
             c = np.asarray(kw["c"])
             if c.shape[0] == m.shape[0]:
                 kw["c"] = c[m]
+            elif c.ndim == 0 or (c.size == 1 and not isinstance(kw["c"], str)):
+                pass
+        elif "c" in kw and isinstance(kw["c"], str):
+            pass
 
         if "edgecolors" in kw:
             ec = kw["edgecolors"]
@@ -1061,25 +1170,34 @@ def _plot_embedding_scatter(
 
         return kw
 
-    def _add_continuous_colorbar(ax_cb, color_mapped, cmap_resolved, label, text_size=10):
-        """Attach a colorbar if using continuous coloring."""
-        import matplotlib.cm as cm
-        import matplotlib.colors as mcolors
-
-        if cmap_resolved is None or color_mapped is None:
+    def _add_continuous_colorbar(
+        ax_cb,
+        cmap_resolved,
+        norm_resolved,
+        log_tick_base,
+        label,
+        text_size=10,
+    ):
+        """Attach a colorbar for continuous abundance coloring."""
+        if cmap_resolved is None or norm_resolved is None:
             return
 
-        vals = np.asarray(color_mapped)
-        if vals.size == 0:
-            return
-        if np.issubdtype(vals.dtype, np.number) is False:
-            return
-
-        norm = mcolors.Normalize(vmin=np.min(vals), vmax=np.max(vals))
-        sm = cm.ScalarMappable(norm=norm, cmap=cmap_resolved)
+        sm = cm.ScalarMappable(norm=norm_resolved, cmap=cmap_resolved)
         sm.set_array([])
         cb = ax_cb.figure.colorbar(sm, ax=ax_cb, pad=0.01)
         cb.set_label(label, fontsize=text_size)
+        if log_tick_base == 2:
+            cb.ax.yaxis.set_major_formatter(
+                mticker.FuncFormatter(
+                    lambda x, _: f"{np.log2(x):.0f}" if x > 0 else ""
+                )
+            )
+        elif log_tick_base == 10:
+            cb.ax.yaxis.set_major_formatter(
+                mticker.FuncFormatter(
+                    lambda x, _: f"{np.log10(x):.0f}" if x > 0 else ""
+                )
+            )
 
     def _legend_title_from_key(key):
         if key is None:
@@ -1087,6 +1205,16 @@ def _plot_embedding_scatter(
         if isinstance(key, list):
             return "/".join(str(c).capitalize() for c in key)
         return str(key).capitalize()
+
+    def _abundance_colorbar_title(color_key, log_tick_base):
+        if colorbar_label is not None:
+            return colorbar_label
+        name = str(color_key) if color_key is not None else "Abundance"
+        if log_tick_base == 2:
+            return f"{name} Abundance (log2)"
+        if log_tick_base == 10:
+            return f"{name} Abundance (log10)"
+        return f"{name} Abundance (raw)"
 
     use_mapping = mapping is not None
     if (mapping is None) != (mapping_keys is None):
@@ -1159,18 +1287,28 @@ def _plot_embedding_scatter(
 
     base_kwargs = dict(s=s, alpha=alpha, **kwargs)
 
-    scatter_kwargs = _build_scatter_kwargs(
-        base_kwargs=base_kwargs,
-        color_key=scatter_color_key,
-        face_plot=face_plot,
-        face_all=face_mapped,
-        face_cmap_resolved=face_cmap_resolved,
-        edge_key=scatter_edge_key,
-        edge_plot=edge_plot,
-        edge_all=edge_mapped,
-        edge_lw=edge_lw,
-        n=n_plot,
+    face_norm_resolved = None
+    log_tick_base = None
+    abundance_nan_plot = None
+    is_abundance_continuous = (
+        face_cmap_resolved is not None
+        and face_plot is not None
+        and np.issubdtype(np.asarray(face_plot).dtype, np.number)
     )
+    if is_abundance_continuous:
+        abund_vals = np.asarray(face_plot, dtype=float)
+        neg = np.isfinite(abund_vals) & (abund_vals < 0)
+        if np.any(neg):
+            print(
+                f"{utils.format_log_prefix('warn')} {int(np.sum(neg))} negative abundance value(s) "
+                f"for coloring; using nan_color."
+            )
+        abundance_nan_plot = ~np.isfinite(abund_vals) | (abund_vals <= 0)
+        positive = abund_vals[~abundance_nan_plot]
+        if positive.size > 0:
+            face_norm_resolved, log_tick_base = _resolve_colorbar_norm(
+                positive, colorbar_norm
+            )
 
     # choose plotted dimensions
     if pc_idx is None:
@@ -1180,18 +1318,20 @@ def _plot_embedding_scatter(
     if n_dim not in (1, 2, 3):
         raise ValueError("pc_idx must specify 1, 2, or 3 dimensions.")
 
-    # draw scatter (with marker splitting if requested)
-    def _scatter_call(m, marker=None):
-        kw = _slice_scatter_kwargs(scatter_kwargs, m)
+    def _run_scatter(m, kw, marker=None):
+        if not np.any(m):
+            return
+        kw = _slice_scatter_kwargs(kw, m)
+        mk = marker or "o"
         if n_dim == 1:
             x = Xt_plot[m, pc_idx[0]]
             y = y_1d[m] if y_1d is not None else np.arange(n_plot)[m]
-            ax.scatter(x, y, marker=marker or "o", **kw)
+            ax.scatter(x, y, marker=mk, **kw)
         elif n_dim == 2:
             ax.scatter(
                 Xt_plot[m, pc_idx[0]],
                 Xt_plot[m, pc_idx[1]],
-                marker=marker or "o",
+                marker=mk,
                 **kw,
             )
         else:
@@ -1199,16 +1339,61 @@ def _plot_embedding_scatter(
                 Xt_plot[m, pc_idx[0]],
                 Xt_plot[m, pc_idx[1]],
                 Xt_plot[m, pc_idx[2]],
-                marker=marker or "o",
+                marker=mk,
                 **kw,
             )
+
+    def _scatter_call(sel, marker=None):
+        if is_abundance_continuous:
+            nan_sel = sel & abundance_nan_plot
+            if np.any(nan_sel):
+                kw_nan = _build_scatter_kwargs(
+                    base_kwargs=base_kwargs,
+                    color_key=scatter_color_key,
+                    face_plot=face_plot,
+                    face_cmap_resolved=face_cmap_resolved,
+                    face_norm_resolved=face_norm_resolved,
+                    edge_key=scatter_edge_key,
+                    edge_plot=edge_plot,
+                    edge_lw=edge_lw,
+                    n=n_plot,
+                    fixed_color=nan_color,
+                )
+                _run_scatter(nan_sel, kw_nan, marker=marker)
+            if face_norm_resolved is not None:
+                pos_sel = sel & ~abundance_nan_plot
+                if np.any(pos_sel):
+                    kw_pos = _build_scatter_kwargs(
+                        base_kwargs=base_kwargs,
+                        color_key=scatter_color_key,
+                        face_plot=face_plot,
+                        face_cmap_resolved=face_cmap_resolved,
+                        face_norm_resolved=face_norm_resolved,
+                        edge_key=scatter_edge_key,
+                        edge_plot=edge_plot,
+                        edge_lw=edge_lw,
+                        n=n_plot,
+                    )
+                    _run_scatter(pos_sel, kw_pos, marker=marker)
+        else:
+            kw = _build_scatter_kwargs(
+                base_kwargs=base_kwargs,
+                color_key=scatter_color_key,
+                face_plot=face_plot,
+                face_cmap_resolved=face_cmap_resolved,
+                face_norm_resolved=None,
+                edge_key=scatter_edge_key,
+                edge_plot=edge_plot,
+                edge_lw=edge_lw,
+                n=n_plot,
+            )
+            _run_scatter(sel, kw, marker=marker)
 
     if markers_plot is None:
         _scatter_call(np.ones(n_plot, dtype=bool), marker=None)
     else:
         for mk in np.unique(markers_plot):
-            m = (markers_plot == mk)
-            _scatter_call(m, marker=mk)
+            _scatter_call(markers_plot == mk, marker=mk)
 
     # axes labels
     if dim_labels is None:
@@ -1223,14 +1408,16 @@ def _plot_embedding_scatter(
     if n_dim == 3:
         ax.set_zlabel(dim_labels[2], fontsize=text_size)
 
-    # colorbar for continuous face coloring
-    _add_continuous_colorbar(
-        ax,
-        np.asarray(face_mapped) if face_mapped is not None else None,
-        face_cmap_resolved,
-        label=(_legend_title_from_key(color) if color is not None else "Abundance"),
-        text_size=text_size,
-    )
+    # colorbar for continuous abundance face coloring
+    if is_abundance_continuous and face_norm_resolved is not None:
+        _add_continuous_colorbar(
+            ax,
+            face_cmap_resolved,
+            face_norm_resolved,
+            log_tick_base,
+            label=_abundance_colorbar_title(scatter_color_key, log_tick_base),
+            text_size=text_size,
+        )
 
     # ellipses (2D only)
     def _is_obs_key(key):
@@ -1460,6 +1647,7 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
               add_ellipses=False, ellipse_group=None, ellipse_cmap='default', ellipse_kwargs=None, 
               force = False, return_fit=False, subset_mask=None,
               mapping_keys=None, mapping=None, mapping_on_missing: str = "warn",
+              colorbar_norm: Any = None, nan_color: str = "lightgrey", colorbar_label: str | None = None,
               **kwargs: Any) -> "plt.Axes | tuple[plt.Axes, dict[str, Any]]":
     """
     Plot UMAP projection of protein or peptide abundance data.
@@ -1576,6 +1764,12 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
 
         mapping_on_missing (str): ``"warn"`` (default) or ``"raise"`` (see ``plot_pca``).
 
+        colorbar_norm (None, str, or matplotlib.colors.Normalize): Abundance color scale; see ``plot_pca``.
+
+        nan_color (str): Face color for zero, NaN, and negative abundances (default ``"lightgrey"``).
+
+        colorbar_label (str or None): Override the abundance colorbar axis label.
+
         force (bool): If True, recompute UMAP even if cached.
         return_fit (bool): If True, return the fitted UMAP object.
         **kwargs (Any): Extra keyword arguments passed to `ax.scatter()`.
@@ -1628,6 +1822,22 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
         Plot by protein abundance (continuous coloring):
             ```python
             plot_umap(ax, pdata, color='P12345', cmap='plasma')
+            ```
+
+        Log-scale abundance coloring (`log10` or `log2`):
+            ```python
+            plot_umap(ax, pdata, color='GAPDH', cmap='plasma', colorbar_norm='log10', nan_color='grey')
+            ```
+
+        Log-scale with explicit ``LogNorm`` limits:
+            ```python
+            import matplotlib.colors as mcolors
+
+            plot_umap(
+                ax, pdata, color="GAPDH", cmap="plasma",
+                colorbar_norm=mcolors.LogNorm(vmin=1, vmax=1e7),
+                nan_color="black",
+            )
             ```
 
         Plot with custom palette:
@@ -1818,6 +2028,7 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
         show_labels=show_labels, label_series=label_series,
         add_ellipses=add_ellipses, ellipse_kwargs=ellipse_kwargs, ellipse_group=ellipse_group, ellipse_cmap=ellipse_cmap, plot_confidence_ellipse=_plot_confidence_ellipse,
         mapping_keys=mapping_keys, mapping=mapping, mapping_on_missing=mapping_on_missing,
+        colorbar_norm=colorbar_norm, nan_color=nan_color, colorbar_label=colorbar_label,
         **kwargs,
     )
 

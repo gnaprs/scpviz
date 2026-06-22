@@ -2,7 +2,7 @@
 Generate static figures for scpviz API documentation.
 
 Run from the repo root:
-    conda activate py311
+    conda activate py311-dev
     python docs/generate_plot_figures.py
     python docs/generate_plot_figures.py --skip-umap   # skips SC import, directlfq, plot_umap.png, and plot_*_sc.png
 
@@ -19,8 +19,13 @@ When a single-cell bundle loads (large cohort or parquet), the script also write
 ``plot_raincloud_sc.png`` (separate from bulk ``plot_pca.png``, ``plot_pairwise_correlation.png``, etc.).
 
 Output: docs/assets/plots/<name>.png at 150 dpi.
+Also writes abundance-colored PCA/UMAP examples:
+``plot_pca_abundance_raw.png``, ``plot_pca_abundance_log10.png``, and (when UMAP data load)
+``plot_umap_abundance_log10.png``.
 Also writes ``plot_abundance_boxgrid_bar.png``, ``plot_abundance_boxgrid_line.png``,
-``plot_abundance_boxgrid_violin.png``, and ``plot_abundance_boxgrid_custom.png`` alongside ``plot_abundance_boxgrid.png``,
+``plot_abundance_boxgrid_violin.png``, ``plot_abundance_boxgrid_custom.png``,
+``plot_abundance_boxgrid_significance.png``, and ``plot_abundance_boxgrid_significance_multi.png``
+alongside ``plot_abundance_boxgrid.png``,
 and ``plot_cv_annotate.png`` / ``plot_cv_custom_annotate.png`` alongside ``plot_cv.png``.
 Existing files are overwritten.
 """
@@ -71,6 +76,34 @@ def _ensure_pairwise_zscore_layer(pdata_norm: pAnnData, *, layer_out: str = _PAI
 def save_current_fig(name: str) -> None:
     plt.savefig(OUT / f"{name}.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
+
+
+def _resolve_abundance_gene(
+    pdata: pAnnData, candidates: tuple[str, ...] = ("GAPDH", "TUBB", "ACTB")
+) -> str:
+    """Pick a gene name present in ``pdata.prot`` for abundance coloring examples."""
+    adata = pdata.prot
+    if "Genes" in adata.var.columns:
+        genes = adata.var["Genes"].astype(str)
+        for cand in candidates:
+            hit = genes.str.upper() == cand.upper()
+            if hit.any():
+                return str(genes[hit].iloc[0])
+        return str(genes.dropna().iloc[0])
+    return str(adata.var_names[0])
+
+
+def _zero_gene_for_figure(pdata_in: pAnnData, gene: str, n_zero: int) -> pAnnData:
+    out = pdata_in.copy()
+    adata = out.prot
+    if "Genes" not in adata.var.columns:
+        return out
+    hit = adata.var["Genes"].astype(str).str.upper() == gene.upper()
+    if not hit.any():
+        return out
+    vidx = int(np.where(hit)[0][0])
+    adata.X[: min(n_zero, adata.n_obs), vidx] = 0.0
+    return out
 
 
 def load_bulk():
@@ -434,6 +467,38 @@ def main(*, skip_umap: bool = False) -> None:
     fig.savefig(OUT / "plot_abundance_boxgrid_custom.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
 
+    sig_pairs_doc = [
+        ({"cellline": "BE", g2: "sc"}, {"cellline": "BE", g2: "kd"}),
+        ({"cellline": "AS", g2: "sc"}, {"cellline": "AS", g2: "kd"}),
+    ]
+    fig, axes = pdata.plot_abundance_boxgrid(
+        namelist=["GAPDH", "TUBB", "ACTB"],
+        classes=classes_2,
+        plot_type="box",
+        figsize=(2, 2.5),
+        sig_pairs=sig_pairs_doc,
+        sig_kwargs={"fontsize": 8},
+    )
+    fig.savefig(OUT / "plot_abundance_boxgrid_significance.png", dpi=DPI, bbox_inches="tight")
+    plt.close("all")
+
+    sig_pairs_multi = [
+        ({"cellline": "BE", g2: "sc"}, {"cellline": "BE", g2: "kd"}),
+        ({"cellline": "BE", g2: "kd"}, {"cellline": "AS", g2: "kd"}),
+    ]
+    fig, axes = pdata.plot_abundance_boxgrid(
+        namelist=["GAPDH", "TUBB", "ACTB"],
+        classes=classes_2,
+        plot_type="box",
+        figsize=(2, 2.5),
+        sig_pairs=sig_pairs_multi,
+        sig_kwargs={"fontsize": 8},
+    )
+    fig.savefig(
+        OUT / "plot_abundance_boxgrid_significance_multi.png", dpi=DPI, bbox_inches="tight"
+    )
+    plt.close("all")
+
     fig, ax = plt.subplots(figsize=(4, 4))
     scplt.plot_rankquant(ax, pdata, classes=classes_2)
     save_current_fig("plot_rankquant")
@@ -472,6 +537,31 @@ def main(*, skip_umap: bool = False) -> None:
     scplt.plot_pca(ax, pdata_norm, classes=classes_2, add_ellipses=True)
     save_current_fig("plot_pca")
 
+    gene_abund = _resolve_abundance_gene(pdata_norm)
+    pdata_abund = _zero_gene_for_figure(
+        pdata_norm, gene_abund, max(2, pdata_norm.prot.n_obs // 4)
+    )
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax,
+        pdata_abund,
+        color=gene_abund,
+        cmap="plasma",
+        nan_color="grey",
+    )
+    save_current_fig("plot_pca_abundance_raw")
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax,
+        pdata_abund,
+        color=gene_abund,
+        cmap="plasma",
+        colorbar_norm="log10",
+        nan_color="grey",
+    )
+    save_current_fig("plot_pca_abundance_log10")
+
     fig, ax = plt.subplots(figsize=(4, 3))
     scplt.plot_pca_scree(ax, pdata_norm.prot.uns["pca"])
     save_current_fig("plot_pca_scree")
@@ -498,6 +588,25 @@ def main(*, skip_umap: bool = False) -> None:
         )
         scplt.shift_legend(ax)
         save_current_fig("plot_umap")
+
+        pdata_umap_ab = _zero_gene_for_figure(
+            pdata_umap,
+            _resolve_abundance_gene(pdata_umap, ("GAPDH", "Itgam", "TUBB", "ACTB")),
+            max(4, pdata_umap.prot.n_obs // 5),
+        )
+        gene_umap = _resolve_abundance_gene(pdata_umap, ("GAPDH", "Itgam", "TUBB", "ACTB"))
+        fig, ax = plt.subplots(figsize=umap_kw.get("figsize", (3, 3)))
+        scplt.plot_umap(
+            ax,
+            pdata_umap_ab,
+            color=gene_umap,
+            cmap="plasma",
+            colorbar_norm="log10",
+            nan_color="grey",
+            force=False,
+            umap_params=umap_kw.get("umap_params", {}),
+        )
+        save_current_fig("plot_umap_abundance_log10")
     else:
         if skip_umap:
             print(
