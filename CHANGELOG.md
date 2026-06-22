@@ -1,6 +1,137 @@
 All notable changes to this project are documented here.
 
 <details open>
+<summary><b>1.0.1</b> – 2026-06-15</summary>
+
+
+#### Added
+
+
+##### (Analysis)
+
+
+- Add BH FDR correction to DE/volcano plots (c443206…)
+
+- Add pval deprecation warning instead of breaking change from BH FDR correction commit (e3da0fe…)
+
+
+
+##### (Filtering)
+
+
+- Add filter_sample POI mode and refactor filter_prot #46 (4be9906…)
+
+
+
+##### (Import)
+
+
+- Update import to bypass API calls with fetch_uniprot (db9fd94…)
+
+
+
+##### (Plotting)
+
+
+- Enhance plot_cv with percent scale, annotations, and docs, closes #46 (21e4ca9…)
+
+
+
+##### (Utils)
+
+
+- Update get_upset_query to bypass API fetch with fetch_uniprot (76f6e99…)
+
+- Add RS-based accession–peptide lookup helpers (459c922…)
+
+- Extend resolve_accessions with all_matches and add resolve_peptides (5cae58d…)
+
+
+
+#### Build System
+
+
+##### (Dependencies)
+
+
+- Update scipy min version to 1.11 for BH FDR implementation (20c7a82…)
+
+
+
+##### (Joss)
+
+
+- Update citation links to JOSS (90a1596…)
+
+
+
+##### (V1.0.1)
+
+
+- Bump version to 1.0.1 (47e8628…)
+
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (9f0440f…)
+
+
+
+#### Documentation
+
+
+##### (Tutorials)
+
+
+- Document POI filtering and all_matches in filtering tutorial #46 (d504013…)
+
+
+
+#### Fixed
+
+
+##### (Plotting)
+
+
+- Use matplotlib colormap registry and harden facet plots to handle update to matplotlib 3.11 (9995a2e…)
+
+- Set log scale before facet legend in plot_abundance (982bff0…)
+
+
+
+#### Other
+
+
+##### (Paper)
+
+
+- Update paper wrt editor comments (00d7f13…)
+
+- Update affiliations (d3a98d0…)
+
+- Update Paper PDF Draft (8fee1a7…)
+
+- Update Paper PDF Draft (9d26b1c…)
+
+
+
+#### Style
+
+
+##### (Utils)
+
+
+- Fix convert_identifiers docstring formatting and add examples (bc57970…)
+
+
+
+
+</details>
+
+<details open>
 <summary><b>1.0.0</b> – 2026-05-21</summary>
 
 
