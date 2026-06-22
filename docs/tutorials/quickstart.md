@@ -318,7 +318,12 @@ fig, axes, df, stats = pdata_filtered.plot_abundance_boxgrid(
 plt.show()
 ```
 
-See the [Plotting tutorial — Significance brackets](plotting.md#significance-brackets) for multi-pair comparisons, `sig_pairs=True` when only two groups exist, and further options.
+<figure markdown="span">
+![Boxgrid with significance brackets](../assets/quickstart_sig.png)
+<figcaption>Boxgrid panel with pairwise significance brackets.</figcaption>
+</figure>
+
+See the [Plotting tutorial — Significance brackets](plotting.md#boxgrid-significance) for multi-pair comparisons, `sig_pairs=True` when only two groups exist, and further options.
 
 
 ---

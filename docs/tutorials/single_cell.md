@@ -563,7 +563,16 @@ Before exploring dimensionality reduction or differential expression, it is usef
     plt.show()
     ```
 
-    See the [Plotting tutorial — Significance brackets](plotting.md#significance-brackets) for explicit multi-group pairs, shared groups in several comparisons, and `sig_kwargs` (test method, bracket styling).
+    <div class="result" markdown>
+
+    <figure markdown="span">
+    ![Boxgrid with significance brackets](../assets/sctutorial_sig.png)
+    <figcaption>Boxgrid panel with pairwise significance brackets.</figcaption>
+    </figure>
+
+    </div>
+
+    See the [Plotting tutorial — Significance brackets](plotting.md#boxgrid-significance) for explicit multi-group pairs, shared groups in several comparisons, and `sig_kwargs` (test method, bracket styling).
 
 ### PCA
 

@@ -2,7 +2,7 @@
 Generate static figures for scpviz API documentation.
 
 Run from the repo root:
-    conda activate py311-dev
+    conda activate py311-main
     python docs/generate_plot_figures.py
     python docs/generate_plot_figures.py --skip-umap   # skips SC import, directlfq, plot_umap.png, and plot_*_sc.png
 
