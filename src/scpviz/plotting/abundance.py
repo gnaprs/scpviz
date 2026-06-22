@@ -476,23 +476,21 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
                 for ax_ in g.axes.flatten():
                     ax_.set_yscale("log")
             if plot_points:
-                def _strip(data, color, **kwargs_inner):
-                    ax_ = kwargs_inner.pop("ax", None)
-                    sns.stripplot(
-                        data=data,
-                        x=x_col,
-                        y=y_col,
-                        hue='class',
-                        dodge=True,
-                        jitter=True,
-                        color='black',
-                        size=3,
-                        alpha=0.5,
-                        legend=False,
-                        ax=ax_,
-                        **kwargs_inner,
-                    )
-                g.map_dataframe(_strip)
+                # Use seaborn's map_dataframe API directly (not a nested callback) so FacetGrid
+                # passes facet axes correctly on headless backends (py3.11 CI).
+                g.figure.canvas.draw()
+                g.map_dataframe(
+                    sns.stripplot,
+                    x=x_col,
+                    y=y_col,
+                    hue='class',
+                    dodge=True,
+                    jitter=True,
+                    color='black',
+                    size=3,
+                    alpha=0.5,
+                    legend=False,
+                )
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
