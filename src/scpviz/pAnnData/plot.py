@@ -6,6 +6,14 @@ from scpviz import plotting
 
 class PlotMixin:
     def plot_counts(self, classes=None, y='protein_count', **kwargs):
+        """
+        Violin plot of per-sample count metrics from ``pdata.summary``.
+
+        Args:
+            classes: Column in ``summary`` for the x-axis; if ``None``, uses the summary index.
+            y (str): Column to plot (default ``"protein_count"``).
+            **kwargs: Forwarded to ``seaborn.violinplot``.
+        """
         import seaborn as sns
 
         df = self.summary # type: ignore #, in base
@@ -65,52 +73,65 @@ class PlotMixin:
         palette=None, log=True, facet=None, height=4,
         aspect=0.5, plot_points=True, x_label="gene", kind="auto", **kwargs: Any,):
         """
-        Wrapper for `scpviz.plotting.plot_abundance`.
-
         Plot abundance of proteins or peptides across samples.
+
+        Thin wrapper around :func:`scpviz.plotting.plot_abundance`.
 
         This function visualizes expression values for selected proteins or peptides
         using violin + box + strip plots, or bar plots when the number of replicates
         per group is small. Supports grouping, faceting, and custom ordering.
 
+        **Important default behavior:**
+        - This method defaults to ``log=True`` (log2-transformed abundances on a linear y-axis).
+        - With ``log=False``, abundances remain **raw** and the **y-axis is log10-scaled**, so the
+          plot displays log10(abundance) without transforming the underlying values.
+
         Args:
-            ax (matplotlib.axes.Axes): Axis to plot on. Ignored if `facet` is used.
+            ax (matplotlib.axes.Axes): Axis to plot on. Ignored if ``facet`` is used.
             namelist (list of str, optional): List of accessions or gene names to plot.
                 If None, all available features are considered.
-            layer (str): Data layer to use for abundance values. Default is `'X'`.
-            on (str): Data level to plot, either `'protein'` or `'peptide'`.
-            classes (str or list of str, optional): `.obs` column(s) to use for grouping
+            layer (str): Data layer to use for abundance values. Default is ``"X"``.
+            on (str): Data level to plot, either ``"protein"`` or ``"peptide"``.
+            classes (str or list of str, optional): ``.obs`` column(s) to use for grouping
                 samples. Determines coloring and grouping structure.
             return_df (bool): If True, returns the DataFrame of replicate and summary values.
             order (dict or list, optional): Custom order of classes. For dictionary input,
-                keys are class names and values are the ordered categories.  
-                Example: `order = {"condition": ["sc", "kd"]}`.
+                keys are class names and values are the ordered categories.
+                Example: ``order = {"condition": ["sc", "kd"]}``.
             palette (list or dict, optional): Color palette mapping groups to colors.
-            log (bool): If True, apply log2 transformation to abundance values. Default is True.
-            facet (str, optional): `.obs` column to facet by, creating multiple subplots.
+            log (bool): If True, apply log2 transformation to abundance values (default here).
+                If False, raw values are used and the y-axis is log10-scaled.
+            facet (str, optional): ``.obs`` column to facet by, creating multiple subplots.
             height (float): Height of each facet plot. Default is 4.
             aspect (float): Aspect ratio of each facet plot. Default is 0.5.
             plot_points (bool): Whether to overlay stripplot of individual samples.
-            x_label (str): Label for the x-axis, either `'gene'` or `'accession'`.
+            x_label (str): Label for the x-axis, either ``"gene"`` or ``"accession"``.
             kind (str): Type of plot. Options:
 
-                - `'auto'`: Default; uses barplot if groups have ≤ 3 samples, otherwise violin.
-                - `'violin'`: Always use violin + box + strip.
-                - `'bar'`: Always use barplot.
+                - ``"auto"``: Default; uses barplot if groups have ≤ 3 samples, otherwise violin.
+                - ``"violin"``: Always use violin + box + strip.
+                - ``"bar"``: Always use barplot.
 
             **kwargs (Any): Additional keyword arguments passed to seaborn plotting functions.
 
         Returns:
             ax (matplotlib.axes.Axes or seaborn.FacetGrid):
                 The axis or facet grid containing the plot.
-            df (pandas.DataFrame, optional): Returned if `return_df=True`.
+            df (pandas.DataFrame, optional): Returned if ``return_df=True``.
 
         !!! example
-            Plot abundance of two selected proteins:
-                ```python
-                pdata.plot_abundance(ax, namelist=['Slc12a2','Septin6'])
-                ```            
+            Plot abundance of selected marker proteins grouped by cell line and condition:
+            ```python
+            import matplotlib.pyplot as plt
 
+            fig, ax = plt.subplots(figsize=(4, 4))
+            pdata.plot_abundance(
+                ax, namelist=["GAPDH", "TUBB", "ACTB"], classes=["cellline", "condition"]
+            )
+            plt.show()
+            ```
+
+            ![Plot abundance](../../assets/plots/plot_abundance.png)
         """
         return plotting.plot_abundance(ax=ax,pdata=self,namelist=namelist,
             layer=layer,on=on,classes=classes,return_df=return_df,
@@ -442,28 +463,117 @@ class PlotMixin:
         ticklabels_auto_max_samples: int = 20,
     ):
         """
-        Plot a pairwise proteome correlation heatmap across groups or samples in `.obs`.
+        Plot a pairwise protein/peptide abundance correlation heatmap across groups or samples in ``.obs``.
 
         Thin wrapper around :func:`scpviz.plotting.plot_pairwise_correlation`.
-        See that function's docstring for full parameter documentation.
 
-        Note:
-            The ``order`` argument lists **group labels** when ``show_samples=False``
-            (including combined strings such as ``"AS, kd"`` for multi-column ``classes``),
-            but lists **observation names** (``.prot.obs_names`` / ``.pep.obs_names``)
-            when ``show_samples=True``.
+        Automatically runs :meth:`~scpviz.pAnnData.pAnnData.pairwise_correlation` if
+        results are not already cached (or if ``force=True``). The figure is created
+        internally; no ``ax`` argument is needed.
+
+        Cached analysis results are reused when ``classes``, ``method``, ``layer``, and
+        ``subset_mask`` (via the same key as ``pairwise_correlation``) match. If
+        ``show_samples=True`` but the cache lacks a sample matrix, analysis is rerun with
+        ``compute_sample_matrix=True``. Group-level plots may reuse a cache that already
+        includes a sample matrix (nothing is stripped). Display ``order`` is applied only
+        when drawing and does not require recomputation.
+
+        Args:
+            classes: ``.obs`` column(s) defining groups — passed to ``pairwise_correlation``.
+            on: ``"protein"`` or ``"peptide"`` (default ``"protein"``).
+            layer: Data layer (default ``"X"``).
+            method: ``"pearson"``, ``"spearman"``, or ``"euclidean"``.
+            order: Optional row/column order. Must match the matrix being plotted:
+
+                - ``show_samples=False``: group labels — for a single ``classes`` column,
+                  values like ``"AS"``; for ``classes=[...]``, combined strings exactly as
+                  produced by :func:`~scpviz.utils.get_samplenames` (e.g. ``"AS, kd"`` with
+                  the stored comma-space separator).
+
+                - ``show_samples=True``: **observation names** only — i.e. entries of
+                  ``adata.obs_names`` (however your object labels samples, e.g. PD import
+                  sample IDs), **not** combined group strings. To order samples by group,
+                  build a list of those obs names in the desired sequence.
+
+                If ``None``, uses storage order (group order from analysis, or sample order
+                used when computing the sample matrix).
+            show_samples: If False (default), plot the group × group matrix. If True,
+                plot the sample × sample matrix (requires ``compute_sample_matrix`` in cache
+                or triggers a run that computes it).
+            cmap: Matplotlib colormap for the heatmap.
+            vmin: Colormap lower limit; correlation methods default to ``-1`` if ``None``.
+            vmax: Colormap upper limit; correlation methods default to ``1`` if ``None``.
+            annotation_cmap: ``"default"`` (independent palette per obs column), or a
+                single ``dict``, ``list``, or matplotlib cmap name shared across annotation bars.
+            figsize: ``(width, height)`` in inches; if ``None``, auto-estimated.
+            text_size: Base font size for ticks, colorbar, and legends.
+            colorbar_label: Override colorbar label.
+            annot: If True, write numeric values in each cell.
+            annot_fmt: Format string for cell annotations (e.g. ``".2f"``).
+            annot_size: Font size for cell annotations.
+            title: Optional figure suptitle.
+            force: If True, recompute ``pairwise_correlation`` even if cache matches.
+            subset_mask: Boolean mask or boolean ``Series`` aligned to ``adata.obs``
+                (same semantics as :func:`plot_pca`). All-True is normalized to
+                ``None`` for cache parity with full-data analysis.
+            show_annotation_legend: If True (default), draw one legend per annotation
+                track in a dedicated GridSpec column right of the colorbar.
+            legend_anchor_x: Horizontal anchor for annotation legends inside the legend
+                column, in axes coordinates (``0`` = left edge of that column, ``1`` = right).
+                Larger values shift legends to the **right**, away from the colorbar.
+                Typical values: about ``0.15`` to ``0.45`` (default ``0.3``).
+            show_ticklabels: When ``show_samples=True``, controls sample names on the
+                **x-axis** only. ``None`` (default) shows ticks if
+                ``n_samples <= ticklabels_auto_max_samples`` and otherwise hides them.
+                ``True`` / ``False`` force on or off. Ignored when ``show_samples=False``.
+            ticklabels_auto_max_samples: When ``show_ticklabels is None`` and
+                ``show_samples=True``, sample names are shown only if the sample count is
+                at most this value (default ``20``). Must be >= 1.
 
         Returns:
-            fig (matplotlib.figure.Figure): The created figure.
-            ax (matplotlib.axes.Axes): The heatmap axes.
+            ``(fig, ax_heatmap)``.
+
+        Note:
+            Heatmap row (y) tick labels are always omitted (symmetric matrix; x-axis labels
+            carry sample or group names as applicable).
+            The ``order`` argument lists **group labels** when ``show_samples=False``
+            (including combined strings such as ``"AS, kd"`` for multi-column ``classes``),
+            but lists **observation names** when ``show_samples=True``.
+
+        Raises:
+            ValueError: If ``sample_matrix`` is missing when ``show_samples=True``, or if
+                ``ticklabels_auto_max_samples`` < 1.
 
         Example:
-            Sample-level heatmap with x-axis sample names forced on:
+            Group-level heatmap (``show_samples=False``, default):
+            ```python
+            fig, ax = pdata.plot_pairwise_correlation(classes="cellline", method="pearson")
+            ```
+
+            ![Plot pairwise correlation](../../assets/plots/plot_pairwise_correlation.png)
+
+            Sample × sample heatmap with x-axis sample names forced on:
             ```python
             fig, ax = pdata.plot_pairwise_correlation(
                 classes="cellline",
                 show_samples=True,
                 show_ticklabels=True,
+            )
+            ```
+
+            Custom row/column order without recomputing (group labels must match the matrix):
+            ```python
+            fig, ax = pdata.plot_pairwise_correlation(
+                classes=["cellline", "treatment"],
+                order=["AS, kd", "BE, sc", "AS, sc", "BE, kd"],
+            )
+            ```
+
+            Subset of samples and no annotation legends:
+            ```python
+            mask = pdata.prot.obs["cellline"].eq("AS").to_numpy()
+            fig, ax = pdata.plot_pairwise_correlation(
+                classes="treatment", subset_mask=mask, show_annotation_legend=False
             )
             ```
         """
@@ -523,38 +633,78 @@ class PlotMixin:
         """
         Overlay PCA-GSEA pathways as arrows in a two-dimensional PCA sample space.
 
-        Delegates to ``scpviz.plotting.plot_pca_gsea_pathway_vectors`` with ``pdata=self``.
+        Thin wrapper around :func:`scpviz.plotting.plot_pca_gsea_pathway_vectors`.
+
+        Each arrow encodes normalized enrichment scores (NES) on two principal components taken from
+        ``adata.uns[key_added]['results']`` (from ``pca_gsea``). Arrow endpoints are rescaled using the
+        current axis limits so pathways remain visible; they are not plotted in the same numeric units as
+        sample coordinates. When ``show_samples`` is True, the sample PCA scatter is drawn first via
+        ``plot_pca``.
 
         Args:
             ax (matplotlib.axes.Axes): Target axis (2D).
             on (str): Data level, ``"protein"`` or ``"peptide"``.
             key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
             plot_pc (list of int): Exactly two 1-based PCs, e.g. ``[1, 2]``.
-            n_vectors (int, sequence, ``None``, or unset): Auto top-N on rows not in ``namelist``. Default ``12``
-                when ``namelist`` is unset; when ``namelist`` is set, default is no extra top-N unless passed.
-            fdr_cutoff (float or None): FDR threshold for the default ranking path; with ``namelist``,
-                pathways are shown even if they fail FDR, with a printed warning when applicable.
+            n_vectors (int, sequence, ``None``, or unset): Caps auto-selected pathways (after ``namelist`` rows).
+                Default when ``namelist`` is ``None`` is ``12``; when ``namelist`` is set, default is no extra
+                top-N unless you pass ``n_vectors`` explicitly. If an int (>= 1), uses ``top_n_mode`` on rows not
+                already chosen by ``namelist``. If ``[nx, ny]``, split-axis top union on that remainder.
+            fdr_cutoff (float or None): For **auto-selected** rows: pathway-level FDR filtering and score gating.
+                **Namelist** pathways skip the row FDR filter; a **warning** is printed per named pathway when
+                ``fdr_cutoff`` is not ``None`` and no plotted PC passes FDR.
             arrow_scale (float): Scale factor for arrow length relative to axis span.
             pca_kwargs (dict or None): Additional arguments passed to ``plot_pca`` when ``show_samples=True``.
             show_samples (bool): If True, plot samples first; if False, draw only axes, grid lines, and arrows.
-            title_case_labels (bool): If True, format pathway labels for display.
+            title_case_labels (bool): If True, format pathway labels for display (e.g. title case).
             force (bool): If True, re-run ``pca_gsea`` for ``plot_pc``.
             gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when results are auto-computed.
             adjust_labels (bool): If True, run ``adjust_text`` to reduce label overlap.
             adjust_text_kwargs (dict or None): Extra keyword arguments for ``adjust_text``.
-            text_positions (dict or None): Optional manual label positions.
+            text_positions (dict or None): Optional manual label positions; keys are pathway raw or display
+                strings, values are ``(x, y)`` data coordinates.
             lock_text_positions (bool): If True, labels with entries in ``text_positions`` are not moved by
                 ``adjust_text``.
             top_n_mode (str): ``"balanced"`` or ``"max_score"``. Used only when ``n_vectors`` is an int.
-            exclude_pathways (str, iterable, or None): Remove pathways matching these names.
-            namelist (list of str or None): Pathways to plot first; optional extra top-N from ``n_vectors`` on the rest.
-            cmap (dict or None): Per-pathway colors (raw, formatted, then case-insensitive keys).
-            xlim (tuple or None): X-axis limits applied before arrow scaling (releases fixed aspect first).
-            ylim (tuple or None): Y-axis limits, same stage as ``xlim``.
+            exclude_pathways (str, iterable, or None): Remove pathways matching these names (raw Term, short
+                pathway, or library).
+            namelist (list of str or None): Pathways to always include first. Shown even if they fail FDR;
+                ``exclude_pathways`` still applies first. Combined with ``n_vectors`` on the remaining rows.
+            cmap (dict or None): Per-pathway colors; lookup raw ``Term``, formatted label, then case-insensitive keys.
+            xlim (tuple or None): Applied after scatter / empty axes, before arrow scaling.
+            ylim (tuple or None): Same as ``xlim``.
             return_df (bool): If True, also return a DataFrame with NES, FDR, and label positions.
 
         Returns:
-            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+        Example:
+            Default overlay on PC1 vs PC2 with label de-cluttering:
+            ```python
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots()
+            ax, vec_df = pdata.plot_pca_gsea_pathway_vectors(
+                ax,
+                plot_pc=[1, 2],
+                adjust_text_kwargs={"expand": (1.3, 1.3)},
+                return_df=True,
+            )
+            ```
+
+            Reuse label positions from a previous run:
+            ```python
+            manual = {
+                row["pathway_raw"]: (row["text_x"], row["text_y"])
+                for _, row in vec_df.iterrows()
+            }
+            ax = pdata.plot_pca_gsea_pathway_vectors(
+                ax,
+                plot_pc=[1, 2],
+                text_positions=manual,
+                lock_text_positions=True,
+            )
+            ```
         """
         return plotting.plot_pca_gsea_pathway_vectors(
             ax=ax,
@@ -610,9 +760,10 @@ class PlotMixin:
         """
         Overlay protein PCA loadings as arrows in a two-dimensional sample PCA space.
 
-        Delegates to ``scpviz.plotting.plot_pca_protein_vectors`` with ``pdata=self``. Arrows use feature
-        loadings from ``adata.uns['pca']['PCs']`` (from ``pAnnData.pca``), not GSEA NES. Geometry matches
-        ``plot_pca_gsea_pathway_vectors``: each arrow runs from the origin in the direction
+        Thin wrapper around :func:`scpviz.plotting.plot_pca_protein_vectors`.
+
+        Arrows use feature loadings from ``adata.uns['pca']['PCs']`` (from ``pAnnData.pca``), not GSEA NES.
+        Geometry matches ``plot_pca_gsea_pathway_vectors``: each arrow runs from the origin in the direction
         ``(loading_on_PCx, loading_on_PCy)``, with length rescaled from the current axis limits for visibility.
         Labels default to the ``gene_col`` column in ``.var`` when present, otherwise ``.var_names``.
 
@@ -621,9 +772,10 @@ class PlotMixin:
             on (str): Data level, ``"protein"`` or ``"peptide"``.
             plot_pc (tuple or list of int): Exactly two 1-based PCs.
             gene_col (str): Column in ``.var`` for display labels; missing column falls back to ``.var_names``.
-            n_vectors (int, sequence, ``None``, or unset): Auto top-N on rows not in ``namelist``. Default ``20``
-                when ``namelist`` is unset; when ``namelist`` is set, default is no extra top-N unless passed.
-                ``min_abs_loading_for_top_n`` gates scores on the remainder.
+            n_vectors (int, sequence, ``None``, or unset): Caps **auto-selected** proteins (rows not already taken
+                by ``namelist``). Default when ``namelist`` is ``None`` is ``20``; when ``namelist`` is set, default
+                is no extra top-N unless you pass ``n_vectors`` explicitly. If an int (>= 1), uses ``top_n_mode``.
+                If ``[nx, ny]``, split-axis top union on that remainder.
             arrow_scale (float): Scale factor for arrow length relative to axis span.
             pca_kwargs (dict or None): Forwarded to ``plot_pca`` when ``show_samples=True``.
             show_samples (bool): If True, draw the sample PCA scatter first; if False, only axes and arrows.
@@ -638,70 +790,76 @@ class PlotMixin:
                 absolute loadings instead of NES/FDR scores). Used only when ``n_vectors`` is an int.
             exclude_genes (str, iterable, or None): Remove genes/features matching these strings (gene label or
                 ``.var_names`` feature id).
-            namelist (list of str or None): Gene labels (matrix index, exact ``str`` match) to include first;
-                combined with ``n_vectors`` on the remaining rows. Genes in ``exclude_genes`` are dropped.
-            cmap (dict or None): Map gene label (as in matrix or after ``title_case_labels`` formatting) to a
-                matplotlib color; lookup tries raw name, formatted label, then case-insensitive keys. Default
-                ``None`` draws arrows and labels in black.
-            xlim (tuple or None): If set, applied with ``ax.set_xlim(xlim)`` immediately after the PCA scatter
-                (or empty axes) and **before** arrow length scaling, so ``arrow_scale`` matches the visible range.
-                When either ``xlim`` or ``ylim`` is set, ``ax.set_aspect("auto")`` is called first so a fixed
-                data aspect from ``plot_pca`` (or ``show_samples=False``) does not block the limits.
-            ylim (tuple or None): If set, ``ax.set_ylim(ylim)`` at the same stage as ``xlim`` (same note).
+            namelist (list of str or None): Gene labels (matrix row index, exact ``str`` match) to include **first**.
+                Combined with ``n_vectors`` on the remaining rows. Genes in ``exclude_genes`` are dropped.
+            cmap (dict or None): Map gene label to a matplotlib color; lookup tries raw name, formatted label,
+                then case-insensitive keys. Default ``None`` draws arrows and labels in black.
+            xlim (tuple or None): Applied after the PCA scatter and **before** arrow length scaling.
+            ylim (tuple or None): Same stage as ``xlim``.
             return_df (bool): If True, return ``(ax, vector_df)`` with loadings and arrow/text coordinates.
 
         Returns:
-            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
 
         Example:
-            Top-loading genes on PC1 vs PC2 over the sample PCA scatter, returning arrow and text coordinates:
-                ```python
-                import matplotlib.pyplot as plt
+            Show top protein loadings on PC1 vs PC2 on sample PCA scatter:
+            ```python
+            import matplotlib.pyplot as plt
 
-                fig, ax = plt.subplots()
-                ax, vec = pdata.plot_pca_protein_vectors(
-                    ax,
-                    plot_pc=[1, 2],
-                    n_vectors=25,
-                    return_df=True,
-                )
-                ```
+            fig, ax = plt.subplots(figsize=(4, 4))
+            pdata.pca(on="protein")
+            pdata.plot_pca_protein_vectors(ax, n_vectors=10)
+            plt.show()
+            ```
 
-            Split-axis selection: top loadings on PC1 and PC3 separately, then union:
-                ```python
-                fig, ax = plt.subplots()
-                pdata.plot_pca_protein_vectors(
-                    ax,
-                    plot_pc=[1, 3],
-                    n_vectors=[5, 3],
-                    adjust_labels=False,
-                )
-                ```
+            ![Plot PCA protein vectors](../../assets/plots/plot_pca_protein_vectors.png)
+
+            Top-loading genes with returned coordinates:
+            ```python
+            fig, ax = plt.subplots()
+            ax, vec = pdata.plot_pca_protein_vectors(
+                ax,
+                plot_pc=[1, 2],
+                n_vectors=25,
+                return_df=True,
+            )
+            ```
+
+            Split-axis selection on PC1 and PC3:
+            ```python
+            fig, ax = plt.subplots()
+            pdata.plot_pca_protein_vectors(
+                ax,
+                plot_pc=[1, 3],
+                n_vectors=[5, 3],
+                adjust_labels=False,
+            )
+            ```
 
             Explicit genes with colors and axis limits:
-                ```python
-                fig, ax = plt.subplots()
-                pdata.plot_pca_protein_vectors(
-                    ax,
-                    plot_pc=[1, 2],
-                    namelist=["TP53", "EGFR"],
-                    cmap={"TP53": "crimson", "egfr": "steelblue"},
-                    xlim=(-6, 6),
-                    ylim=(-5, 5),
-                )
-                ```
+            ```python
+            fig, ax = plt.subplots()
+            pdata.plot_pca_protein_vectors(
+                ax,
+                plot_pc=[1, 2],
+                namelist=["TP53", "EGFR"],
+                cmap={"TP53": "crimson", "egfr": "steelblue"},
+                xlim=(-6, 6),
+                ylim=(-5, 5),
+            )
+            ```
 
-            Loading arrows only (no sample points) for a compact biplot-style panel:
-                ```python
-                fig, ax = plt.subplots()
-                pdata.plot_pca_protein_vectors(
-                    ax,
-                    plot_pc=[1, 2],
-                    n_vectors=20,
-                    show_samples=False,
-                    adjust_labels=False,
-                )
-                ```
+            Loading arrows only (no sample points):
+            ```python
+            fig, ax = plt.subplots()
+            pdata.plot_pca_protein_vectors(
+                ax,
+                plot_pc=[1, 2],
+                n_vectors=20,
+                show_samples=False,
+                adjust_labels=False,
+            )
+            ```
         """
         return plotting.plot_pca_protein_vectors(
             ax=ax,
@@ -747,29 +905,59 @@ class PlotMixin:
         return_df=False,
     ):
         """
-        Wrapper for `scpviz.plotting.plot_pca_gsea_bubble`.
+        Plot PCA-GSEA results as a bubble chart (principal component versus pathway).
 
-        Bubble chart of pathways by principal component: color is NES, size reflects FDR.
+        Thin wrapper around :func:`scpviz.plotting.plot_pca_gsea_bubble`.
+
+        Bubble color encodes NES; bubble area reflects significance (``-log10(FDR)``). Rows and columns
+        are ordered by pathway and PC. If ``pcs`` is omitted, all PCs present in stored results are used.
 
         Args:
             ax (matplotlib.axes.Axes): Target axis.
-            on (str): ``"protein"`` or ``"peptide"``.
-            key_added (str): ``adata.uns`` key for PCA-GSEA results.
-            pcs (list of int or None): PCs to show; ``None`` uses all stored PCs.
-            top_n (int): Cap on pathways after ranking; must be >= 1.
-            fdr_cutoff (float or None): FDR threshold (default ``0.1``); see plotting function docstring.
-            size_scale (float): Scales bubble area from ``-log10(FDR)``.
-            cmap (str or Colormap): Colormap for NES.
-            title_case_labels (bool): Format pathway tick labels.
-            force (bool): Re-run ``pca_gsea`` when True.
-            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` if run automatically.
-            top_n_mode (str): ``"balanced"`` or ``"max_score"``.
-            include_pathways (str, iterable, or None): Restrict to these names.
-            exclude_pathways (str, iterable, or None): Drop these names.
-            return_df (bool): If True, return ``(ax, bubble_df)``.
+            on (str): Data level, ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+            pcs (list of int or None): 1-based PCs to include; ``None`` uses every PC in stored results.
+            top_n (int): Cap on distinct pathways after ranking; must be >= 1.
+            fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``):
+                eligibility on at least one PC plus ``top_n`` ranking gate. ``None`` disables both.
+            size_scale (float): Multiplier for bubble area from ``-log10(FDR)``.
+            cmap (str or Colormap): Colormap for NES-centered coloring.
+            title_case_labels (bool): If True, format pathway tick labels for display.
+            force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when auto-computing results.
+            top_n_mode (str): ``"balanced"`` or ``"max_score"`` (see ``plot_pca_gsea_pathway_vectors``).
+            include_pathways (str, iterable, or None): Keep only pathways matching these names.
+            exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+            return_df (bool): If True, return ``(ax, bubble_df)`` with plot coordinates and sizes.
 
         Returns:
-            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+        Example:
+            Bubble chart for the first three PCs, top 25 pathways:
+            ```python
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots(figsize=(6, 8))
+            ax, df = pdata.plot_pca_gsea_bubble(
+                ax,
+                pcs=[1, 2, 3],
+                top_n=25,
+                return_df=True,
+            )
+            ```
+
+            Stricter FDR cutoff and title-case pathway labels:
+            ```python
+            fig, ax = plt.subplots(figsize=(5, 9))
+            pdata.plot_pca_gsea_bubble(
+                ax,
+                pcs=[1, 2],
+                top_n=30,
+                fdr_cutoff=0.05,
+                title_case_labels=True,
+            )
+            ```
         """
         return plotting.plot_pca_gsea_bubble(
             ax=ax,
@@ -808,28 +996,52 @@ class PlotMixin:
         return_df=False,
     ):
         """
-        Wrapper for `scpviz.plotting.plot_pca_gsea_heatmap`.
+        Plot a pathway-by-principal-component heatmap of PCA-GSEA NES values.
 
-        Heatmap of NES values (pathways × principal components) from PCA-GSEA results.
+        Thin wrapper around :func:`scpviz.plotting.plot_pca_gsea_heatmap`.
+
+        Cell color is NES; optional ``top_n`` trimming uses the same FDR-aware scoring as the bubble plot.
+        Missing PCs in stored results produce NaN columns and a warning.
 
         Args:
             ax (matplotlib.axes.Axes): Target axis.
-            on (str): ``"protein"`` or ``"peptide"``.
-            key_added (str): ``adata.uns`` key for PCA-GSEA results.
-            pcs (list of int or None): PCs as columns; ``None`` uses all stored PCs.
-            top_n (int): Cap on pathways after ranking; must be >= 1.
-            fdr_cutoff (float or None): FDR threshold (default ``0.1``); see plotting function docstring.
-            cmap (str or Colormap): Heatmap colormap.
-            title_case_labels (bool): Format pathway labels on the axis.
-            force (bool): Re-run ``pca_gsea`` when True.
-            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` if run automatically.
+            on (str): Data level, ``"protein"`` or ``"peptide"``.
+            key_added (str): ``adata.uns`` key for PCA-GSEA results (default ``"pca_gsea"``).
+            pcs (list of int or None): 1-based PCs as columns; ``None`` uses all PCs in stored results.
+            top_n (int): Maximum pathways to retain after ranking; must be >= 1.
+            fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``).
+            cmap (str or Colormap): Heatmap colormap (diverging around zero is typical).
+            title_case_labels (bool): If True, format pathway labels on the axis.
+            force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
+            gsea_kwargs (dict or None): Forwarded to ``pca_gsea`` when auto-computing results.
             top_n_mode (str): ``"balanced"`` or ``"max_score"``.
-            include_pathways (str, iterable, or None): Restrict to these names.
-            exclude_pathways (str, iterable, or None): Drop these names.
-            return_df (bool): If True, return ``(ax, heatmap_df)`` (see plotting function docstring).
+            include_pathways (str, iterable, or None): Keep only pathways matching these names.
+            exclude_pathways (str, iterable, or None): Remove pathways matching these names.
+            return_df (bool): If True, return ``(ax, heatmap_df)`` with the NES matrix used for plotting.
 
         Returns:
-            out (matplotlib.axes.Axes | tuple): The axis, or ``(ax, pandas.DataFrame)`` when ``return_df=True``.
+            matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
+
+        Example:
+            Heatmap of NES for four PCs and the 40 top-ranked pathways:
+            ```python
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots(figsize=(5, 10))
+            pdata.plot_pca_gsea_heatmap(ax, pcs=[1, 2, 3, 4], top_n=40)
+            ```
+
+            Diverging colormap with formatted pathway names on rows:
+            ```python
+            fig, ax = plt.subplots(figsize=(4, 12))
+            pdata.plot_pca_gsea_heatmap(
+                ax,
+                pcs=[1, 2, 3],
+                top_n=50,
+                cmap="RdBu_r",
+                title_case_labels=True,
+            )
+            ```
         """
         return plotting.plot_pca_gsea_heatmap(
             ax=ax,
