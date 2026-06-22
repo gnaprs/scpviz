@@ -599,7 +599,7 @@ PCA reduces the high-dimensional protein abundance matrix into a smaller number 
 
 === "2D PCA by abundance"
 
-    ```py title="Plot 2D PCA colored by protein abundance"
+    ```py title="Plot 2D PCA colored by protein abundance (linear colorbar)"
     fig, ax = plt.subplots(1, 1, figsize=(3, 3))
     ax = scplt.plot_pca(
         ax,
@@ -617,6 +617,40 @@ PCA reduces the high-dimensional protein abundance matrix into a smaller number 
 
     <figure markdown="span">
     ![Venn diagram](../assets/sctutorial_6.png)
+    <figcaption></figcaption>
+    </figure>
+
+    </div>
+
+=== "2D PCA by abundance (log scale)"
+
+    For sparse markers such as ITGAM, many cells have zero or missing abundance. Use
+    ``colorbar_norm=mcolors.LogNorm(...)`` to emphasize differences among detected cells,
+    and ``nan_color`` to plot undetected cells underneath the colormap layer.
+
+    ```py title="Plot 2D PCA with LogNorm colorbar and black missing cells"
+    import matplotlib.colors as mcolors
+
+    fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+    ax = scplt.plot_pca(
+        ax,
+        pdata_sc_norm,
+        color="Itgam",
+        cmap="plasma",
+        colorbar_norm=mcolors.LogNorm(vmin=1, vmax=1e7),
+        nan_color="grey",
+        s=20,
+        alpha=.8,
+        force=True,
+    )
+    scplt.shift_legend(ax)
+    plt.show()
+    ```
+
+    <div class="result" markdown>
+
+    <figure markdown="span">
+    ![PCA ITGAM log scale](../assets/sctutorial_6_log.png)
     <figcaption></figcaption>
     </figure>
 
@@ -746,7 +780,7 @@ For datasets with stronger batch effects, `scpviz` also supports Harmony integra
 
 === "UMAP by abundance"
 
-    ```py title="Plot UMAP colored by protein abundance"
+    ```py title="Plot UMAP colored by protein abundance (linear colorbar)"
     fig, ax = plt.subplots(1, 1, figsize=(3, 3))
     umap_params = {"min_dist": 0.3, "n_neighbors": 7}
 
@@ -768,6 +802,39 @@ For datasets with stronger batch effects, `scpviz` also supports Harmony integra
 
     <figure markdown="span">
     ![Venn diagram](../assets/sctutorial_10.png)
+    <figcaption></figcaption>
+    </figure>
+
+    </div>
+
+=== "UMAP by abundance (log scale)"
+
+    ```py title="Plot UMAP with LogNorm colorbar and black missing cells"
+    import matplotlib.colors as mcolors
+
+    fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+    umap_params = {"min_dist": 0.3, "n_neighbors": 7}
+
+    ax = scplt.plot_umap(
+        ax,
+        pdata_sc_norm,
+        color="Itgam",
+        cmap="plasma",
+        colorbar_norm=mcolors.LogNorm(vmin=1, vmax=1e7),
+        nan_color="black",
+        s=20,
+        alpha=.8,
+        force=True,
+        umap_params=umap_params,
+    )
+    scplt.shift_legend(ax)
+    plt.show()
+    ```
+
+    <div class="result" markdown>
+
+    <figure markdown="span">
+    ![UMAP ITGAM log scale](../assets/sctutorial_10_log.png)
     <figcaption></figcaption>
     </figure>
 

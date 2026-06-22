@@ -1308,6 +1308,59 @@ def test_resolve_plot_colors_invalid(dummy_adata, bad_input):
     with pytest.raises(ValueError):
         scplt.resolve_plot_colors(dummy_adata, classes=bad_input, cmap="default")
 
+def test_resolve_colorbar_norm_invalid_literal():
+    from scpviz.plotting.dimreduc import _resolve_colorbar_norm
+
+    with pytest.raises(ValueError, match="Invalid colorbar_norm"):
+        _resolve_colorbar_norm(np.array([1.0, 10.0]), "ln")
+
+def test_resolve_colorbar_norm_log10_decade_limits():
+    from scpviz.plotting.dimreduc import _resolve_colorbar_norm
+    import matplotlib.colors as mcolors
+
+    norm, tick_base = _resolve_colorbar_norm(np.array([37.0, 840.0]), "log10")
+    assert isinstance(norm, mcolors.LogNorm)
+    assert norm.vmin == 10.0
+    assert norm.vmax == 1000.0
+    assert tick_base == 10
+
+def test_resolve_colorbar_norm_log2_power_limits():
+    from scpviz.plotting.dimreduc import _resolve_colorbar_norm
+    import matplotlib.colors as mcolors
+
+    norm, tick_base = _resolve_colorbar_norm(np.array([5.0, 20.0]), "log2")
+    assert isinstance(norm, mcolors.LogNorm)
+    assert norm.vmin == 4.0
+    assert norm.vmax == 32.0
+    assert tick_base == 2
+
+def test_plot_pca_nan_color_layer(pdata):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    obs_mask = np.zeros(pdata.prot.n_obs, dtype=bool)
+    obs_mask[0] = True
+    _zero_gene_for_obs_mask(pdata, gene, obs_mask)
+    scplt.plot_pca(ax, pdata, color=gene, force=True, nan_color="red")
+    assert len(ax.collections) >= 2
+    face_colors = ax.collections[0].get_facecolors()
+    assert np.allclose(face_colors[0, :3], matplotlib.colors.to_rgb("red"))
+
+def test_plot_pca_colorbar_norm_log10_label(pdata):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    scplt.plot_pca(ax, pdata, color=gene, colorbar_norm="log10", force=True)
+    ylabels = [a.get_ylabel() for a in fig.axes if a.get_ylabel()]
+    assert any(f"{gene} Abundance (log10)" in lab for lab in ylabels)
+
+def test_plot_pca_negative_abundance_warns(pdata, capsys):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    var_idx = int(np.where(pdata.prot.var["Genes"] == gene)[0][0])
+    pdata.prot.X[0, var_idx] = -1.0
+    scplt.plot_pca(ax, pdata, color=gene, force=True)
+    captured = capsys.readouterr()
+    assert "negative abundance" in captured.out.lower()
+
 def _combo_mapping_literal(pdata):
     """Unique (cellline, treatment) pairs with simple face/edge styles."""
     adata = pdata.prot
@@ -1317,7 +1370,6 @@ def _combo_mapping_literal(pdata):
     for i, row in enumerate(adata.obs[mapping_keys].drop_duplicates().itertuples(index=False, name=None)):
         mapping[tuple(row)] = {"color": "#f0f0f0", "edge_color": edges[i % len(edges)]}
     return mapping_keys, mapping
-
 
 def test_plot_pca_mapping_literal_face_edge(pdata):
     fig, ax = plt.subplots()
@@ -1332,7 +1384,6 @@ def test_plot_pca_mapping_literal_face_edge(pdata):
     )
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
-
 
 def test_plot_pca_mapping_abundance_with_edges(pdata):
     fig, ax = plt.subplots()
@@ -1355,7 +1406,6 @@ def test_plot_pca_mapping_abundance_with_edges(pdata):
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
 
-
 def test_plot_pca_mapping_rejects_edge_color_kw(pdata):
     fig, ax = plt.subplots()
     mapping_keys, mapping = _combo_mapping_literal(pdata)
@@ -1369,7 +1419,6 @@ def test_plot_pca_mapping_rejects_edge_color_kw(pdata):
             force=True,
             on="protein",
         )
-
 
 def test_plot_pca_mapping_raises_missing_combo(pdata):
     fig, ax = plt.subplots()
@@ -1385,7 +1434,6 @@ def test_plot_pca_mapping_raises_missing_combo(pdata):
             on="protein",
             mapping_on_missing="raise",
         )
-
 
 def test_plot_pca_mapping_incomplete_warn_default(pdata):
     """Missing combos: default warn prints and grey face + no edge (except abundance color=)."""
@@ -1404,7 +1452,6 @@ def test_plot_pca_mapping_incomplete_warn_default(pdata):
     )
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
-
 
 # tests for plot_umap
 def test_plot_umap_runs_without_error(pdata):
