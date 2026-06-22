@@ -472,17 +472,30 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
             plot_df = df[[x_col, y_col, 'class', 'facet']]
             g = sns.FacetGrid(plot_df, col='facet', height=height, aspect=aspect, sharey=True, dropna=False, legend_out=log)
             g.map_dataframe(sns.violinplot, x=x_col, y=y_col, hue='class', palette=palette, **violin_kwargs)
+            if not log:
+                for ax_ in g.axes.flatten():
+                    ax_.set_yscale("log")
             if plot_points:
                 def _strip(data, color, **kwargs_inner):
-                    sns.stripplot(data=data, x=x_col, y=y_col, hue='class', dodge=True, jitter=True,
-                                  color='black', size=3, alpha=0.5, legend=False, **kwargs_inner)
+                    ax_ = kwargs_inner.pop("ax", None)
+                    sns.stripplot(
+                        data=data,
+                        x=x_col,
+                        y=y_col,
+                        hue='class',
+                        dodge=True,
+                        jitter=True,
+                        color='black',
+                        size=3,
+                        alpha=0.5,
+                        legend=False,
+                        ax=ax_,
+                        **kwargs_inner,
+                    )
                 g.map_dataframe(_strip)
             g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
-            if not log:
-                for ax_ in g.axes.flatten():
-                    ax_.set_yscale("log")
             return g
         else:
             if ax is None:
