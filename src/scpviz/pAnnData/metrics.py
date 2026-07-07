@@ -30,8 +30,8 @@ class MetricsMixin:
         This internal method updates:
         
         - `.prot.obs` and `.pep.obs` with per-sample metrics:
-            • `*_quant`: Proportion of non-missing values
-            • `*_count`: Number of non-missing values
+            • `*_quant`: Proportion of detected (non-NaN, non-zero) values
+            • `*_count`: Number of detected (non-NaN, non-zero) values
             • `*_abundance_sum`: Sum of observed abundances
             • `mbr_count`, `high_count`: Count of MBR annotations (if present in layer 'X_mbr')
         
@@ -47,9 +47,10 @@ class MetricsMixin:
             if self.prot.is_view:
                 self.prot = self.prot.copy()
 
-            X = self.prot.X.toarray()
-            self.prot.obs['protein_quant'] = np.sum(~np.isnan(X), axis=1) / X.shape[1]
-            self.prot.obs['protein_count'] = np.sum(~np.isnan(X), axis=1)
+            X = self.prot.X.toarray() if hasattr(self.prot.X, "toarray") else np.asarray(self.prot.X)
+            detected = (~np.isnan(X)) & (X != 0)
+            self.prot.obs['protein_quant'] = detected.sum(axis=1) / X.shape[1]
+            self.prot.obs['protein_count'] = detected.sum(axis=1)
             self.prot.obs['protein_abundance_sum'] = np.nansum(X, axis=1)
 
             if 'X_mbr' in self.prot.layers:
@@ -59,9 +60,10 @@ class MetricsMixin:
         if self.pep is not None:
             if self.pep.is_view:
                 self.pep = self.pep.copy()
-            X = self.pep.X.toarray()
-            self.pep.obs['peptide_quant'] = np.sum(~np.isnan(X), axis=1) / X.shape[1]
-            self.pep.obs['peptide_count'] = np.sum(~np.isnan(X), axis=1)
+            X = self.pep.X.toarray() if hasattr(self.pep.X, "toarray") else np.asarray(self.pep.X)
+            detected = (~np.isnan(X)) & (X != 0)
+            self.pep.obs['peptide_quant'] = detected.sum(axis=1) / X.shape[1]
+            self.pep.obs['peptide_count'] = detected.sum(axis=1)
             self.pep.obs['peptide_abundance_sum'] = np.nansum(X, axis=1)
 
             if 'X_mbr' in self.pep.layers:
@@ -69,7 +71,11 @@ class MetricsMixin:
                 self.pep.obs['high_count'] = (self.pep.layers['X_mbr'] == 'High').sum(axis=1)
 
         # RS metrics for prot.var
-        if self.rs is not None and self.prot is not None:
+        if (
+            self.rs is not None
+            and self.prot is not None
+            and self.rs.shape[0] == self.prot.n_vars
+        ):
             rs = self.rs  # leave it sparse
             peptides_per_protein = rs.getnnz(axis=1)
             unique_mask = rs.getnnz(axis=0) == 1
@@ -99,9 +105,13 @@ class MetricsMixin:
             'unique_peptides' in self.prot.var.columns
         ):
             unique_mask = self.prot.var['unique_peptides'] >= unique_peptide_thresh
-            quant_matrix = self.prot.X.toarray()
+            quant_matrix = (
+                self.prot.X.toarray()
+                if hasattr(self.prot.X, "toarray")
+                else np.asarray(self.prot.X)
+            )
             high_conf_matrix = quant_matrix[:, unique_mask]
-            high_conf_count = np.sum(~np.isnan(high_conf_matrix), axis=1)
+            high_conf_count = ((~np.isnan(high_conf_matrix)) & (high_conf_matrix != 0)).sum(axis=1)
             self._summary['unique_pep2_protein_count'] = high_conf_count
 
     def describe_rs(self):
