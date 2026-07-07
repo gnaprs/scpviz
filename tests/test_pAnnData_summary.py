@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import re
+from scipy import sparse
 
 # ----------------------------------------------------------------------
 # unit tests for .summary staleness, manual edits, auto-sync behaviour:
@@ -46,3 +48,46 @@ def test_no_sync_when_not_stale(pdata):
     pdata.update_summary(recompute=False)
 
     pd.testing.assert_frame_equal(prot_obs_before, pdata.prot.obs)
+
+def test_update_metrics_treats_zero_as_missing(pdata):
+    pdata.prot = pdata.prot[:2, :3].copy()
+    pdata.prot.X = np.array([[1e5, 0.0, np.nan], [0.0, 2e4, 3e4]])
+    pdata.update_summary(recompute=True, verbose=False)
+    assert pdata.prot.obs["protein_quant"].tolist() == [1 / 3, 2 / 3]
+    assert pdata.prot.obs["protein_count"].tolist() == [1, 2]
+
+def test_clean_X_preserves_protein_quant(pdata):
+    pdata.update_summary(recompute=True, verbose=False)
+    quant_before = pdata.prot.obs["protein_quant"].copy()
+
+    pdata.clean_X(on="prot", set_to=0, inplace=True)
+
+    pd.testing.assert_series_equal(quant_before, pdata.prot.obs["protein_quant"])
+
+def test_directlfq_like_layer_preserves_per_sample_quant(pdata):
+    X = pdata.prot.X.toarray().copy()
+    X = np.nan_to_num(X, nan=0.0)
+    pdata.prot.layers["X_norm_directlfq"] = sparse.csr_matrix(X)
+    pdata.set_X("X_norm_directlfq", on="protein")
+
+    quant = pdata.prot.obs["protein_quant"]
+    assert quant.nunique() > 1
+    assert (quant < 1.0).any()
+
+def test_copy_matches_original_after_directlfq_like_layer(pdata):
+    X = pdata.prot.X.toarray().copy()
+    X = np.nan_to_num(X, nan=0.0)
+    pdata.prot.layers["X_norm_directlfq"] = sparse.csr_matrix(X)
+    pdata.set_X("X_norm_directlfq", on="protein")
+
+    pdata_copy = pdata.copy()
+    pd.testing.assert_series_equal(
+        pdata.prot.obs["protein_quant"],
+        pdata_copy.prot.obs["protein_quant"],
+    )
+
+    def _repr_quant(obj):
+        match = re.search(r"Avg protein quant: ([\d.]+)", repr(obj))
+        return float(match.group(1)) if match else None
+
+    assert _repr_quant(pdata) == _repr_quant(pdata_copy)

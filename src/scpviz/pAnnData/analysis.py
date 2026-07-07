@@ -1676,6 +1676,8 @@ class AnalysisMixin:
         elif on == 'peptide':
             self.pep = adata
 
+        self.update_summary(recompute=True, verbose=False) # type: ignore[attr-defined], SummaryMixin
+
     def normalize(self, classes = None, layer = "X", method = 'sum', on = 'protein', set_X = True, force = False, use_nonmissing = False, **kwargs):  
         """
         Normalize sample intensities across protein or peptide data.
@@ -2487,6 +2489,8 @@ class AnalysisMixin:
                 self.prot.X = X_clean
             if verbose:
                 print(f"{format_log_prefix('result')} Cleaned {'layer ' + layer if layer else '.X'}: replaced {nan_count} NaNs with {set_to}.")
+            if not layer:
+                self.update_summary(recompute=True, verbose=False) # type: ignore[attr-defined], SummaryMixin
         else:
             if verbose:
                 print(f"{format_log_prefix('result')} Returning cleaned matrix: {nan_count} NaNs replaced with {set_to}.")

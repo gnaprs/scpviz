@@ -1044,8 +1044,11 @@ def test_filter_rs_triggers_validate_and_detects_shape_mismatch(pdata):
 
     pdata.validate = fake_validate
 
-    # Expect the error when validate_after=True
-    with pytest.raises(ValueError, match=r"(RS shape mismatch|Length of values)"):
+    # Mismatched RS should fail during filter_rs (subset or validate)
+    with pytest.raises(
+        (ValueError, IndexError),
+        match=r"(RS shape mismatch|Length of values|Boolean index)",
+    ):
         pdata.filter_rs(validate_after=True)
 
 def test_filter_rs_validate_passes_for_valid_rs(pdata, monkeypatch):

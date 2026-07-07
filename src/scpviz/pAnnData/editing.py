@@ -70,6 +70,7 @@ class EditingMixin:
             print(f"{format_log_prefix('info_only', indent=2)} Set {on} data (.X) to layer {layer}.")
 
         self._history.append(f"{on}: Set X to layer {layer}.") # type: ignore[attr-defined]
+        self.update_summary(recompute=True, verbose=False) # type: ignore[attr-defined], SummaryMixin
 
     def get_abundance(self, namelist=None, layer='X', on='protein', classes=None, log=True, x_label='gene', all_matches=False):
         """
@@ -391,3 +392,12 @@ class EditingMixin:
             total = self._rs.shape[0] * self._rs.shape[1]
             sparsity = 100 * (1 - nnz / total)
             print(f"{format_log_prefix('result',indent=1)} RS matrix set: {self._rs.shape} (proteins × peptides), sparsity: {sparsity:.2f}%")
+
+        prot_n = self.prot.n_vars if self.prot is not None else None
+        pep_n = self.pep.n_vars if self.pep is not None else None
+        rs_matches = (
+            (prot_n is None or self._rs.shape[0] == prot_n)
+            and (pep_n is None or self._rs.shape[1] == pep_n)
+        )
+        if rs_matches:
+            self.update_summary(recompute=True, verbose=False) # type: ignore[attr-defined], SummaryMixin
