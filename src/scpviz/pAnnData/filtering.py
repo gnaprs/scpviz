@@ -97,7 +97,7 @@ class FilterMixin:
             pAnnData (pAnnData): Returns a filtered pAnnData object if `return_copy=True`. 
             None (None): Otherwise, modifies in-place and returns None.
 
-        Examples:
+        Example:
             Filter by metadata condition:
                 ```python
                 condition = "Protein FDR Confidence: Combined == 'High'"
@@ -337,7 +337,7 @@ class FilterMixin:
               features by class before filtering.
             - For file-based filtering, use the file identifiers from `.prot.obs_names`.            
 
-        Examples:
+        Example:
             Filter proteins found in all "cellline" groups (e.g. Cellline A, and cellline B), with at least 2 samples each:
                 ```python
                 pdata_filtered = pdata.filter_prot_found(group="cellline", min_count=2, match_any=False)
@@ -608,7 +608,7 @@ class FilterMixin:
         Returns:
             pAnnData or None: Filtered object (if `return_copy=True`) or modifies in-place.
 
-        Examples:
+        Example:
             Filter proteins significant by their global significance (e.g. PD-based imports):
                 ```python
                 pdata.filter_prot_significant()
@@ -620,7 +620,7 @@ class FilterMixin:
                 ```
 
             Filter proteins significant in all three input files:
-                ```
+                ```python
                 pdata.filter_prot_significant(group=["F1", "F2", "F3"])
                 ```
 
@@ -930,10 +930,10 @@ class FilterMixin:
 
         Args:
             values (dict or list of dict, optional): Categorical metadata filter. Matches rows in `.summary` or `.obs` with those field values.
-                Examples: `{'treatment': 'kd', 'cellline': 'A'}`.
+                Example: `{'treatment': 'kd', 'cellline': 'A'}`.
             exact_cases (bool): If True, uses exact match across all class values when `values` is a list of dicts.
             condition (str, optional): Logical condition string referencing summary columns. This should reference columns in `pdata.summary`.
-                Examples: `"protein_count > 1000"`.
+                Example: `"protein_count > 1000"`.
             file_list (list of str, optional): List of sample names or file identifiers to keep. Filters to only those samples (must match obs_names).
             exclude_file_list (list of str, optional): Similar to `file_list`, but excludes the specified files/samples instead of keeping them.
             min_prot (int, optional): Minimum number of proteins required in a sample to retain it.
@@ -958,7 +958,7 @@ class FilterMixin:
         Raises:
             ValueError: If more than one or none of the filter mode arguments (`values`, `condition`, `file_list`, `exclude_file_list`, `min_prot`, `poi`) is specified.
 
-        Examples:
+        Example:
             Filter by metadata values:
                 ```python
                 pdata.filter_sample(values={'treatment': 'kd', 'cellline': 'A'})
@@ -1253,7 +1253,7 @@ class FilterMixin:
             This method is intended for internal use by `filter_sample()`. For general-purpose filtering, 
             use `filter_sample()` with `condition=...` or `file_list=...`.
 
-        Examples:
+        Example:
             Filter samples with more than 1000 proteins:
                 ```python
                 pdata.filter_sample_condition(condition="protein_count > 1000")
@@ -1408,7 +1408,7 @@ class FilterMixin:
         Note:
             This method is used internally by `filter_sample()`. For general use, call `filter_sample()` directly.
 
-        Examples:
+        Example:
             Loose field-wise match (OR within fields, AND across fields):
                 ```python
                 pdata.filter_sample_values(values={'treatment': ['kd', 'sc'], 'cellline': 'A'})
@@ -1522,7 +1522,7 @@ class FilterMixin:
 
         Args:
             query_string (str): A pandas-style query string. 
-                Examples: `"cellline == 'AS' and treatment in ['kd', 'sc']"`.
+                Example: `"cellline == 'AS' and treatment in ['kd', 'sc']"`.
             source (str): The metadata source to query — either `"obs"` or `"summary"`.
             cleanup (bool): If True (default), remove proteins that become all-NaN or all-zero
                 after sample filtering and synchronize RS/peptide matrices. Set to False to
@@ -2010,7 +2010,7 @@ class FilterMixin:
         Returns:
             None
 
-        Examples:
+        Example:
             Annotate proteins by group using sample-level metadata:
                 ```python
                 pdata.annotate_found(classes=["group", "condition"], on="protein")
@@ -2108,7 +2108,7 @@ class FilterMixin:
         Returns:
             None
 
-        Examples:
+        Example:
             Annotate proteins by group using sample-level metadata:
                 ```python
                 pdata.annotate_significant(classes="celltype", on="protein", fdr_threshold=0.01)
