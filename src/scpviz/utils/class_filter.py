@@ -339,7 +339,7 @@ def get_upset_contents(
     Args:
         pdata (pAnnData): The pAnnData object containing `.prot` and `.pep`.
         classes (str or list of str): Metadata column(s) in `.obs` to define sample groups.
-            Examples: `"cell_type"`, or `["cell_type", "treatment"]`.
+            Example: `"cell_type"`, or `["cell_type", "treatment"]`.
         on (str): Data level to use. Options are `"protein"` (default) or `"peptide"`.
         upsetForm (bool): If True, return an `UpSet`-compatible DataFrame via
             `upsetplot.from_contents`. If False, return a raw dictionary.
