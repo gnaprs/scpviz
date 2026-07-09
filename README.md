@@ -15,7 +15,7 @@
 
 **Documentation:**  
 [![Docs CI](https://github.com/gnaprs/scpviz/actions/workflows/docs.yml/badge.svg)](https://github.com/gnaprs/scpviz/actions/workflows/docs.yml)
-[![Docs](https://img.shields.io/badge/docs-v1.1.0-brightgreen.svg)](https://gnaprs.github.io/scpviz)
+[![Docs](https://img.shields.io/badge/docs-v1.1.1-brightgreen.svg)](https://gnaprs.github.io/scpviz)
 
 ## Overview
 **scpviz** is a Python package for single-cell and spatial proteomics data analysis, built around a custom `pAnnData` object.  
