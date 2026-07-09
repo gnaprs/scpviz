@@ -3,6 +3,53 @@
 ## scpviz
 
 
+### 1.1.1 <small>July 09, 2026</small> { id="1.1.1" }
+
+
+#### Build System
+
+
+##### (V1.1.1)
+
+
+- Bump version to 1.1.1 (250ab3f…)
+
+
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (fa8db5c…)
+
+
+
+
+#### Fixed
+
+
+##### (PAnnData)
+
+
+- Treat zero as missing in quant metrics and refresh summary on X changes #48 (d6ad025…)
+
+
+
+
+#### Style
+
+
+##### (Docs)
+
+
+- Fix formatting errors on docstrings (711842e…)
+
+
+
+
+
+
 ### 1.1.0 <small>June 22, 2026</small> { id="1.1.0" }
 
 
