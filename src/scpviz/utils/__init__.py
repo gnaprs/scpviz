@@ -27,6 +27,9 @@ Functions:
     get_pep_prot_mapping: Determine peptide-to-protein mapping column.
     get_peptides_for_accessions: Map accessions or genes to observed peptides via RS.
     get_accessions_for_peptides: Map peptide IDs or sequences to protein accessions via RS.
+    strip_peptide_sequence: Clean PD/DIA-NN peptide strings for Biopython analysis.
+    compute_peptide_properties: Compute Biopython ProtParam metrics from amino-acid sequences.
+    get_peptide_properties: Compute peptide ProtParam metrics and annotate ``.pep.var``.
     update_layer_provenance: Register a matrix layer in ``adata.uns['layer_provenance']``.
     resolve_input_layer: Map ``layer='X'`` to ``uns['current_X_layer']`` for provenance.
     infer_layer_is_log: Infer log-transformed layers via provenance or name heuristic.
@@ -72,6 +75,7 @@ from .data import *
 from .stats import *
 from .id_maps import *
 from .class_filter import *
+from .peptide_param import *
 
 # Star-imports omit leading-underscore names; tests and notebooks access these on ``utils``.
 from .data import _get_abundance_from_adata

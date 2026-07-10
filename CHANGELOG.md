@@ -1,6 +1,51 @@
 All notable changes to this project are documented here.
 
 <details open>
+<summary><b>1.1.1</b> – 2026-07-09</summary>
+
+
+#### Build System
+
+
+##### (V1.1.1)
+
+
+- Bump version to 1.1.1 (250ab3f…)
+
+
+
+#### Chores
+
+
+
+- Update changelogs [skip ci] (fa8db5c…)
+
+
+
+#### Fixed
+
+
+##### (PAnnData)
+
+
+- Treat zero as missing in quant metrics and refresh summary on X changes #48 (d6ad025…)
+
+
+
+#### Style
+
+
+##### (Docs)
+
+
+- Fix formatting errors on docstrings (711842e…)
+
+
+
+
+</details>
+
+<details open>
 <summary><b>1.1.0</b> – 2026-06-22</summary>
 
 

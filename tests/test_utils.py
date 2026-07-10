@@ -891,6 +891,102 @@ def test_get_peptides_for_accessions_bad_sequence_column(pdata):
     with pytest.raises(ValueError, match="not found in .pep.var"):
         utils.get_peptides_for_accessions(pdata, ["P12345"], sequence_from="NoSuchColumn")
 
+def test_strip_peptide_sequence_pd_annotated():
+    raw = "[K].KPVVDCVVSVPCFYTDAER.[R]"
+    assert utils.strip_peptide_sequence(raw) == "KPVVDCVVSVPCFYTDAER"
+
+def test_strip_peptide_sequence_pd_with_mod_suffix():
+    raw = "[R].MQHNLEQQIQAR.[N] MOD:1xOxidation [M1]"
+    assert utils.strip_peptide_sequence(raw) == "MQHNLEQQIQAR"
+
+def test_strip_peptide_sequence_diann_stripped():
+    """DIA-NN Stripped.Sequence values are already plain amino-acid strings."""
+    assert utils.strip_peptide_sequence("MQHNLEQQIQAR") == "MQHNLEQQIQAR"
+
+def test_strip_peptide_sequence_invalid_returns_none():
+    assert utils.strip_peptide_sequence("not-a-sequence") is None
+
+def test_compute_peptide_properties_defaults():
+    df = utils.compute_peptide_properties("MQHNLEQQIQAR")
+    assert list(df.columns) == ["gravy", "molecular_weight", "isoelectric_point"]
+    assert df.iloc[0]["gravy"] == pytest.approx(-1.3917, rel=1e-3)
+
+def test_resolve_peptide_sequence_pd(pdata):
+    """Proteome Discoverer: parse Annotated Sequence notation from .pep.var."""
+    pep_id = pdata.pep.var_names[0]
+    assert "[" in str(pep_id)
+    seq = utils.resolve_peptide_sequence(pdata, pep_id)
+    assert seq is not None
+    assert "[" not in seq
+    assert seq == utils.strip_peptide_sequence(
+        str(pdata.pep.var.loc[pep_id, "Annotated Sequence"])
+    )
+
+def test_resolve_peptide_sequence_diann(pdata_diann):
+    """DIA-NN: use Stripped.Sequence, not Precursor.Id in .pep.var_names."""
+    pep_id = pdata_diann.pep.var_names[0]
+    stripped = str(pdata_diann.pep.var.loc[pep_id, "Stripped.Sequence"])
+    seq = utils.resolve_peptide_sequence(pdata_diann, pep_id)
+    assert seq == stripped.upper()
+    assert pep_id != stripped
+
+def test_get_peptide_properties_by_accession(pdata):
+    acc, n_peps = _pd_accession_with_peptides(pdata)
+    df = utils.get_peptide_properties(pdata, accessions=[acc], return_copy=True)
+    assert len(df) == n_peps
+    assert (df["accession"] == acc).all()
+    assert df["gravy"].notna().any()
+    assert df["peptide_sequence"].str.fullmatch(r"[ACDEFGHIKLMNPQRSTVWY]+").all()
+    assert "[" in str(df["peptide_id"].iloc[0])
+    assert "[" not in df["peptide_sequence"].iloc[0]
+
+def test_get_peptide_properties_annotates_var(pdata):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    cols_before = set(pdata.pep.var.columns)
+    df = utils.get_peptide_properties(pdata, accessions=[acc], return_copy=False)
+    assert {"gravy", "molecular_weight", "isoelectric_point"} <= set(pdata.pep.var.columns)
+    pep_id = df.iloc[0]["peptide_id"]
+    assert pd.notna(pdata.pep.var.loc[pep_id, "gravy"])
+
+def test_get_peptide_properties_return_copy_skips_var(pdata):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    df = utils.get_peptide_properties(pdata, accessions=[acc], return_copy=True)
+    assert "gravy" in df.columns
+    assert "gravy" not in pdata.pep.var.columns
+
+def test_get_peptide_properties_all_requires_force(pdata):
+    with pytest.raises(ValueError, match="force=True"):
+        utils.get_peptide_properties(pdata, accessions=None, force=False)
+
+def test_pdata_get_peptide_properties_method(pdata):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    df = pdata.get_peptide_properties(accessions=[acc], return_copy=True)
+    assert not df.empty
+    assert "peptide_sequence" in df.columns
+
+def test_get_peptide_properties_diann(pdata_diann):
+    acc = pdata_diann.prot.var_names[0]
+    df = utils.get_peptide_properties(pdata_diann, accessions=[acc], return_copy=True)
+    if df.empty:
+        pytest.skip("No peptides linked to first protein in DIA-NN fixture")
+    assert df["peptide_sequence"].str.fullmatch(r"[ACDEFGHIKLMNPQRSTVWY]+").all()
+    row = df.iloc[0]
+    stripped = str(pdata_diann.pep.var.loc[row["peptide_id"], "Stripped.Sequence"])
+    assert row["peptide_sequence"] == stripped.upper()
+    assert row["peptide_id"] != row["peptide_sequence"]
+
+def test_get_peptide_properties_count_amino_acids_dict(pdata):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    df = utils.get_peptide_properties(
+        pdata,
+        properties=["count_amino_acids"],
+        accessions=[acc],
+        return_copy=True,
+    )
+    counts = df.iloc[0]["aa_counts"]
+    assert isinstance(counts, dict)
+    assert sum(counts.values()) == len(df.iloc[0]["peptide_sequence"])
+
 def test_get_datetime_format():
     from scpviz.setup import get_datetime
     dt = get_datetime()
