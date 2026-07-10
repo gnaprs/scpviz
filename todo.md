@@ -32,8 +32,9 @@ Quick view of what to work on. Full tables below.
 | L | [ ] | base-3 | Concating multiple datasets? — see ad.concat, maybe use adata.obs_names_make_unique() |
 | H | [ ] | base-4 | Make wildcard '*' for plotting volcano plots — pair w search annotation? |
 | L | [ ] | viz-1 | Dot plot: expression of indicated genes in three clusters (dot size = % cells per cluster; color = cluster average normalized expression). Partially doable w scanpy. |
-| M | [ ] | viz-2 | Compare two comparisons: log(fc) vs log(fc) with significance coloring; hypothesis testing — ANOVA with Tukey and BH correction [see tidyproteomics] |
-| H | [~] | viz-3 | Add gsea — one for PCA, one for ssGSEA |
+| M | [ ] | viz-2 | Compare two comparisons: log(fc) vs log(fc) with significance coloring |
+| H | [x] | viz-3 | Add gsea — one for PCA, one for ssGSEA |
+| M | [x] | viz-4 | Hypothesis testing — ANOVA with Tukey and BH correction |
 | M | [ ] | enr-1 | String DB values rank API — check API key; per-user or local copy in package? [API help](https://string-db.org/cgi/help?subpage=api%23valuesranks-enrichment-api) |
 | L | [ ] | feat-qc-1 | Consider QC metrics beyond what we already have |
 
@@ -44,13 +45,13 @@ Quick view of what to work on. Full tables below.
 | Priority | Status | ID | Description |
 |----------|--------|----|-------------|
 | M | [ ] | enh-1 | When updating .summary/obs, move prot/pep details to the right (prioritize metadata). Affects users, fix soon. |
-| L | [ ] | enh-2 | get_pca_importance: accept pdata input (and prot/pep) — get uns['pca'] and var_names from it. Pair with PCA GSEA? |
+| L | [x] | enh-2 | get_pca_importance: accept pdata input (and prot/pep) — get uns['pca'] and var_names from it. Pair with PCA GSEA? |
 | L | [ ] | enh-3 | Double-check peptide export format: Gene Name, Peptide name, peptide AA start/end in protein, Charge, sample-name columns for intensities |
 | L | [ ] | enh-4 | Check for DIA/DDA and suggest preprocessing methods? |
 | M | [ ] | enh-5 | Fuzzy match for get_abundance matches |
 | M | [ ] | enh-6 | Move Found In and Significant In from var/obs? Too many columns — or express more concisely (e.g. .obsm/.varm) |
 | L | [ ] | enh-7 | Add modification print for diann import |
-| L | [ ] | enh-8 | When impute errors on wrong obs column, pretty-format the error message. Easy fix. |
+| L | [ ] | enh-8 | When impute errors on wrong obs column, pretty-format the error message |
 
 ---
 
@@ -102,7 +103,7 @@ Quick view of what to work on. Full tables below.
 
 | Priority | Status | ID | Description |
 |----------|--------|----|-------------|
-| L | [ ] | mod-1 | Peptide sequence characteristics (hydrophobicity, etc.) [peptide_param module]. Can work with Baiyi. |
+| L | [~] | mod-1 | Peptide sequence characteristics (hydrophobicity, etc.) [peptide_param module]. Can work with Baiyi. |
 | L | [ ] | mod-2 | Correlation visualization [protein corr module] |
 | M | [ ] | mod-3 | Omics module for comparing adata? — build on existing transcriptomics x proteomics functions |
 | L | [ ] | mod-4 | Alphamap peptide mapping visualization |

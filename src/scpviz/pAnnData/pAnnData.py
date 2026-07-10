@@ -3,6 +3,7 @@ from .base import BaseMixin
 from .validation import ValidationMixin
 from .summary import SummaryMixin
 from .metrics import MetricsMixin
+from .biophysical import BiophysicalMixin
 from .identifier import IdentifierMixin
 from .history import HistoryMixin
 from .editing import EditingMixin
@@ -16,8 +17,8 @@ import anndata as ad
 from scpviz.TrackedDataFrame import TrackedDataFrame 
 
 class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
-               IdentifierMixin, HistoryMixin, EditingMixin, FilterMixin,
-               AnalysisMixin, EnrichmentMixin, IOMixin, PlotMixin):
+               BiophysicalMixin, IdentifierMixin, HistoryMixin, EditingMixin,
+               FilterMixin, AnalysisMixin, EnrichmentMixin, IOMixin, PlotMixin):
     """
     Unified data container for protein and peptide expression in single-cell and bulk proteomics.
 
@@ -34,6 +35,7 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
     - **ValidationMixin**: Ensures structural and dimensional consistency across `.prot`, `.pep`, `.summary`, and `rs`.
     - **SummaryMixin**: Maintains `.summary`, synchronizes metadata, and caches per-sample metrics.
     - **MetricsMixin**: Computes descriptive statistics from expression data and relational structure (RS matrix).
+    - **BiophysicalMixin**: Sequence-level biophysical properties (e.g. GRAVY, molecular weight, pI) via Biopython ProtParam.
     - **IdentifierMixin**: Manages bidirectional gene/accession mappings and handles missing gene resolution via UniProt.
     - **HistoryMixin**: Tracks all operations performed on the object for transparency.
     - **EditingMixin**: Supports in-place editing, direct manipulation of expression matrices, and data export.

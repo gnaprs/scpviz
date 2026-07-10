@@ -34,6 +34,7 @@ dependencies = [
   "scanpy>=1.9",
   "gseapy>=1.0",
   "openpyxl>=3.1.5",
+  "biopython>=1.80",
 ]
 
 [project.urls]

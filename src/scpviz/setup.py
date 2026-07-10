@@ -48,6 +48,7 @@ def print_versions():
         "scanpy",
         "gseapy",
         "openpyxl",
+        "biopython",
     ]
     # optional-dependencies.sc
     opt_sc = [
@@ -71,7 +72,12 @@ def print_versions():
             except PackageNotFoundError:
                 print(f"  {package}", "not installed")
 
-    print("scpviz version: v1.1.1")
+    try:
+        scpviz_ver = version("scpviz")
+    except PackageNotFoundError:
+        scpviz_ver = "unknown"
+    print(f"scpviz version: {scpviz_ver}")
+    
     print("Date and time: ", get_datetime())
     _print_group("Core dependencies:", core)
     _print_group("Optional [sc]:", opt_sc)
