@@ -644,6 +644,37 @@ def test_get_upset_query_fetch_false_requires_pdata(monkeypatch):
             fetch_uniprot=False,
         )
 
+# test de_reporting helpers
+from scpviz.utils import de_reporting
+
+def test_format_de_group_label_unwraps_single_dict_list():
+    assert de_reporting.format_de_group_label([{"region": "Cortex"}]) == "Cortex"
+    assert de_reporting.format_de_group_label(
+        {"cellline": "BE", "treatment": "kd"}
+    ) == "BE_kd"
+    assert de_reporting.format_de_group_label(
+        {"cellline": "BE", "treatment": "kd"}, style="slash"
+    ) == "BE/kd"
+
+def test_format_de_comparison_label():
+    assert de_reporting.format_de_comparison_label(
+        {"region": "Cortex"}, {"region": "SNpc"}
+    ) == "Cortex vs SNpc"
+
+def test_parse_contrast_label():
+    assert de_reporting.parse_contrast_label("Cortex vs SNpc") == ("Cortex", "SNpc")
+    assert de_reporting.parse_contrast_label("no_separator") is None
+
+def test_format_de_column_hint():
+    assert "etc." in de_reporting.format_de_column_hint(correct_fdr=False)
+    assert "adj_p_value" in de_reporting.format_de_column_hint(correct_fdr=True)
+    mixed_hint = de_reporting.format_de_column_hint(
+        correct_fdr=True,
+        extra_cols=("contrast", "de_method"),
+    )
+    assert "contrast" in mixed_hint
+    assert "etc." not in mixed_hint
+
 # test de_adata()
 
 @pytest.mark.parametrize("fold_change_mode", ["mean", "pairwise_median"])
@@ -1553,6 +1584,30 @@ class TestInferLayerIsLog:
 
     def test_raw_X(self):
         assert utils.infer_layer_is_log("X") is False
+
+    def test_X_resolves_to_current_log_layer(self):
+        """layer='X' follows uns['current_X_layer'] into the provenance registry."""
+        adata = AnnData(np.zeros((3, 3)))
+        utils.update_layer_provenance(
+            adata, "X_norm_median", op="normalize", input_layer="X_raw", method="median"
+        )
+        utils.update_layer_provenance(
+            adata,
+            "X_log2",
+            op="log_transform",
+            input_layer="X_norm_median",
+            base="2",
+        )
+        adata.uns["current_X_layer"] = "X_log2"
+        assert utils.infer_layer_is_log("X", adata) is True
+
+    def test_X_resolves_to_current_non_log_layer(self):
+        adata = AnnData(np.zeros((3, 3)))
+        utils.update_layer_provenance(
+            adata, "X_norm_median", op="normalize", input_layer="X_raw", method="median"
+        )
+        adata.uns["current_X_layer"] = "X_norm_median"
+        assert utils.infer_layer_is_log("X", adata) is False
 
     def test_registry_overrides_name(self):
         """Registry result takes priority over name heuristic."""

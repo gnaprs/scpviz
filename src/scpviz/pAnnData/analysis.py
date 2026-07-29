@@ -7,6 +7,12 @@ from scipy.spatial.distance import cdist
 from sklearn.metrics.pairwise import nan_euclidean_distances
 from scpviz import utils
 from scpviz.utils import format_log_prefix
+from scpviz.utils.de_reporting import (
+    format_de_comparison_label,
+    format_de_group_label,
+    print_de_result_summary,
+    print_de_run_header,
+)
 from scpviz.utils.stats import bh_adjust_pvalues
 import warnings
 from scipy import sparse
@@ -19,7 +25,8 @@ class AnalysisMixin:
 
     This mixin includes functionality for:
 
-    - Differential expression (DE) analysis using t-tests, Mann–Whitney U, or Wilcoxon signed-rank tests  
+    - Differential expression (DE) analysis using t-tests, Mann-Whitney U, or Wilcoxon signed-rank tests
+    - Mixed-model / pseudobulk DE with donor blocking via :meth:`mixed_de`
     - Ranking proteins or peptides by abundance within groups  
     - Coefficient of Variation (CV) computation  
     - Missing value imputation (global or group-wise) using statistical or KNN-based methods  
@@ -188,14 +195,9 @@ class AnalysisMixin:
         pdata_case1 = self._filter_sample_values(values=group1_dict, exact_cases=True, return_copy=True, verbose=False, cleanup=False) # type: ignore[attr-defined], FilteringMixin
         pdata_case2 = self._filter_sample_values(values=group2_dict, exact_cases=True, return_copy=True, verbose=False, cleanup=False) # type: ignore[attr-defined], FilteringMixin
 
-        def _label(d):
-            if isinstance(d, dict):
-                return '_'.join(str(v) for v in d.values())
-            return str(d)
-
-        group1_string = _label(group1_dict)
-        group2_string = _label(group2_dict)
-        comparison_string = f'{group1_string} vs {group2_string}'
+        group1_string = format_de_group_label(group1_dict)
+        group2_string = format_de_group_label(group2_dict)
+        comparison_string = format_de_comparison_label(group1_dict, group2_dict)
 
         # --- Get layer data ---
         data1 = utils.get_adata_layer(pdata_case1.prot, layer)
@@ -217,20 +219,20 @@ class AnalysisMixin:
                 "before DE analysis."
             )
 
-        log_prefix = format_log_prefix("user")
         n1, n2 = len(pdata_case1.prot), len(pdata_case2.prot)
-        print(f"{log_prefix} Running differential expression [protein]")
-        print(f"   🔸 Comparing groups: {comparison_string}")
-        print(f"   🔸 Group sizes: {n1} vs {n2} samples")
-        print(
-            f"   🔸 Layer: {layer} "
-            f"{'(log-transformed)' if _layer_is_log else '(non-log)'}"
+        print_de_run_header(
+            assay="protein",
+            comparing=comparison_string,
+            group_sizes=f"{n1} vs {n2} samples",
+            layer_line=(
+                f"{layer} "
+                f"{'(log-transformed)' if _layer_is_log else '(non-log)'}"
+            ),
+            method_line=f"{method} | Fold Change: {fold_change_mode}",
+            correct_fdr=correct_fdr,
+            threshold=threshold,
+            log2fc_thresh=log2fc,
         )
-        print(f"   🔸 Method: {method} | Fold Change: {fold_change_mode}")
-        if correct_fdr:
-            print(f"   🔸 Adj p-value threshold: {threshold} | Log2FC threshold: {log2fc}")
-        else:
-            print(f"   🔸 P-value threshold: {threshold} | Log2FC threshold: {log2fc}")
 
         # --- Compute fold change ---
         if fold_change_mode == 'mean':
@@ -404,18 +406,562 @@ class AnalysisMixin:
         self._stats[comparison_string] = df_stats # type: ignore[attr-defined]
         self._append_history(f"prot: DE for {class_type} {values} using {method} and fold_change_mode='{fold_change_mode}'. Stored in .stats['{comparison_string}'].") # type: ignore[attr-defined], HistoryMixin
 
-        sig_counts = df_stats['significance'].value_counts().to_dict()
-        n_up = sig_counts.get('upregulated', 0)
-        n_down = sig_counts.get('downregulated', 0)
-        n_ns = sig_counts.get('not significant', 0)
-
-        print(f"{format_log_prefix('result_only', indent=2)} DE complete. Results stored in:")
-        print(f'       • .stats["{comparison_string}"]')
-        col_hint = "log2fc, p_value, adj_p_value, significance, etc." if correct_fdr else "log2fc, p_value, significance, etc."
-        print(f"       • Columns: {col_hint}")
-        print(f"       • Upregulated: {n_up} | Downregulated: {n_down} | Not significant: {n_ns}")
+        print_de_result_summary(
+            df_stats,
+            stats_location=f'.stats["{comparison_string}"]',
+            correct_fdr=correct_fdr,
+        )
 
         return df_stats
+
+    def mixed_de(
+        self,
+        donor_col: str,
+        *,
+        group_col: str | None = None,
+        contrast: tuple[str, str] | None = None,
+        contrast_mode: str = "specified",
+        focal_level: str | None = None,
+        formula: str | None = None,
+        contrast_term: str | None = None,
+        contrast_at: dict[str, str] | None = None,
+        values: list[dict] | None = None,
+        subset: dict | None = None,
+        fixed_covariates: list[str] | None = None,
+        reference_levels: dict[str, str] | None = None,
+        random_effects: str = "intercept",
+        re_slope_col: str | None = None,
+        require_paired_donors: bool = False,
+        observation_level: str = "auto",
+        max_cells_per_stratum: int = 50,
+        method: str = "auto",
+        min_detected_fraction: float = 0.10,
+        min_cells_detected: int = 3,
+        on: str = "protein",
+        layer: str = "X",
+        auto_log2: bool = True,
+        log_pseudocount: float = 1.0,
+        correct_fdr: bool = True,
+        fdr_scope: str = "per_contrast",
+        threshold: float = 0.05,
+        log2fc: float = 1.0,
+        return_diagnostics: bool = False,
+        store: bool = True,
+        stats_key: str | None = None,
+    ):
+        """
+        Mixed-model or pseudobulk differential expression with donor blocking.
+
+        Compare groups while accounting for biological replicate structure (donor,
+        animal, case, …). Supports a **simple path** (``group_col`` + ``contrast``)
+        or an **advanced path** (``formula`` + ``contrast_term``). See mutual
+        exclusion rules below.
+
+        Args:
+            donor_col (str): Column for biological replicate ID (donor, Case, mouse, …).
+            group_col (str, optional): Contrast factor for the simple path.
+            contrast (tuple of str, optional): ``(test, ref)``; log2fc = test − ref.
+                Same order as ``values=[group1, group2]`` (DESeq2-style numerator /
+                denominator).
+            contrast_mode (str): ``"specified"`` (default), ``"pairwise"``, or
+                ``"one_vs_rest"``.
+            focal_level (str, optional): Focal level when ``contrast_mode="one_vs_rest"``.
+            formula (str, optional): Patsy fixed-effects formula with LHS ``expr``.
+                Random effects are **not** included in the string.
+            contrast_term (str, optional): Factor to test when using ``formula``.
+            contrast_at (dict, optional): Levels of interacting factors at which to
+                evaluate the contrast (required when ``formula`` contains ``*`` on
+                ``contrast_term``).
+            values (list of dict, optional): Two-group sugar (simple path), same style
+                as :meth:`de`. Order is ``[group1, group2]`` → stats key
+                ``mixed: {group1} vs {group2} | ...`` and log2fc = group1 - group2.
+                Equivalent to ``contrast=(group1, group2)`` i.e. ``(test, ref)``.
+            subset (dict, optional): AND-combined observation filters, e.g.
+                ``{"cell_type": "Astrocyte"}``.
+            fixed_covariates (list of str, optional): Additive covariates (simple path).
+            reference_levels (dict, optional): Reference level per categorical column.
+            random_effects (str): ``"intercept"`` (default) or ``"intercept_slope"``.
+            re_slope_col (str, optional): Column for random slope; defaults to
+                ``group_col`` or ``contrast_term``.
+            require_paired_donors (bool): If True, error when donors lack all levels.
+            observation_level (str): ``"auto"`` (pseudobulk if n_cells > 500), ``"cells"``,
+                ``"pseudobulk"``, or ``"subsample"``.
+            max_cells_per_stratum (int): Max cells per donor × group stratum when
+                ``observation_level="subsample"``.
+            method (str): ``"auto"``, ``"mixedlm"``, or ``"pseudobulk"`` (cells path).
+            min_detected_fraction (float): Min detection fraction per feature.
+            min_cells_detected (int): Min detected observations per feature.
+            on (str): ``"protein"`` or ``"peptide"``.
+            layer (str): Expression layer. Must be **log2-scale** (or log-scale with
+                provenance). Typical workflow: normalize on linear scale (e.g.
+                directLFQ), then ``log_transform(base=2)`` and pass ``layer='X_log2'``.
+                If ``layer`` looks linear-scale, ``auto_log2=True`` (default) applies
+                ``log2(x + log_pseudocount)`` in memory for this run only.
+            auto_log2 (bool): If True (default), apply in-memory log2 when ``layer``
+                is not registered as log-transformed and values look linear-scale.
+                Set False to raise with instructions instead.
+            log_pseudocount (float): Pseudocount for in-memory auto log2 (default 1.0).
+            correct_fdr (bool): Apply Benjamini-Hochberg FDR correction.
+            fdr_scope (str): ``"per_contrast"`` (default), ``"global"``, or ``"both"``.
+            threshold (float): Significance cutoff for labels.
+            log2fc (float): |log2fc| threshold for up/down labels.
+            return_diagnostics (bool): If True, return ``(volcano_df, diagnostics_df)``.
+            store (bool): Store results in ``pdata.stats``.
+            stats_key (str, optional): Override auto-generated ``.stats`` key.
+
+        Returns:
+            pd.DataFrame or dict: Volcano table for ``contrast_mode="specified"``;
+            collection dict with ``contrasts``, ``meta`` for pairwise / one_vs_rest.
+
+        Mutual exclusion:
+            - **Simple path:** ``group_col`` + ``contrast`` (or ``values``). Do not pass
+              ``formula`` or ``contrast_term``.
+            - **Advanced path:** ``formula`` + ``contrast_term`` + ``contrast``. Do not pass
+              ``group_col`` or ``fixed_covariates``.
+
+        !!! tip "``subset`` vs ``contrast_at``"
+            **Rule of thumb:** If the scientific question is “within L5 only,” use
+            ``subset``. If the question is “condition effect at L5, adjusted for layer
+            structure and donor blocking across layers,” use ``formula`` +
+            ``contrast_at``.
+
+            - ``subset={"layer": "L5"}`` — only L5 cells enter the model (population is
+              L5-specific).
+            - ``formula="expr ~ condition * layer"`` with ``contrast_at={"layer": "L5"}`` —
+              all layers stay in the fit; the reported contrast is the condition effect
+              **at** L5.
+
+        Example:
+            Do mixed-model analysis of region comparison with donor blocking AND plot volcano (returns volcano table + stores in
+            ``pdata.stats``):
+                ```python
+                # (test, ref): log2fc = Cortex - SNpc
+                
+                volcano_df = pdata.mixed_de(
+                    group_col="region",
+                    contrast=("Cortex", "SNpc"),  # same as `values=[{"region": "Cortex"}, {"region": "SNpc"}]`
+                    donor_col="animal",
+                )
+                # Auto stats key (also printed at end of run):
+                stats_key = "mixed: Cortex vs SNpc | donor=animal"
+                # volcano_df is the same table as pdata.stats[stats_key]
+
+                import matplotlib.pyplot as plt
+                from scpviz import plotting as scplt
+
+                fig, ax = plt.subplots(figsize=(4, 4))
+                scplt.plot_volcano(
+                    ax, pdata, stats_key=stats_key, correct_fdr=True,
+                )
+                plt.show()
+                ```
+
+            Single cell type, simple path:
+                ```python
+                df = pdata.mixed_de(
+                    group_col="condition",
+                    contrast=("Agg+", "Agg-"),  # (test, ref)
+                    donor_col="donor",
+                    fixed_covariates=["batch"],
+                    subset={"cell_type": "Astrocyte"},
+                )
+                ```
+
+            Values sugar (same sign/key as ``contrast=("Agg+", "Agg-")`` above):
+                ```python
+                df = pdata.mixed_de(
+                    values=[{"condition": "Agg+"}, {"condition": "Agg-"}],
+                    donor_col="donor",
+                    subset={"cell_type": "Astrocyte"},
+                )
+                ```
+
+            Panel over cell types:
+                ```python
+                for ct in ["Astrocyte", "Microglia"]:
+                    pdata.mixed_de(
+                        group_col="condition",
+                        contrast=("Agg+", "Agg-"),
+                        donor_col="donor",
+                        subset={"cell_type": ct},
+                    )
+                ```
+
+            Testing random intercept + slope:
+                ```python
+                df = pdata.mixed_de(
+                    group_col="Cortex",
+                    contrast=("pSyn", "NeuN"),  # (test, ref)
+                    donor_col="Case",
+                    random_effects="intercept_slope",
+                )
+                ```
+
+            Advanced interaction at a layer (not subset to L5):
+                ```python
+                df = pdata.mixed_de(
+                    formula="expr ~ condition * layer",
+                    contrast_term="condition",
+                    contrast=("disease", "control"),  # (test, ref)
+                    contrast_at={"layer": "L5"},
+                    donor_col="donor",
+                    subset={"cell_type": "Neuron"},
+                )
+                ```
+
+            Population is L5 neurons — use subset:
+                ```python
+                df = pdata.mixed_de(
+                    group_col="condition",
+                    contrast=("disease", "control"),
+                    donor_col="donor",
+                    subset={"cell_type": "Neuron", "layer": "L5"},
+                )
+                ```
+
+            Volcano from stored results (``de_data`` alternative):
+                ```python
+                stats_key = "mixed: Agg+ vs Agg- | cell_type=Astrocyte | donor=donor"
+                scplt.plot_volcano(ax, pdata, stats_key=stats_key, correct_fdr=True)
+                # equivalent: scplt.plot_volcano(ax, de_data=pdata.stats[stats_key], correct_fdr=True)
+                ```
+        """
+        from scpviz.utils import mixed_de as mixed_de_utils
+
+        if on not in ("protein", "peptide"):
+            raise ValueError("`on` must be 'protein' or 'peptide'.")
+        adata = getattr(self, "prot" if on == "protein" else "pep", None)
+        if adata is None:
+            raise ValueError(f"No .{on} data available.")
+
+        path = mixed_de_utils.validate_mixed_de_paths(
+            group_col=group_col,
+            formula=formula,
+            contrast_term=contrast_term,
+            fixed_covariates=fixed_covariates,
+            values=values,
+        )
+
+        if values is not None:
+            group_col, contrast, subset = mixed_de_utils.resolve_values_sugar(
+                values, group_col=group_col, contrast=contrast, subset=subset
+            )
+
+        if path == "simple":
+            if group_col is None:
+                raise ValueError("`group_col` is required for the simple path.")
+            if contrast is None and contrast_mode == "specified":
+                raise ValueError("`contrast` is required when contrast_mode='specified'.")
+            terms = [group_col] + list(fixed_covariates or [])
+            resolved_formula = f"expr ~ {' + '.join(terms)}"
+            resolved_contrast_term = group_col
+        else:
+            if contrast is None and contrast_mode == "specified":
+                raise ValueError("`contrast` is required when contrast_mode='specified'.")
+            resolved_formula = formula
+            resolved_contrast_term = contrast_term
+            if mixed_de_utils.formula_has_interaction_on_term(formula, contrast_term):
+                if not contrast_at:
+                    raise ValueError(
+                        f"`contrast_at` is required because `formula` contains an interaction "
+                        f"involving {contrast_term!r}."
+                    )
+
+        meta_columns = list(
+            dict.fromkeys(
+                [donor_col, resolved_contrast_term]
+                + list(fixed_covariates or [])
+                + list((subset or {}).keys())
+                + list((contrast_at or {}).keys())
+                + list((reference_levels or {}).keys())
+            )
+        )
+        summary = getattr(self, "_summary", None)
+        meta_full = mixed_de_utils.resolve_obs_meta(adata, summary, meta_columns)
+        mask = mixed_de_utils.subset_meta_mask(meta_full, subset)
+        meta = meta_full.loc[mask].copy()
+        if meta.empty:
+            raise ValueError("No observations remain after applying `subset`.")
+
+        if contrast_mode == "specified" and contrast is not None:
+            test, ref = contrast
+            meta = meta[meta[resolved_contrast_term].astype(str).isin([str(ref), str(test)])].copy()
+            if meta.empty:
+                raise ValueError(
+                    f"No observations for contrast levels {test!r} and {ref!r} in "
+                    f"{resolved_contrast_term!r}."
+                )
+            levels_present = set(meta[resolved_contrast_term].astype(str))
+            missing = [lv for lv in (str(test), str(ref)) if lv not in levels_present]
+            if missing:
+                raise ValueError(
+                    f"Contrast level(s) {missing} absent after filtering/subset for "
+                    f"{resolved_contrast_term!r}."
+                )
+
+        diag = mixed_de_utils.preflight_donor_design(
+            meta,
+            donor_col=donor_col,
+            group_col=resolved_contrast_term,
+            require_paired_donors=require_paired_donors,
+        )
+
+        expr, expr_meta = mixed_de_utils.prepare_expr_for_mixed_de(
+            adata,
+            layer,
+            auto_log2=auto_log2,
+            log_pseudocount=log_pseudocount,
+        )
+        expr = expr[adata.obs_names.get_indexer(meta.index), :]
+
+        if observation_level == "auto":
+            obs_level = "pseudobulk" if len(meta) > 500 else "cells"
+        else:
+            obs_level = observation_level
+        if observation_level == "subsample":
+            rng = np.random.default_rng(0)
+            meta, expr = mixed_de_utils.subsample_observations(
+                meta,
+                expr,
+                donor_col=donor_col,
+                group_col=resolved_contrast_term,
+                max_cells_per_stratum=max_cells_per_stratum,
+                rng=rng,
+            )
+
+        meta = mixed_de_utils.cast_formula_categoricals(meta, resolved_formula)
+        for col in [resolved_contrast_term, donor_col] + list(fixed_covariates or []):
+            if col in meta.columns and not pd.api.types.is_numeric_dtype(meta[col]):
+                meta[col] = meta[col].astype("string").astype("category")
+        # Apply after category casts — re-casting resets category order to alphabetical.
+        resolved_reference_levels = mixed_de_utils.merge_contrast_reference_levels(
+            reference_levels,
+            contrast_term=resolved_contrast_term,
+            contrast=contrast,
+            contrast_mode=contrast_mode,
+        )
+        meta = mixed_de_utils.apply_reference_levels(meta, resolved_reference_levels)
+
+        detect_mask = mixed_de_utils.feature_detection_mask(
+            expr,
+            min_detected_fraction=min_detected_fraction,
+            min_cells_detected=min_cells_detected,
+        )
+        if not detect_mask.any():
+            raise ValueError(
+                "No features pass `min_detected_fraction` / `min_cells_detected`. "
+                "Pre-filter sparse features with `filter_prot_found()` or lower thresholds."
+            )
+
+        levels = sorted(meta[resolved_contrast_term].astype(str).unique())
+        contrasts = mixed_de_utils.list_contrasts_for_mode(
+            levels,
+            contrast_mode=contrast_mode,
+            contrast=contrast,
+            focal_level=focal_level,
+        )
+
+        n_features_tested = int(detect_mask.sum())
+        n_features_total = len(detect_mask)
+        comparing = mixed_de_utils.format_comparing_groups(
+            contrast_mode=contrast_mode,
+            contrasts=contrasts,
+            values=values,
+            focal_level=focal_level,
+        )
+        # Restrict before-filter sizes to the contrast levels when specified.
+        meta_before = meta_full
+        if contrast_mode == "specified" and contrast is not None:
+            test, ref = contrast
+            meta_before = meta_full[
+                meta_full[resolved_contrast_term].astype(str).isin([str(ref), str(test)])
+            ]
+        group_sizes_before = mixed_de_utils.format_group_sizes(
+            meta_before,
+            resolved_contrast_term,
+            contrast_mode=contrast_mode,
+            contrasts=contrasts,
+            values=values,
+        )
+        group_sizes = mixed_de_utils.format_group_sizes(
+            meta,
+            resolved_contrast_term,
+            contrast_mode=contrast_mode,
+            contrasts=contrasts,
+            values=values,
+        )
+        slope_col = re_slope_col or resolved_contrast_term
+        mixed_de_utils.print_mixed_de_run_header(
+            on=on,
+            comparing=comparing,
+            group_sizes_before=group_sizes_before,
+            path=path,
+            contrast_mode=contrast_mode,
+            formula=resolved_formula,
+            donor_col=donor_col,
+            group_col=resolved_contrast_term,
+            slope_col=slope_col,
+            layer_summary=mixed_de_utils.format_expr_layer_summary(expr_meta),
+            method=method,
+            observation_level=obs_level,
+            random_effects=random_effects,
+            fixed_covariates=fixed_covariates,
+            subset=subset,
+            correct_fdr=correct_fdr,
+            threshold=threshold,
+            log2fc_thresh=log2fc,
+            n_donors_total=diag["n_donors_total"],
+            n_donors_paired=diag["n_donors_paired"],
+        )
+
+        feature_names = adata.var_names
+        var = adata.var.copy()
+        paired_donors = diag["donors_with_both_conditions"]
+
+        contrast_results: dict[str, pd.DataFrame] = {}
+        contrast_diagnostics: dict[str, pd.DataFrame] = {}
+
+        for test, ref, label in contrasts:
+            rows, diag_rows = mixed_de_utils.run_single_contrast(
+                expr,
+                meta,
+                feature_names,
+                detect_mask,
+                formula=resolved_formula,
+                contrast_term=resolved_contrast_term,
+                ref=ref,
+                test=test,
+                contrast_at=contrast_at,
+                donor_col=donor_col,
+                random_effects=random_effects,
+                re_slope_col=slope_col,
+                observation_level=obs_level,
+                method=method,
+                paired_donors=paired_donors,
+                n_donors_paired=diag["n_donors_paired"],
+            )
+            vdf = mixed_de_utils.compile_volcano_dataframe(
+                rows,
+                feature_names,
+                var,
+                contrast_label=label,
+                n_donors_paired=diag["n_donors_paired"],
+                correct_fdr=correct_fdr,
+                threshold=threshold,
+                log2fc_thresh=log2fc,
+                fdr_scope=fdr_scope,
+            )
+            ddf = pd.DataFrame(diag_rows).set_index("feature") if diag_rows else pd.DataFrame()
+            contrast_results[label] = vdf
+            contrast_diagnostics[label] = ddf
+
+        if fdr_scope in ("global", "both") and len(contrast_results) > 1:
+            flat_pvals: list[float] = []
+            flat_index: list[tuple[str, int]] = []
+            for label, vdf in contrast_results.items():
+                for i, p in enumerate(vdf["p_value"].values):
+                    if np.isfinite(p):
+                        flat_pvals.append(float(p))
+                        flat_index.append((label, i))
+            if len(flat_pvals) > 1:
+                global_adj = bh_adjust_pvalues(np.asarray(flat_pvals))
+                for (label, i), adj in zip(flat_index, global_adj):
+                    if "adj_p_value_global" not in contrast_results[label].columns:
+                        contrast_results[label]["adj_p_value_global"] = np.nan
+                    row_idx = contrast_results[label].index[i]
+                    contrast_results[label].loc[row_idx, "adj_p_value_global"] = adj
+
+        per_feature_testing, per_feature_failures = (
+            mixed_de_utils.summarize_per_feature_testing_for_results(
+                contrast_results,
+                contrast_mode=contrast_mode,
+                method=method,
+                observation_level=obs_level,
+            )
+        )
+        mixed_de_utils.print_mixed_de_info_section(
+            diag=diag,
+            group_col=resolved_contrast_term,
+            group_sizes=group_sizes,
+            n_features_tested=n_features_tested,
+            n_features_total=n_features_total,
+            per_feature_testing=per_feature_testing,
+            per_feature_failures=per_feature_failures,
+        )
+
+        run_meta = {
+            "path": path,
+            "formula_resolved": resolved_formula,
+            "group_col": group_col,
+            "contrast_term": resolved_contrast_term,
+            "contrast_mode": contrast_mode,
+            "subset": subset,
+            "donor_col": donor_col,
+            "random_effects": random_effects,
+            "observation_level_used": obs_level,
+            "fdr_scope": fdr_scope,
+            "on": on,
+            "layer": layer,
+            "reference_levels": resolved_reference_levels,
+            **expr_meta,
+            **diag,
+        }
+
+        if contrast_mode == "specified":
+            label = contrasts[0][2]
+            volcano_df = contrast_results[label]
+            diagnostics_df = contrast_diagnostics[label]
+            key = stats_key or mixed_de_utils.build_stats_key(
+                contrast_label=label,
+                subset=subset,
+                donor_col=donor_col,
+                contrast_mode=contrast_mode,
+                group_col=resolved_contrast_term,
+            )
+            volcano_df.attrs["mixed_de"] = {**run_meta, "contrast": contrasts[0][:2], "contrast_label": label}
+            if store:
+                self._stats[key] = volcano_df  # type: ignore[attr-defined]
+                self._append_history(  # type: ignore[attr-defined]
+                    f"{on}: mixed_de {label} stored in .stats[{key!r}]."
+                )
+            mixed_de_utils.print_mixed_de_result_summary(
+                volcano_df,
+                stats_location=f'.stats["{key}"]',
+                correct_fdr=correct_fdr,
+                contrast_mode=contrast_mode,
+            )
+            if return_diagnostics:
+                return volcano_df, diagnostics_df
+            return volcano_df
+
+        collection_key = stats_key or mixed_de_utils.build_stats_key(
+            contrast_label="",
+            subset=subset,
+            donor_col=donor_col,
+            contrast_mode=contrast_mode,
+            group_col=resolved_contrast_term,
+        )
+        for label, vdf in contrast_results.items():
+            vdf.attrs["mixed_de"] = {**run_meta, "contrast_label": label}
+        collection = {
+            "contrasts": contrast_results,
+            "meta": run_meta,
+            "diagnostics": contrast_diagnostics,
+        }
+        if store:
+            self._stats[collection_key] = collection  # type: ignore[attr-defined]
+            self._append_history(  # type: ignore[attr-defined]
+                f"{on}: mixed_de {contrast_mode} collection stored in .stats[{collection_key!r}]."
+            )
+        mixed_de_utils.print_mixed_de_collection_summary(
+            contrast_results,
+            stats_location=f'.stats["{collection_key}"]',
+            correct_fdr=correct_fdr,
+            contrast_mode=contrast_mode,
+        )
+        if return_diagnostics:
+            return collection
+        return collection
 
     # TODO: Need to figure out how to make this interface with plot functions, probably do reordering by each class_value within the loop?
     def rank(self, classes = None, on = 'protein', layer = "X"):
@@ -2139,12 +2685,13 @@ class AnalysisMixin:
             see ``uns['pairwise_corr']['separator']`` and ``classes_list`` for plotting.
 
         Example:
-            Combined cell line and treatment (labels like ``"AS, kd"``)::
-
+            Combined cell line and treatment (labels like ``"AS, kd"``):
+                ```python
                 pdata.pairwise_correlation(
                     classes=["cellline", "treatment"],
                     method="pearson",
                 )
+                ```
         """
         if not self._check_data(on):  # type: ignore[attr-defined], ValidationMixin
             pass
