@@ -962,18 +962,30 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
     full_user_key = user_key + suffix
     print(f"[DEBUG] Full user key for lookup: '{full_user_key}'")  if debug else None
 
+    # Also try pretty-formatting the *user* key so legacy dict-style keys
+    # (e.g. "[{'cellline': 'BE'}] vs …") resolve against modern stats keys
+    # like "BE_kd vs BE_sc".
+    pretty_user_key = _pretty_vs_key(user_key) + suffix
+    print(f"[DEBUG] Pretty user key for lookup: '{pretty_user_key}'") if debug else None
+
     if full_user_key in stats_dict:
         print("[DEBUG] Found direct match in stats.") if debug else None
         return full_user_key
-    elif full_user_key in pretty_map:
+    if full_user_key in pretty_map:
         print(f"[DEBUG] Found in pretty map: {pretty_map[full_user_key]}")  if debug else None
         return pretty_map[full_user_key]
-    else:
-        pretty_keys = "\n".join(f"  - {k}" for k in pretty_map.keys()) if pretty_map else "  (none found)"
-        raise ValueError(
-            f"'{full_user_key}' not found in stats.\n"
-            f"Available DE keys:\n{pretty_keys}"
-        )
+    if pretty_user_key != full_user_key and pretty_user_key in stats_dict:
+        print("[DEBUG] Found pretty-formatted user key in stats.") if debug else None
+        return pretty_user_key
+    if pretty_user_key != full_user_key and pretty_user_key in pretty_map:
+        print(f"[DEBUG] Found pretty user key in pretty map: {pretty_map[pretty_user_key]}") if debug else None
+        return pretty_map[pretty_user_key]
+
+    pretty_keys = "\n".join(f"  - {k}" for k in pretty_map.keys()) if pretty_map else "  (none found)"
+    raise ValueError(
+        f"'{full_user_key}' not found in stats.\n"
+        f"Available DE keys:\n{pretty_keys}"
+    )
 
 # --- re-export methods to top level for testing convenience ---
 def enrichment_functional(pdata, *args, **kwargs):

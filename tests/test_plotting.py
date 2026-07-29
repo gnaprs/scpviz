@@ -10,7 +10,9 @@ import matplotlib.pyplot as plt
 import anndata as ad
 
 from scpviz.plotting.abundance import (
+    _pack_sig_bracket_y,
     _resolve_sig_group_label,
+    _x_intervals_overlap,
     annotate_abundance_boxgrid_significance,
 )
 from conftest import _is_axes_container, _count_artists
@@ -511,6 +513,103 @@ def test_plot_abundance_boxgrid_sig_pairs_requires_classes(pdata):
 
 # --- _resolve_sig_group_label ---
 
+def test_x_intervals_overlap_touching_and_disjoint():
+    assert _x_intervals_overlap(0.0, 1.0, 1.0, 2.0)
+    assert _x_intervals_overlap(0.0, 2.0, 0.5, 1.5)
+    assert not _x_intervals_overlap(0.0, 1.0, 1.1, 2.0)
+
+
+def test_pack_sig_bracket_y_dodges_overlapping_spans():
+    brackets = [
+        {"x1": 0.0, "x2": 2.0, "data_top": 10.0},  # long span
+        {"x1": 0.0, "x2": 1.0, "data_top": 10.0},  # short
+        {"x1": 1.0, "x2": 2.0, "data_top": 10.0},  # short, touches first short
+    ]
+    packed = _pack_sig_bracket_y(
+        brackets,
+        y_range=10.0,
+        h=0.3,
+        base_offset_frac=0.05,
+        spacing_frac=0.08,
+    )
+    by_span = {(min(b["x1"], b["x2"]), max(b["x1"], b["x2"])): b["y"] for b in packed}
+    assert by_span[(0.0, 1.0)] < by_span[(0.0, 2.0)]
+    assert by_span[(1.0, 2.0)] < by_span[(0.0, 2.0)]
+    # touching short spans also dodge each other
+    assert by_span[(0.0, 1.0)] != by_span[(1.0, 2.0)]
+
+
+def test_pack_sig_bracket_y_allows_disjoint_same_band():
+    brackets = [
+        {"x1": 0.0, "x2": 1.0, "data_top": 10.0},
+        {"x1": 2.0, "x2": 3.0, "data_top": 10.0},
+    ]
+    packed = _pack_sig_bracket_y(
+        brackets,
+        y_range=10.0,
+        h=0.3,
+        base_offset_frac=0.05,
+        spacing_frac=0.08,
+    )
+    assert packed[0]["y"] == pytest.approx(packed[1]["y"])
+
+
+def test_annotate_sig_bracket_h_stable_under_shared_ylim_inflation():
+    """Bracket tick height must not grow when a sibling shared-y axis was padded."""
+    fig, axes = plt.subplots(1, 2, sharey=True, figsize=(4, 3))
+    rng = np.random.default_rng(0)
+    sub = pd.DataFrame(
+        {
+            "treatment": ["a"] * 4 + ["b"] * 4 + ["c"] * 4,
+            "abundance": np.concatenate(
+                [rng.normal(10, 0.5, 4), rng.normal(11, 0.5, 4), rng.normal(12, 0.5, 4)]
+            ),
+            "plot_abundance": np.concatenate(
+                [rng.normal(10, 0.5, 4), rng.normal(11, 0.5, 4), rng.normal(12, 0.5, 4)]
+            ),
+        }
+    )
+    for ax in axes:
+        ax.set_ylim(8, 14)
+        ax.set_xlim(-0.5, 2.5)
+    panel_info = [
+        {
+            "gene": "G1",
+            "ax": axes[0],
+            "sub": sub,
+            "unique_classes": ["a", "b", "c"],
+            "x_centers": [0.0, 1.0, 2.0],
+            "nd_groups": set(),
+        },
+        {
+            "gene": "G2",
+            "ax": axes[1],
+            "sub": sub,
+            "unique_classes": ["a", "b", "c"],
+            "x_centers": [0.0, 1.0, 2.0],
+            "nd_groups": set(),
+        },
+    ]
+    layout_y_range = 14.0 - 8.0
+    annotate_abundance_boxgrid_significance(
+        panel_info,
+        True,
+        classes="treatment",
+        classes_original="treatment",
+        layout_y_range=layout_y_range,
+    )
+    leg_hs = []
+    for ax in axes:
+        for line in ax.lines:
+            y = np.asarray(line.get_ydata(), dtype=float)
+            if y.size == 4:
+                leg_hs.append(abs(y[1] - y[0]))
+    assert leg_hs
+    assert max(leg_hs) == pytest.approx(min(leg_hs), rel=1e-6)
+    assert max(leg_hs) == pytest.approx(0.03 * layout_y_range, rel=1e-6)
+    plt.close(fig)
+
+
 def test_resolve_sig_group_label_composite_dict():
     assert (
         _resolve_sig_group_label(
@@ -572,25 +671,39 @@ def test_annotate_abundance_boxgrid_significance_unsupported_method():
     plt.close(fig)
 
 
-def test_annotate_abundance_boxgrid_significance_sig_pairs_true_wrong_n_groups():
+def test_annotate_abundance_boxgrid_significance_sig_pairs_true_all_pairs():
     fig, ax = plt.subplots()
+    rng = np.random.default_rng(0)
+    sub = pd.DataFrame(
+        {
+            "treatment": ["a"] * 4 + ["b"] * 4 + ["c"] * 4,
+            "abundance": np.concatenate(
+                [rng.normal(10, 1, 4), rng.normal(12, 1, 4), rng.normal(14, 1, 4)]
+            ),
+            "plot_abundance": np.concatenate(
+                [rng.normal(10, 1, 4), rng.normal(12, 1, 4), rng.normal(14, 1, 4)]
+            ),
+        }
+    )
     panel_info = [
         {
             "gene": "G",
             "ax": ax,
-            "sub": pd.DataFrame(),
+            "sub": sub,
             "unique_classes": ["a", "b", "c"],
             "x_centers": [0.0, 1.0, 2.0],
             "nd_groups": set(),
         }
     ]
-    with pytest.raises(ValueError, match="exactly two groups"):
-        annotate_abundance_boxgrid_significance(
-            panel_info,
-            True,
-            classes="treatment",
-            classes_original="treatment",
-        )
+    stats = annotate_abundance_boxgrid_significance(
+        panel_info,
+        True,
+        classes="treatment",
+        classes_original="treatment",
+    )
+    assert len(stats) == 3
+    assert set(zip(stats["group1"], stats["group2"])) == {("a", "b"), ("a", "c"), ("b", "c")}
+    assert (stats["status"] == "ok").all()
     plt.close(fig)
 
 
@@ -622,14 +735,18 @@ def test_annotate_abundance_boxgrid_significance_skipped_pair(capsys):
     plt.close(fig)
 
 
-def test_plot_abundance_boxgrid_sig_pairs_true_multigroup_raises(pdata):
-    with pytest.raises(ValueError, match="exactly two groups"):
-        scplt.plot_abundance_boxgrid(
-            pdata,
-            namelist=["ACTB"],
-            classes=["cellline", "treatment"],
-            sig_pairs=True,
-        )
+def test_plot_abundance_boxgrid_sig_pairs_true_multigroup(pdata):
+    fig, axes, df, stats = scplt.plot_abundance_boxgrid(
+        pdata,
+        namelist=["ACTB"],
+        classes=["cellline", "treatment"],
+        sig_pairs=True,
+        return_df=True,
+    )
+    n_groups = df["class"].nunique()
+    assert len(stats) == n_groups * (n_groups - 1) // 2
+    assert isinstance(fig, plt.Figure)
+    plt.close("all")
 
 
 def test_plot_abundance_boxgrid_nd_linear(pdata):

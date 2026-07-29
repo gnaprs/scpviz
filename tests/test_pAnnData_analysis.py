@@ -416,8 +416,8 @@ def test_de_passes_on_valid_inputs(pdata, fold_change_mode, test):
     assert "p_value" in df.columns
     assert "adj_p_value" not in df.columns
     assert "log2fc" in df.columns
-    assert "[{'cellline': 'BE', 'treatment': 'kd'}]" in df.columns
-    assert "[{'cellline': 'AS', 'treatment': 'sc'}]" in df.columns
+    assert "BE_kd" in df.columns
+    assert "AS_sc" in df.columns
 
 def test_de_raises_on_invalid_foldchange(pdata):
     with pytest.raises(ValueError, match="Unsupported fold_change_mode"):

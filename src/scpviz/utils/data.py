@@ -953,11 +953,15 @@ def infer_layer_is_log(layer: str, adata: Optional[ad.AnnData] = None) -> bool:
     """
     Infer whether a layer contains log-transformed values.
 
-    1. **Registry** (if ``adata`` is given and ``adata.uns['layer_provenance']`` exists):
+    1. **Resolve ``\"X\"``** (if ``adata`` is given): map to
+       ``adata.uns['current_X_layer']`` via :func:`resolve_input_layer` so the
+       active ``.X`` matrix is checked under its registered provenance name.
+    2. **Registry** (if ``adata`` is given and ``adata.uns['layer_provenance']`` exists):
        walk ancestors via ``input_layer`` (cycle-safe). If any step has
-       ``op == \"log_transform\"``, return True. If ``layer`` is registered and no
-       ``log_transform`` appears, return False.
-    2. **Name fallback**: ``\"log\" in layer.lower()``.
+       ``op == \"log_transform\"``, return True. If the resolved layer is registered
+       and no ``log_transform`` appears, return False.
+    3. **Name fallback**: ``\"log\" in layer.lower()`` (on the resolved name when
+       ``adata`` was provided).
 
     Standalone ``AnnData`` objects (e.g. passed into low-level ``utils`` helpers)
     often have no ``layer_provenance`` and no pAnnData ``.history``; only the
@@ -970,10 +974,12 @@ def infer_layer_is_log(layer: str, adata: Optional[ad.AnnData] = None) -> bool:
     Returns:
         True if the layer is treated as log-transformed.
     """
+    lookup = layer
     if adata is not None:
+        lookup = resolve_input_layer(adata, layer)
         registry = adata.uns.get("layer_provenance", {})
         visited: set[str] = set()
-        current: str = layer
+        current: str = lookup
         while current in registry and current not in visited:
             visited.add(current)
             record = registry[current]
@@ -983,10 +989,10 @@ def infer_layer_is_log(layer: str, adata: Optional[ad.AnnData] = None) -> bool:
             if not nxt:
                 break
             current = nxt
-        if layer in registry:
+        if lookup in registry:
             return False
 
-    return "log" in layer.lower()
+    return "log" in lookup.lower()
 
 def resolve_input_layer(adata: ad.AnnData, layer: str) -> str:
     """

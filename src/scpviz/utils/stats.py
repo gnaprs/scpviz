@@ -11,6 +11,7 @@ from scipy import sparse
 from scipy.stats import false_discovery_control, ttest_ind, mannwhitneyu, wilcoxon
 from sklearn.decomposition import PCA
 
+from scpviz.utils.de_reporting import format_de_group_label
 from scpviz.utils.formatting import format_log_prefix
 
 if TYPE_CHECKING:
@@ -196,12 +197,6 @@ def de_adata(
                 mask &= (adata.obs[col].astype(str) == str(val))
         return np.where(mask)[0]
     
-    # create readable labels for groups
-    def _label_group(filters):
-        # filters is a list of dicts; we want one dict describing that group
-        d = filters[0] if isinstance(filters, list) else filters
-        return "_".join(str(v) for v in d.values())
-
     if values is None:
         raise ValueError("Please supply `values` (2 groups) for DE.")
 
@@ -298,8 +293,8 @@ def de_adata(
     mean1 = np.nanmean(data1, axis=0)
     mean2 = np.nanmean(data2, axis=0)
 
-    group1_label = _label_group(group1_filters)
-    group2_label = _label_group(group2_filters)
+    group1_label = format_de_group_label(group1_filters)
+    group2_label = format_de_group_label(group2_filters)
 
     # assemble DataFrame (pAnnData-compatible)
     df = pd.DataFrame(index=adata.var_names)

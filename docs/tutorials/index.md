@@ -71,6 +71,7 @@ H .-> I
 ### 5. [Differential Expression (DE)](de.md)
 - Perform DE testing at the protein or peptide level.
 - Compare fold-change strategies (mean-based vs. pairwise median).
+- Run **donor-blocked** mixed-model / pseudobulk DE with `mixed_de()`.
 - Export DE results for downstream use.
 
 ### 6. [Enrichment and Networks](enrichment.md)

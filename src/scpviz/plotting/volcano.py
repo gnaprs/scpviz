@@ -16,6 +16,7 @@ import seaborn as sns
 from adjustText import adjust_text
 
 from scpviz import utils
+from scpviz.utils.de_reporting import format_de_group_label, parse_contrast_label
 from scpviz.utils.formatting import format_log_prefix
 
 if TYPE_CHECKING:
@@ -79,7 +80,8 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
                  label_type='Gene', color=None, alpha=0.5, threshold=0.05, log2fc=1, linewidth=0.5,
                  p_col: str | None = None, correct_fdr: bool = False, equal_var: bool = True,
                  pval: float | None = None,
-                 fontsize=8, no_marks=False, classes=None, de_data=None, return_df=False,
+                 fontsize=8, no_marks=False, classes=None, de_data=None, stats_key: str | None = None,
+                 return_df=False,
                  group_annot=True, group_annot_kwargs=None, group1_kwargs=None, group2_kwargs=None, up_kwargs=None, down_kwargs=None, **kwargs: Any) -> Any:
     """
     Plot a volcano plot of differential expression results.
@@ -136,23 +138,39 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
             plot all points in grey. Default is False.
         classes (str, optional): Sample class column to use for group comparison.
         de_data (pandas.DataFrame, optional): Pre-computed DE results. Must contain
-            `"log2fc"`, `"p_value"`, and `"significance"` columns.
+            `"log2fc"`, `"p_value"`, and `"significance"` columns. From ``pdata.de()``
+            or ``pdata.mixed_de()``.
+        stats_key (str, optional): Key in ``pdata.stats`` to use as pre-computed DE
+            results (alternative to ``de_data``).
         return_df (bool): If True, return both the axis and the DataFrame used
             for plotting. Default is False.
         group_annot (bool): If True, annotate group names and differential
             expression counts (n) at the top of the plot. If False, suppress
             all group-related annotations. Default is True.
         group_annot_kwargs (dict, optional): Global configuration for group
-            annotations. Supported keys include:
+            annotations. Supported keys:
 
-            - `"pos"`: Dictionary controlling annotation positions in axes
-              fraction coordinates. Expected keys are `"group1_xy"`,
-              `"group2_xy"`, `"up_xy"`, and `"down_xy"`, each mapping to
-              an `(x, y)` tuple.
-            
-            - `"bbox"`: Dictionary of bounding box properties passed to
-              `matplotlib.text.Annotation`, or `None` to disable the bounding
-              box for group labels.
+            - `"pos"` (dict): Annotation positions in axes-fraction
+              coordinates. Keys and defaults:
+
+              - `"group1_xy"`: ``(0.98, 1.07)`` — right group label
+              - `"group2_xy"`: ``(0.02, 1.07)`` — left group label
+              - `"up_xy"`: ``(0.98, 1.015)`` — upregulated ``n=`` count
+              - `"down_xy"`: ``(0.02, 1.015)`` — downregulated ``n=`` count
+              - `"mixed_xy"`: ``(0.5, 1.25)`` — Mixed DE subtitle
+                (``"Mixed DE | …"``); only drawn for ``mixed_de`` results
+
+            - `"bbox"`: Bounding-box dict for group labels, or ``None`` to
+              disable the box.
+
+            - `"mixed_kwargs"` (dict): Extra kwargs for the Mixed DE subtitle
+              ``ax.annotate()`` call (e.g. ``fontsize``, ``color``). Default
+              fontsize is ``max(fontsize - 1, 6)``.
+
+            See the styling examples below for how to pass ``pos`` / ``bbox``.
+            Top-level ``group1_kwargs``, ``group2_kwargs``, ``up_kwargs``, and
+            ``down_kwargs`` style the corresponding annotations the same way
+            ``mixed_kwargs`` styles the Mixed DE subtitle.
 
         group1_kwargs (dict, optional): Keyword arguments passed to
             `ax.annotate()` for the first group label (right-aligned by
@@ -224,7 +242,8 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
             ```
         To tweak styling:
 
-            Move positions up/down and tweak styling:
+            Move positions up/down and tweak styling (same ``pos`` keys work for
+            Mixed DE's ``mixed_xy``; use ``mixed_kwargs`` for its fontsize/color):
             ```python
             values = [
                 {"cellline": "BE", "condition": "kd"},
@@ -288,6 +307,34 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
             scplt.plot_volcano(ax, de_data=de_df, correct_fdr=True)
             ```
 
+        Mixed DE results from ``pdata.mixed_de()`` (donor-blocked):
+            Run mixed DE, then plot from the stored stats key or the returned
+            DataFrame. Group annotation boxes are inferred from the ``contrast``
+            column (no ``values`` needed).
+
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            # DE of log2fc = Cortex - SNpc
+            volcano_df = pdata.mixed_de(
+                group_col="region",
+                contrast=("Cortex", "SNpc"),  # same as `values=[{"region": "Cortex"}, {"region": "SNpc"}]`
+                donor_col="animal",
+            )
+            stats_key = "mixed: SNpc vs Cortex | donor=animal"
+
+            # Plot Volcano 
+            fig, ax = plt.subplots(figsize=(4, 4))
+            # Option A: stats_key (recommended)
+            scplt.plot_volcano(
+                ax, pdata, stats_key=stats_key, correct_fdr=True,
+            )
+            # Option B: explicit DataFrame (same table as pdata.stats[stats_key])
+            # scplt.plot_volcano(ax, de_data=volcano_df, correct_fdr=True)
+            plt.show()
+            ```
+
     """
     import numpy as np
     import pandas as pd
@@ -317,6 +364,22 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
         if p_col not in ("p_value", "adj_p_value"):
             raise ValueError("p_col must be 'p_value' or 'adj_p_value'.")
         p_col_explicit = True
+
+    if de_data is not None and stats_key is not None:
+        raise ValueError("Pass either `de_data` or `stats_key`, not both.")
+
+    if stats_key is not None:
+        if pdata is None:
+            raise ValueError("`pdata` is required when `stats_key` is provided.")
+        if stats_key not in pdata.stats:
+            raise KeyError(f"stats_key {stats_key!r} not found in pdata.stats.")
+        stored = pdata.stats[stats_key]
+        if isinstance(stored, dict) and "contrasts" in stored:
+            raise ValueError(
+                f"stats_key {stats_key!r} is a mixed_de collection. "
+                "Pass one contrast via de_data=pdata.stats[stats_key]['contrasts'][<label>]."
+            )
+        de_data = stored
 
     if de_data is not None:
         volcano_df = de_data.copy()
@@ -411,18 +474,26 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
         
         adjust_text(texts, expand=(2, 2), arrowprops=dict(arrowstyle='->', color='k', zorder=5))
 
-    # Add group names and DE counts to plot
-    def format_group(values_entry, classes):
-        if isinstance(values_entry, dict):
-            return "/".join(str(v) for v in values_entry.values())
-        elif isinstance(values_entry, list) and isinstance(classes, list) and len(values_entry) == len(classes):
-            return "/".join(str(v) for v in values_entry)
-        return str(values_entry)
-
     group1 = group2 = ""
     if isinstance(values, list) and len(values) == 2:
-        group1 = format_group(values[0], classes)
-        group2 = format_group(values[1], classes)
+        group1 = format_de_group_label(values[0], class_type=classes, style="slash")
+        group2 = format_de_group_label(values[1], class_type=classes, style="slash")
+    else:
+        # de_data / stats_key path: recover labels from mixed_de / contrast column
+        mixed_meta = getattr(volcano_df, "attrs", {}).get("mixed_de", {}) or {}
+        contrast_txt = None
+        if "contrast" in volcano_df.columns and len(volcano_df):
+            contrast_txt = str(volcano_df["contrast"].iloc[0])
+        elif mixed_meta.get("contrast_label"):
+            contrast_txt = str(mixed_meta["contrast_label"])
+        parsed = parse_contrast_label(contrast_txt) if contrast_txt else None
+        if parsed is not None:
+            group1, group2 = parsed
+        elif mixed_meta.get("contrast") is not None:
+            # contrast stored as (test, ref); label/sign is test vs ref
+            ref_test = mixed_meta["contrast"]
+            if isinstance(ref_test, (list, tuple)) and len(ref_test) == 2:
+                group1, group2 = str(ref_test[0]), str(ref_test[1])
 
     up_count = (volcano_df['significance'] == 'upregulated').sum()
     down_count = (volcano_df['significance'] == 'downregulated').sum()
@@ -449,7 +520,13 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
         base_count = dict(va="bottom")
 
         # Default positions (can be overridden globally or per-item)
-        default_pos = dict(group1_xy=(0.98, 1.07), up_xy=(0.98, 1.015),  group2_xy=(0.02, 1.07), down_xy=(0.02, 1.015),)
+        default_pos = dict(
+            group1_xy=(0.98, 1.07),
+            up_xy=(0.98, 1.015),
+            group2_xy=(0.02, 1.07),
+            down_xy=(0.02, 1.015),
+            mixed_xy=(0.5, 1.25),
+        )
         pos = _merge(default_pos, group_annot_kwargs.get("pos"))
 
         # Allow overriding bbox (or disabling it by bbox=None)
@@ -460,17 +537,54 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
         else:
             base_group = dict(base_group, bbox=bbox_override)
 
-        # Group labels
-        ax.annotate(group1, xy=pos["group1_xy"],  ha="right", **_merge(_merge(base_text, base_group), group1_kwargs),
-        )
-        ax.annotate(group2, xy=pos["group2_xy"], ha="left", **_merge(_merge(base_text, base_group), group2_kwargs),
-        )
+        # Group labels (skip empty strings so empty bubbles are not drawn)
+        if group1:
+            ax.annotate(group1, xy=pos["group1_xy"],  ha="right", **_merge(_merge(base_text, base_group), group1_kwargs),
+            )
+        if group2:
+            ax.annotate(group2, xy=pos["group2_xy"], ha="left", **_merge(_merge(base_text, base_group), group2_kwargs),
+            )
 
         # Counts
         ax.annotate(f"n={up_count}", xy=pos["up_xy"], ha="right",
             **_merge(_merge(_merge(base_text, base_count), {"color": default_color.get("upregulated", "red")}), up_kwargs))
         ax.annotate(f"n={down_count}", xy=pos["down_xy"], ha="left",
             **_merge(_merge(_merge(base_text, base_count), {"color": default_color.get("downregulated", "blue")}), down_kwargs))
+
+        mixed_meta = getattr(volcano_df, "attrs", {}).get("mixed_de", {})
+        contrast_txt = None
+        if "contrast" in volcano_df.columns and len(volcano_df):
+            contrast_txt = str(volcano_df["contrast"].iloc[0])
+        elif mixed_meta.get("contrast_label"):
+            contrast_txt = mixed_meta["contrast_label"]
+        de_method_txt = None
+        if "de_method" in volcano_df.columns and len(volcano_df):
+            de_method_txt = str(volcano_df["de_method"].mode(dropna=True).iloc[0])
+        elif mixed_meta.get("observation_level_used"):
+            de_method_txt = mixed_meta["observation_level_used"]
+        n_donors_txt = None
+        if "n_donors_paired" in volcano_df.columns and len(volcano_df):
+            n_donors_txt = volcano_df["n_donors_paired"].iloc[0]
+        elif mixed_meta.get("n_donors_paired") is not None:
+            n_donors_txt = mixed_meta["n_donors_paired"]
+        if contrast_txt or de_method_txt or n_donors_txt is not None:
+            subtitle_parts = ["Mixed DE"]
+            if de_method_txt:
+                subtitle_parts.append(str(de_method_txt))
+            if contrast_txt:
+                subtitle_parts.append(str(contrast_txt))
+            if n_donors_txt is not None:
+                subtitle_parts.append(f"paired donors n={int(n_donors_txt)}")
+            mixed_kwargs = group_annot_kwargs.get("mixed_kwargs") or {}
+            mixed_annot = dict(
+                xy=pos["mixed_xy"],
+                ha="center",
+                xycoords="axes fraction",
+                fontsize=max(fontsize - 1, 6),
+                annotation_clip=False,
+            )
+            mixed_annot.update(mixed_kwargs)
+            ax.annotate(" | ".join(subtitle_parts), **mixed_annot)
         
     if return_df:
         return ax, df
@@ -589,16 +703,8 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
             equal_var=equal_var, gene_col=gene_col,
         )
 
-        def format_group(val, class_type):
-            if isinstance(val, dict):
-                return "/".join(str(v) for v in val.values())
-            elif isinstance(val, list) and isinstance(class_type, list):
-                return "/".join(str(v) for v in val)
-            else:
-                return str(val)
-
-        group1_label = format_group(values[0], class_type)
-        group2_label = format_group(values[1], class_type)
+        group1_label = format_de_group_label(values[0], class_type=class_type, style="slash")
+        group2_label = format_de_group_label(values[1], class_type=class_type, style="slash")
 
     _warn_volcano_de_inconsistency(
         df,

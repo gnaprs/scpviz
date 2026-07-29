@@ -5,6 +5,7 @@ from typing import Any, TYPE_CHECKING
 
 import re
 import warnings
+from itertools import combinations
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -537,6 +538,61 @@ _SIG_KW_LAYOUT_KEYS = frozenset(
 )
 
 
+def _x_intervals_overlap(a0: float, a1: float, b0: float, b1: float) -> bool:
+    """True when closed intervals [a0, a1] and [b0, b1] overlap or touch."""
+    return a0 <= b1 and b0 <= a1
+
+
+def _pack_sig_bracket_y(
+    brackets: list[dict[str, Any]],
+    *,
+    y_range: float,
+    h: float,
+    base_offset_frac: float,
+    spacing_frac: float,
+) -> list[dict[str, Any]]:
+    """
+    Assign non-overlapping y positions for significance brackets.
+
+    Short spans are placed first. Each bracket starts just above its data, then
+    dodges upward until its x-interval no longer collides with an already-placed
+    bracket (including label space above the bar). Non-overlapping x spans may
+    share the same vertical band.
+    """
+    if not brackets:
+        return brackets
+
+    step = spacing_frac * y_range
+    text_pad = step  # room for ``plot_significance`` label above the bar
+    footprint = h + text_pad
+    gap = 0.25 * step
+
+    ordered = sorted(
+        brackets,
+        key=lambda b: (abs(float(b["x2"]) - float(b["x1"])), min(float(b["x1"]), float(b["x2"]))),
+    )
+    placed: list[tuple[float, float, float, float]] = []  # x0, x1, y0, y1
+
+    for br in ordered:
+        x0 = float(min(br["x1"], br["x2"]))
+        x1 = float(max(br["x1"], br["x2"]))
+        y = float(br["data_top"]) + base_offset_frac * y_range
+        while True:
+            hit_top = None
+            for px0, px1, py0, py1 in placed:
+                if _x_intervals_overlap(x0, x1, px0, px1) and _x_intervals_overlap(
+                    y, y + footprint, py0, py1
+                ):
+                    hit_top = py1 if hit_top is None else max(hit_top, py1)
+            if hit_top is None:
+                break
+            y = hit_top + gap
+        br["y"] = y
+        placed.append((x0, x1, y, y + footprint))
+
+    return ordered
+
+
 def _resolve_sig_group_label(
     spec: Any,
     group_col: str,
@@ -576,6 +632,7 @@ def annotate_abundance_boxgrid_significance(
     classes: str,
     classes_original: str | list[str] | tuple[str, ...] | None,
     sig_kwargs: dict[str, Any] | None = None,
+    layout_y_range: float | None = None,
 ) -> pd.DataFrame:
     """
     Add pairwise significance brackets to ``plot_abundance_boxgrid`` panels.
@@ -586,8 +643,9 @@ def annotate_abundance_boxgrid_significance(
     Args:
         panel_info: Per-gene dicts with keys ``gene``, ``ax``, ``sub``, ``unique_classes``,
             ``x_centers``, and ``nd_groups``.
-        sig_pairs: ``True`` for an automatic two-group comparison on each panel, or a list
-            of ``(group1, group2)`` specs in volcano / ``de()`` format (dict, list, or str).
+        sig_pairs: ``True`` to auto-compare every unordered pair of groups on each panel,
+            or a list of ``(group1, group2)`` specs in volcano / ``de()`` format
+            (dict, list, or str).
         classes: Column in each ``sub`` DataFrame used for grouping (often ``"class"``).
         classes_original: Original ``classes`` argument passed to boxgrid (for label resolution).
         sig_kwargs: Optional overrides merged onto defaults. Known keys:
@@ -595,9 +653,14 @@ def annotate_abundance_boxgrid_significance(
             - ``sig_test``: ``"ttest"``, ``"mannwhitneyu"``, or ``"wilcoxon"`` (default ``"ttest"``).
             - ``sig_equal_var``: Student vs Welch t-test when ``sig_test="ttest"`` (default ``True``).
             - ``spacing_frac``, ``h_frac``, ``base_offset_frac``: bracket layout (axis fractions).
+              Overlapping brackets are packed upward so bars/labels do not collide; non-overlapping
+              x-spans may share a vertical band.
 
             Remaining keys are forwarded to :func:`plot_significance` (e.g. ``col``, ``fontsize``).
             See :func:`plot_significance` for full drawing options.
+        layout_y_range: Optional frozen y-span used for ``h`` / spacing. When panels share a
+            y-axis, pass the pre-significance limit span so later panels do not inherit an
+            inflated tick height from earlier bracket padding.
 
     Returns:
         stats_df: One row per gene × comparison with test results and draw status.
@@ -630,20 +693,27 @@ def annotate_abundance_boxgrid_significance(
         class_to_x = dict(zip(unique_classes, x_centers))
 
         if sig_pairs is True:
-            if len(unique_classes) != 2:
-                raise ValueError(
-                    f"sig_pairs=True requires exactly two groups on panel {gene!r}; "
-                    f"found {len(unique_classes)}: {unique_classes!r}."
-                )
-            pair_list = [(unique_classes[0], unique_classes[1])]
+            pair_list = list(combinations(unique_classes, 2))
         else:
             pair_list = sig_pairs
 
         ymin, ymax = ax.get_ylim()
-        y_range = ymax - ymin if ymax > ymin else 1.0
+        if layout_y_range is not None and layout_y_range > 0:
+            y_range = float(layout_y_range)
+        else:
+            # Prefer this panel's data span so shared-y padding from other panels
+            # cannot inflate the bracket tick height.
+            vals = sub["plot_abundance"].to_numpy(dtype=float) if "plot_abundance" in sub.columns else np.array([])
+            vals = vals[np.isfinite(vals)]
+            if vals.size:
+                y_range = float(np.nanmax(vals) - np.nanmin(vals))
+                if y_range <= 0:
+                    y_range = ymax - ymin if ymax > ymin else 1.0
+            else:
+                y_range = ymax - ymin if ymax > ymin else 1.0
         h = h_frac * y_range
 
-        bracket_level = 0
+        to_draw: list[dict[str, Any]] = []
         for g1_spec, g2_spec in pair_list:
             label1 = _resolve_sig_group_label(g1_spec, classes, classes_original)
             label2 = _resolve_sig_group_label(g2_spec, classes, classes_original)
@@ -769,27 +839,46 @@ def annotate_abundance_boxgrid_significance(
                     anchor_vals.append(float(np.nanmax(dat)))
                     anchor_vals.append(float(np.nanpercentile(dat, 75)))
             data_top = max(anchor_vals) if anchor_vals else ymin
-            y = data_top + base_offset_frac * y_range + bracket_level * spacing_frac * y_range
-
-            plot_significance(ax, y, h, x1=float(x1), x2=float(x2), pval=p_value, **plot_sig_kwargs)
             label = "n.s." if p_value > 0.05 else "*" * int(np.floor(-np.log10(p_value)))
-            rows.append(
+            to_draw.append(
                 {
-                    **base_row,
-                    "n1": n1,
-                    "n2": n2,
-                    "statistic": statistic,
+                    "x1": float(x1),
+                    "x2": float(x2),
+                    "data_top": data_top,
                     "p_value": p_value,
-                    "label": label,
-                    "status": "ok",
-                    "reason": "",
+                    "row": {
+                        **base_row,
+                        "n1": n1,
+                        "n2": n2,
+                        "statistic": statistic,
+                        "p_value": p_value,
+                        "label": label,
+                        "status": "ok",
+                        "reason": "",
+                    },
                 }
             )
-            bracket_level += 1
 
-        if bracket_level > 0:
+        packed = _pack_sig_bracket_y(
+            to_draw,
+            y_range=y_range,
+            h=h,
+            base_offset_frac=base_offset_frac,
+            spacing_frac=spacing_frac,
+        )
+        for br in packed:
+            plot_significance(
+                ax, br["y"], h, x1=br["x1"], x2=br["x2"], pval=br["p_value"], **plot_sig_kwargs
+            )
+            rows.append(br["row"])
+
+        if packed:
+            top = max(
+                float(br["y"]) + h + spacing_frac * y_range for br in packed
+            )
             cur_ymin, cur_ymax = ax.get_ylim()
-            ax.set_ylim(cur_ymin, cur_ymax + spacing_frac * y_range)
+            if top > cur_ymax:
+                ax.set_ylim(cur_ymin, top)
 
     return pd.DataFrame(rows)
 
@@ -854,12 +943,13 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
         strip_kwargs (dict, optional): Keyword arguments for strip (raw points),
             e.g. ``{"darken_factor": 0.65}``.
         sig_pairs (list, bool, or None): Pairwise comparisons for significance brackets.
-            ``None`` (default) disables testing. ``True`` auto-compares the two hue groups
-            when exactly two are present. Otherwise pass a list of ``(group1, group2)`` specs
-            in the same dict/list/str format as :func:`plot_volcano` / ``de()`` values.
+            ``None`` (default) disables testing. ``True`` auto-compares every unordered
+            pair of hue groups on each panel. Otherwise pass a list of ``(group1, group2)``
+            specs in the same dict/list/str format as :func:`plot_volcano` / ``de()`` values.
         sig_kwargs (dict, optional): Significance options merged onto defaults
             ``{"sig_test": "ttest", "sig_equal_var": True}``. Layout keys
-            ``spacing_frac``, ``h_frac``, and ``base_offset_frac`` are consumed locally;
+            ``spacing_frac``, ``h_frac``, and ``base_offset_frac`` are consumed locally
+            (overlapping brackets dodge upward so bars/labels do not collide);
             remaining keys (e.g. ``col``, ``fontsize``, ``h``) are passed to
             :func:`plot_significance`.
         nd_kwargs (dict, optional): Not-detected annotation options merged onto defaults
@@ -1069,7 +1159,7 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
 
         ![Plot abundance boxgrid significance multi](../../assets/plots/plot_abundance_boxgrid_significance_multi.png)
 
-        Two hue groups only — auto comparison:
+        All pairwise comparisons among hue groups:
         ```python
         fig, axes = pdata.plot_abundance_boxgrid(
             namelist=["GAPDH"],
@@ -1537,12 +1627,17 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
 
     stats_df = None
     if sig_pairs is not None:
+        # Freeze tick/spacing scale to the pre-significance axis span. Boxgrid uses
+        # sharey, so expanding one panel's ylim must not inflate later panels' ``h``.
+        y0, y1 = axes[0].get_ylim()
+        layout_y_range = (y1 - y0) if y1 > y0 else 1.0
         stats_df = annotate_abundance_boxgrid_significance(
             panel_info,
             sig_pairs,
             classes=classes,
             classes_original=classes_original,
             sig_kwargs=sig_kwargs,
+            layout_y_range=layout_y_range,
         )
 
     if return_df and sig_pairs is not None:

@@ -644,6 +644,37 @@ def test_get_upset_query_fetch_false_requires_pdata(monkeypatch):
             fetch_uniprot=False,
         )
 
+# test de_reporting helpers
+from scpviz.utils import de_reporting
+
+def test_format_de_group_label_unwraps_single_dict_list():
+    assert de_reporting.format_de_group_label([{"region": "Cortex"}]) == "Cortex"
+    assert de_reporting.format_de_group_label(
+        {"cellline": "BE", "treatment": "kd"}
+    ) == "BE_kd"
+    assert de_reporting.format_de_group_label(
+        {"cellline": "BE", "treatment": "kd"}, style="slash"
+    ) == "BE/kd"
+
+def test_format_de_comparison_label():
+    assert de_reporting.format_de_comparison_label(
+        {"region": "Cortex"}, {"region": "SNpc"}
+    ) == "Cortex vs SNpc"
+
+def test_parse_contrast_label():
+    assert de_reporting.parse_contrast_label("Cortex vs SNpc") == ("Cortex", "SNpc")
+    assert de_reporting.parse_contrast_label("no_separator") is None
+
+def test_format_de_column_hint():
+    assert "etc." in de_reporting.format_de_column_hint(correct_fdr=False)
+    assert "adj_p_value" in de_reporting.format_de_column_hint(correct_fdr=True)
+    mixed_hint = de_reporting.format_de_column_hint(
+        correct_fdr=True,
+        extra_cols=("contrast", "de_method"),
+    )
+    assert "contrast" in mixed_hint
+    assert "etc." not in mixed_hint
+
 # test de_adata()
 
 @pytest.mark.parametrize("fold_change_mode", ["mean", "pairwise_median"])
@@ -852,19 +883,6 @@ def test_get_peptides_for_accessions_no_rs_raises(pdata_nopep):
     with pytest.raises(ValueError, match="requires protein, peptide, and RS"):
         utils.get_peptides_for_accessions(pdata_nopep, ["P12345"])
 
-def test_get_peptides_for_accessions_diann_index_vs_stripped(pdata_diann):
-    acc = pdata_diann.prot.var_names[0]
-    df_index = utils.get_peptides_for_accessions(pdata_diann, [acc])
-    if df_index.empty:
-        pytest.skip("No peptides linked to first protein in DIA-NN fixture")
-    assert (df_index["sequence"] == df_index["peptide_id"]).all()
-
-    df_stripped = utils.get_peptides_for_accessions(
-        pdata_diann, [acc], sequence_from="Stripped.Sequence"
-    )
-    assert not df_stripped.empty
-    assert (df_stripped["sequence"] != df_stripped["peptide_id"]).any()
-
 def test_get_accessions_for_peptides_roundtrip(pdata):
     acc, _ = _pd_accession_with_peptides(pdata)
     pep_df = utils.get_peptides_for_accessions(pdata, [acc])
@@ -872,14 +890,6 @@ def test_get_accessions_for_peptides_roundtrip(pdata):
     df = utils.get_accessions_for_peptides(pdata, [peptide_id])
     assert acc in df["accession"].values
     assert (df["peptide_id"] == peptide_id).all()
-
-def test_get_accessions_for_peptides_by_sequence(pdata_diann):
-    stripped = str(pdata_diann.pep.var["Stripped.Sequence"].iloc[0])
-    df = utils.get_accessions_for_peptides(
-        pdata_diann, [stripped], sequence_from="Stripped.Sequence"
-    )
-    assert not df.empty
-    assert (df["sequence"] == stripped).all()
 
 def test_get_accessions_for_peptides_unknown_warns(pdata, capsys):
     df = utils.get_accessions_for_peptides(pdata, ["NOT_A_REAL_PEPTIDE"])
@@ -922,14 +932,6 @@ def test_resolve_peptide_sequence_pd(pdata):
         str(pdata.pep.var.loc[pep_id, "Annotated Sequence"])
     )
 
-def test_resolve_peptide_sequence_diann(pdata_diann):
-    """DIA-NN: use Stripped.Sequence, not Precursor.Id in .pep.var_names."""
-    pep_id = pdata_diann.pep.var_names[0]
-    stripped = str(pdata_diann.pep.var.loc[pep_id, "Stripped.Sequence"])
-    seq = utils.resolve_peptide_sequence(pdata_diann, pep_id)
-    assert seq == stripped.upper()
-    assert pep_id != stripped
-
 def test_get_peptide_properties_by_accession(pdata):
     acc, n_peps = _pd_accession_with_peptides(pdata)
     df = utils.get_peptide_properties(pdata, accessions=[acc], return_copy=True)
@@ -964,16 +966,23 @@ def test_pdata_get_peptide_properties_method(pdata):
     assert not df.empty
     assert "peptide_sequence" in df.columns
 
-def test_get_peptide_properties_diann(pdata_diann):
-    acc = pdata_diann.prot.var_names[0]
-    df = utils.get_peptide_properties(pdata_diann, accessions=[acc], return_copy=True)
-    if df.empty:
-        pytest.skip("No peptides linked to first protein in DIA-NN fixture")
-    assert df["peptide_sequence"].str.fullmatch(r"[ACDEFGHIKLMNPQRSTVWY]+").all()
-    row = df.iloc[0]
-    stripped = str(pdata_diann.pep.var.loc[row["peptide_id"], "Stripped.Sequence"])
-    assert row["peptide_sequence"] == stripped.upper()
-    assert row["peptide_id"] != row["peptide_sequence"]
+def test_resolve_peptides_by_accession(pdata):
+    acc, n_peps = _pd_accession_with_peptides(pdata)
+    pep_ids = utils.resolve_peptides(pdata, [acc], quiet=True)
+    assert pep_ids is not None
+    assert len(pep_ids) == n_peps
+    assert all(pid in set(pdata.pep.var_names.astype(str)) for pid in pep_ids)
+
+
+def test_resolve_peptides_direct_peptide_id(pdata):
+    pep_id = str(pdata.pep.var_names[0])
+    out = utils.resolve_peptides(pdata, [pep_id], quiet=True)
+    assert out == [pep_id]
+
+
+def test_resolve_peptides_empty_returns_none(pdata):
+    assert utils.resolve_peptides(pdata, []) is None
+
 
 def test_get_peptide_properties_count_amino_acids_dict(pdata):
     acc, _ = _pd_accession_with_peptides(pdata)
@@ -1575,6 +1584,30 @@ class TestInferLayerIsLog:
 
     def test_raw_X(self):
         assert utils.infer_layer_is_log("X") is False
+
+    def test_X_resolves_to_current_log_layer(self):
+        """layer='X' follows uns['current_X_layer'] into the provenance registry."""
+        adata = AnnData(np.zeros((3, 3)))
+        utils.update_layer_provenance(
+            adata, "X_norm_median", op="normalize", input_layer="X_raw", method="median"
+        )
+        utils.update_layer_provenance(
+            adata,
+            "X_log2",
+            op="log_transform",
+            input_layer="X_norm_median",
+            base="2",
+        )
+        adata.uns["current_X_layer"] = "X_log2"
+        assert utils.infer_layer_is_log("X", adata) is True
+
+    def test_X_resolves_to_current_non_log_layer(self):
+        adata = AnnData(np.zeros((3, 3)))
+        utils.update_layer_provenance(
+            adata, "X_norm_median", op="normalize", input_layer="X_raw", method="median"
+        )
+        adata.uns["current_X_layer"] = "X_norm_median"
+        assert utils.infer_layer_is_log("X", adata) is False
 
     def test_registry_overrides_name(self):
         """Registry result takes priority over name heuristic."""

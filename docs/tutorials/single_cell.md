@@ -865,6 +865,9 @@ color_dict = {
 
 A common way to visualize DE results is with a **volcano plot**, which shows the relationship between **fold change** and **statistical significance**.
 
+!!! tip "Donor-blocked DE"
+    When the same donors (animals, cases, …) contribute cells to both conditions, ordinary two-group tests can overstate significance. scpviz can account for that donor structure with a **mixed-effects / pseudobulk** model via [`pdata.mixed_de()`](https://gnaprs.github.io/scpviz/reference/pAnnData/analysis_mixin/#src.scpviz.pAnnData.analysis.AnalysisMixin.mixed_de) — see the [Differential Expression](de.md#donor-blocked-mixed-de-mixed_de) tutorial.
+
 `scpviz` supports multiple fold-change calculation modes:
 
 - `mean` - compare the mean abundance between groups; this is the default
