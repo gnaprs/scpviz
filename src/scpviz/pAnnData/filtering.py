@@ -53,7 +53,7 @@ class FilterMixin:
     - Filtering proteins and peptides by metadata conditions, group-level detection, or peptide mapping structure.
     - Filtering samples based on class annotations, numeric thresholds, file lists, or query strings.
     - Annotating detection status ("Found In") across samples and class-based groups.
-    - Managing and validating the protein–peptide relational structure (RS matrix) after filtering.
+    - Managing and validating the protein-peptide relational structure (RS matrix) after filtering.
 
     Functions:
         filter_prot: Filters proteins using `.var` metadata conditions or a list of accessions/genes to retain.
@@ -320,7 +320,7 @@ class FilterMixin:
                 (e.g., "HCT116_DMSO") or a list of filenames (e.g., ["F1", "F2"]). If this argument matches one or more `.obs` columns, the function automatically 
                 interprets it as a class name, expands it to all class values, and annotates the
                 necessary `'Found In:'` features.
-            min_ratio (float, optional): Minimum proportion (0.0–1.0) of samples the feature must be 
+            min_ratio (float, optional): Minimum proportion (0.0-1.0) of samples the feature must be 
                 found in. Ignored for file-based filtering.
             min_count (int, optional): Minimum number of samples the feature must be found in. Alternative 
                 to `min_ratio`. Ignored for file-based filtering.
@@ -1387,7 +1387,7 @@ class FilterMixin:
     
         - Single dictionary (e.g., `{'cellline': 'A'}`)
         - List of dictionaries (e.g., `[{...}, {...}]` for multiple matching cases)
-        - Exact matching (`exact_cases=True`) across all key–value pairs
+        - Exact matching (`exact_cases=True`) across all key-value pairs
 
         Args:
             values (dict or list of dict): Filtering conditions.
