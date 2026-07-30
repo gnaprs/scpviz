@@ -5,6 +5,26 @@ from typing import Any
 from scpviz import plotting
 
 class PlotMixin:
+    """
+    Convenient plotting wrappers for visualizing a `pAnnData` object.
+
+    Most methods forward to functions in the ``scpviz.plotting`` module, keeping
+    axes-level control while binding abundance, metadata, and RS context from
+    the parent object.
+
+    Functions:
+        plot_counts: Violin plot of per-sample count metrics from ``.summary``.
+        plot_rs: Histograms of protein–peptide connectivity in the RS matrix.
+        plot_abundance: Abundance strip/box/violin plot for selected features.
+        plot_abundance_boxgrid: Faceted abundance box/violin/line/bar grid.
+        plot_pairwise_correlation: Pairwise sample correlation heatmap.
+        plot_pca_protein_vectors: PCA biplot with protein loading vectors.
+        plot_pca_gsea_pathway_vectors: PCA biplot with GSEA pathway vectors.
+        plot_pca_gsea_bubble: Bubble plot of PCA–GSEA enrichment results.
+        plot_pca_gsea_heatmap: Heatmap of PCA–GSEA enrichment results.
+        plot_grouped_heatmap: Grouped abundance heatmap.
+        plot_clustered_heatmap: Clustered abundance heatmap.
+    """
     def plot_counts(self, classes=None, y='protein_count', **kwargs):
         """
         Violin plot of per-sample count metrics from ``pdata.summary``.
