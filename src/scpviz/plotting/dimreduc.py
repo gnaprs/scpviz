@@ -2849,7 +2849,8 @@ def plot_pca_gsea_bubble(
     pcs=None,
     top_n=20,
     fdr_cutoff=0.1,
-    size_scale=120.0,
+    size_scale=0.85,
+    size_fdr_cap=5.0,
     cmap="coolwarm",
     title_case_labels=True,
     force=False,
@@ -2865,6 +2866,10 @@ def plot_pca_gsea_bubble(
     Bubble color encodes NES; bubble area reflects significance (``-log10(FDR)``). Rows and columns
     are ordered by pathway and PC. If ``pcs`` is omitted, all PCs present in stored results are used.
 
+    Bubble diameters are sized relative to the current figure/axes and the PC × pathway grid, so
+    choose ``figsize`` before calling this function. Marker areas are computed once at plot time
+    (they do not auto-update on interactive window resize).
+
     Args:
         ax (matplotlib.axes.Axes): Target axis.
         pdata (pAnnData): Input object.
@@ -2874,7 +2879,11 @@ def plot_pca_gsea_bubble(
         top_n (int): Cap on distinct pathways after ranking; must be >= 1 (required).
         fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``):
             eligibility on at least one PC plus ``top_n`` ranking gate. ``None`` disables both.
-        size_scale (float): Multiplier for bubble area from ``-log10(FDR)``.
+        size_scale (float): Max bubble diameter as a fraction of the smaller cell pitch
+            (axes size in points divided by grid count). Default ``0.85`` ≈ nearly fill a cell;
+            values ``>1`` allow overlap. This is **not** an absolute points² multiplier.
+        size_fdr_cap (float): Clip ``-log10(FDR)`` used for sizing (default ``5.0``, FDR ≈ ``1e-5``).
+            Area scales as ``clipped / size_fdr_cap`` of the max area.
         cmap (str or Colormap): Colormap for NES-centered coloring.
         title_case_labels (bool): If True, format pathway tick labels for display.
         force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
@@ -2972,12 +2981,21 @@ def plot_pca_gsea_bubble(
     long_df["pathway_i"] = long_df["pathway_raw"].map({p: i for i, p in enumerate(pathway_order)})
 
     fdr_safe = long_df["FDR q-val"].fillna(1.0).clip(lower=1e-300, upper=1.0)
-    bubble_size = (-np.log10(fdr_safe)) * float(size_scale)
+    size_fdr_cap = float(size_fdr_cap)
+    if size_fdr_cap <= 0:
+        raise ValueError(f"size_fdr_cap must be > 0, got {size_fdr_cap}.")
+    size_scale = float(size_scale)
+    if size_scale <= 0:
+        raise ValueError(f"size_scale must be > 0, got {size_scale}.")
+    neg_log = np.minimum(-np.log10(fdr_safe), size_fdr_cap)
+    n_pcs = max(len(pc_order), 1)
+    n_pathways = max(len(pathway_order), 1)
+
     norm = mcolors.TwoSlopeNorm(vcenter=0)
     scatter = ax.scatter(
         long_df["pc_i"],
         long_df["pathway_i"],
-        s=bubble_size,
+        s=1.0,
         c=long_df["NES"],
         cmap=cmap,
         norm=norm,
@@ -2996,22 +3014,41 @@ def plot_pca_gsea_bubble(
     ax.set_xlabel("Principal Component")
     ax.set_ylabel("Pathway")
     ax.set_title("PCA-GSEA bubble plot")
-    plt.colorbar(scatter, ax=ax, label="NES")
+    cbar = plt.colorbar(scatter, ax=ax, label="NES")
 
-    # Bubble size legend for -log10(FDR q-val)
+    # Size after colorbar so cell pitch matches the final axes area.
+    fig = ax.figure
+    pos = ax.get_position()
+    ax_w_pts = float(fig.get_size_inches()[0]) * float(pos.width) * 72.0
+    ax_h_pts = float(fig.get_size_inches()[1]) * float(pos.height) * 72.0
+    cell_pts = min(ax_w_pts / n_pcs, ax_h_pts / n_pathways)
+    max_diameter = cell_pts * size_scale
+    max_area = np.pi * (max_diameter / 2.0) ** 2
+    bubble_size = np.asarray(max_area * (neg_log / size_fdr_cap), dtype=float)
+    scatter.set_sizes(bubble_size)
+
+    # Bubble size legend for -log10(FDR q-val) — to the right of the colorbar
     fdr_reference = np.array([0.1, 0.05, 0.01])
-    legend_sizes = (-np.log10(fdr_reference.clip(min=1e-300))) * float(size_scale)
+    legend_neg_log = np.minimum(-np.log10(fdr_reference.clip(min=1e-300)), size_fdr_cap)
+    legend_sizes = max_area * (legend_neg_log / size_fdr_cap)
     handles = [
         ax.scatter([], [], s=s, facecolors="none", edgecolors="black", linewidths=0.6, label=f"-log10(FDR)={-np.log10(f):.1f}")
         for s, f in zip(legend_sizes, fdr_reference)
     ]
-    ax.legend(handles=handles, title="Bubble size", loc="upper left", bbox_to_anchor=(1.02, 1.0), frameon=True)
+    ax.legend(
+        handles=handles,
+        title="Bubble size",
+        loc="upper left",
+        bbox_to_anchor=(4.0, 1.0),
+        bbox_transform=cbar.ax.transAxes,
+        frameon=True,
+    )
 
     bubble_df = long_df.copy()
     if title_case_labels:
         bubble_df["pathway"] = bubble_df["pathway"].map(_format_pathway_label)
     bubble_df["neg_log10_fdr"] = -np.log10(fdr_safe.values)
-    bubble_df["bubble_size"] = bubble_size.values
+    bubble_df["bubble_size"] = bubble_size
     bubble_df = bubble_df[
         ["pathway", "pathway_raw", "library", "pc", "NES", "FDR q-val", "neg_log10_fdr", "bubble_size", "pc_i", "pathway_i"]
     ].rename(columns={"pc": "PC"})

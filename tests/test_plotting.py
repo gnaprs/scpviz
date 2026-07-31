@@ -1373,6 +1373,100 @@ def test_plot_pca_gsea_bubble_include_exclude_pathways(pdata):
     assert set(bubble_df["pathway_raw"]) == {"OXPHOS"}
     plt.close(fig)
 
+
+def test_plot_pca_gsea_bubble_figsize_scales_sizes(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig_small, ax_small = plt.subplots(figsize=(3, 4))
+    _, df_small = scplt.plot_pca_gsea_bubble(
+        ax=ax_small,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+        return_df=True,
+    )
+    fig_large, ax_large = plt.subplots(figsize=(9, 12))
+    _, df_large = scplt.plot_pca_gsea_bubble(
+        ax=ax_large,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+        return_df=True,
+    )
+    assert df_large["bubble_size"].max() > df_small["bubble_size"].max()
+    plt.close(fig_small)
+    plt.close(fig_large)
+
+
+def test_plot_pca_gsea_bubble_size_fdr_cap_and_size_scale(pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    adata.uns["pca_gsea"] = {
+        "results": {
+            "PC1": pd.DataFrame(
+                {
+                    "Term": ["OXPHOS", "Immune"],
+                    "NES": [2.0, -1.5],
+                    "FDR q-val": [1e-20, 0.01],
+                }
+            ),
+            "PC2": pd.DataFrame(
+                {
+                    "Term": ["OXPHOS", "Immune"],
+                    "NES": [-1.0, 1.8],
+                    "FDR q-val": [0.05, 1e-20],
+                }
+            ),
+        }
+    }
+    fig, ax = plt.subplots(figsize=(4, 5))
+    _, df_cap = scplt.plot_pca_gsea_bubble(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=2,
+        fdr_cutoff=None,
+        size_scale=0.85,
+        size_fdr_cap=5.0,
+        return_df=True,
+    )
+    # Extreme FDR must not exceed size of an FDR that hits the cap exactly (1e-5).
+    max_at_cap = df_cap.loc[df_cap["FDR q-val"] <= 1e-5, "bubble_size"].max()
+    assert np.isclose(df_cap["bubble_size"].max(), max_at_cap)
+    plt.close(fig)
+
+    fig_a, ax_a = plt.subplots(figsize=(4, 5))
+    _, df_a = scplt.plot_pca_gsea_bubble(
+        ax=ax_a,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=2,
+        fdr_cutoff=None,
+        size_scale=0.5,
+        return_df=True,
+    )
+    fig_b, ax_b = plt.subplots(figsize=(4, 5))
+    _, df_b = scplt.plot_pca_gsea_bubble(
+        ax=ax_b,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=2,
+        fdr_cutoff=None,
+        size_scale=1.0,
+        return_df=True,
+    )
+    # Area scales with size_scale**2 for the same FDR weight.
+    assert np.isclose(df_b["bubble_size"].max() / df_a["bubble_size"].max(), (1.0 / 0.5) ** 2)
+    plt.close(fig_a)
+    plt.close(fig_b)
+
+
 # test resolve_plot_color
 @pytest.fixture
 def dummy_adata():

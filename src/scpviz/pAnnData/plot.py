@@ -914,7 +914,8 @@ class PlotMixin:
         pcs=None,
         top_n=20,
         fdr_cutoff=0.1,
-        size_scale=120.0,
+        size_scale=0.85,
+        size_fdr_cap=5.0,
         cmap="coolwarm",
         title_case_labels=True,
         force=False,
@@ -932,6 +933,10 @@ class PlotMixin:
         Bubble color encodes NES; bubble area reflects significance (``-log10(FDR)``). Rows and columns
         are ordered by pathway and PC. If ``pcs`` is omitted, all PCs present in stored results are used.
 
+        Bubble diameters are sized relative to the current figure/axes and the PC × pathway grid, so
+        choose ``figsize`` before calling this function. Marker areas are computed once at plot time
+        (they do not auto-update on interactive window resize).
+
         Args:
             ax (matplotlib.axes.Axes): Target axis.
             on (str): Data level, ``"protein"`` or ``"peptide"``.
@@ -940,7 +945,11 @@ class PlotMixin:
             top_n (int): Cap on distinct pathways after ranking; must be >= 1.
             fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``):
                 eligibility on at least one PC plus ``top_n`` ranking gate. ``None`` disables both.
-            size_scale (float): Multiplier for bubble area from ``-log10(FDR)``.
+            size_scale (float): Max bubble diameter as a fraction of the smaller cell pitch
+                (axes size in points divided by grid count). Default ``0.85`` ≈ nearly fill a cell;
+                values ``>1`` allow overlap. This is **not** an absolute points² multiplier.
+            size_fdr_cap (float): Clip ``-log10(FDR)`` used for sizing (default ``5.0``, FDR ≈ ``1e-5``).
+                Area scales as ``clipped / size_fdr_cap`` of the max area.
             cmap (str or Colormap): Colormap for NES-centered coloring.
             title_case_labels (bool): If True, format pathway tick labels for display.
             force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
@@ -988,6 +997,7 @@ class PlotMixin:
             top_n=top_n,
             fdr_cutoff=fdr_cutoff,
             size_scale=size_scale,
+            size_fdr_cap=size_fdr_cap,
             cmap=cmap,
             title_case_labels=title_case_labels,
             force=force,
