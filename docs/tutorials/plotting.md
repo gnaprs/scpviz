@@ -576,7 +576,49 @@ scplt.plot_pca_protein_vectors(ax, pdata_norm, n_vectors=10)
 plt.show()
 ```
 
-[`plot_pca_gsea_pathway_vectors`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_pathway_vectors), [`plot_pca_gsea_bubble`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_bubble), and [`plot_pca_gsea_heatmap`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_heatmap) overlay GSEA pathway results on PCA space — available after running `pdata.gsea_pca()`.
+#### PCA-GSEA enrichment
+
+We can also perform GSEA on the protein loadings per PC and visualize them in pathway vectors, bubble or heatmap style.
+[`plot_pca_gsea_pathway_vectors`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_pathway_vectors), [`plot_pca_gsea_bubble`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_bubble), and [`plot_pca_gsea_heatmap`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_heatmap) overlay GSEA pathway results on PCA space — these functions automatically run `pdata.pca_gsea()` and plot using that data.
+
+![Plot PCA-GSEA pathway vectors](../assets/plots/plot_pca_gsea_pathway_vectors.png)
+
+![Plot PCA-GSEA bubble](../assets/plots/plot_pca_gsea_bubble.png)
+
+```python
+fig, ax = plt.subplots(figsize=(6, 8))
+scplt.plot_pca_gsea_bubble(ax, pdata_norm, pcs=[1, 2, 3], top_n=25)
+plt.show()
+```
+
+Optional size controls: `size_scale` sets max bubble diameter as a fraction of cell pitch (default `0.85`); `size_fdr_cap` clips `-log10(FDR)` used for sizing (default `5.0`). Use `pc_pad` to widen/narrow gaps between PC columns (half-spacing; default `0.6`). `cbar_scale` multiplies NES colorbar height (`1` = default; `<1` shorter, `>1` taller); the size legend stays stacked under it.
+
+```python
+fig, ax = plt.subplots(figsize=(6, 8))
+scplt.plot_pca_gsea_bubble(
+    ax,
+    pdata_norm,
+    pcs=[1, 2, 3],
+    top_n=25,
+    size_scale=0.5,   # tighter bubbles
+    size_fdr_cap=10,  # more extreme FDR contrast
+    pc_pad=0.75,      # wider gaps between PC columns
+    cbar_scale=1.5,   # taller NES colorbar
+)
+plt.show()
+```
+
+Colorbar height comparison (`cbar_scale` = 0.5 / 1 / 1.5):
+
+![Plot PCA-GSEA bubble cbar_scale=0.5](../assets/plots/plot_pca_gsea_bubble_cbar_scale_0.5.png)
+
+![Plot PCA-GSEA bubble cbar_scale=1](../assets/plots/plot_pca_gsea_bubble_cbar_scale_1.png)
+
+![Plot PCA-GSEA bubble cbar_scale=1.5](../assets/plots/plot_pca_gsea_bubble_cbar_scale_1.5.png)
+
+We can also plot similarly using a heatmap.
+
+![Plot PCA-GSEA heatmap](../assets/plots/plot_pca_gsea_heatmap.png)
 
 ### `plot_pca_scree` { #scree-code }
 

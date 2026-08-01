@@ -1467,6 +1467,68 @@ def test_plot_pca_gsea_bubble_size_fdr_cap_and_size_scale(pdata):
     plt.close(fig_b)
 
 
+def test_plot_pca_gsea_bubble_square_cells_and_padding(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots(figsize=(6, 4))
+    pc_pad = 0.6
+    _, bubble_df = scplt.plot_pca_gsea_bubble(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+        pc_pad=pc_pad,
+        return_df=True,
+    )
+    n_pcs = bubble_df["pc_i"].nunique()
+    n_pathways = bubble_df["pathway_i"].nunique()
+    pc_spacing = 2.0 * pc_pad
+    row_pad = 0.5
+    assert ax.get_xlim() == pytest.approx((-pc_pad, (n_pcs - 1) * pc_spacing + pc_pad))
+    assert ax.get_ylim() == pytest.approx((-row_pad, n_pathways - 1 + row_pad))
+    span_x = (n_pcs - 1) * pc_spacing + 2.0 * pc_pad
+    span_y = (n_pathways - 1) + 2.0 * row_pad
+    assert ax.get_box_aspect() == pytest.approx(span_y / span_x)
+    # Larger pc_pad → wider x-span for the same number of PCs.
+    fig2, ax2 = plt.subplots(figsize=(6, 4))
+    scplt.plot_pca_gsea_bubble(
+        ax=ax2,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+        pc_pad=0.9,
+    )
+    assert (ax2.get_xlim()[1] - ax2.get_xlim()[0]) > (ax.get_xlim()[1] - ax.get_xlim()[0])
+    plt.close(fig)
+    plt.close(fig2)
+
+
+def test_plot_pca_gsea_bubble_cbar_scale_moves_size_legend(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig_s, ax_s = plt.subplots(figsize=(5, 6))
+    scplt.plot_pca_gsea_bubble(
+        ax=ax_s, pdata=pdata, on="protein", pcs=[1, 2], top_n=3, fdr_cutoff=0.2, cbar_scale=0.5
+    )
+    fig_l, ax_l = plt.subplots(figsize=(5, 6))
+    scplt.plot_pca_gsea_bubble(
+        ax=ax_l, pdata=pdata, on="protein", pcs=[1, 2], top_n=3, fdr_cutoff=0.2, cbar_scale=1.5
+    )
+    fig_s.canvas.draw()
+    fig_l.canvas.draw()
+    cbar_s = [a for a in fig_s.axes if a is not ax_s][0]
+    cbar_l = [a for a in fig_l.axes if a is not ax_l][0]
+    assert cbar_l.get_position().height > cbar_s.get_position().height
+    # Size legend is in colorbar axes coords just below the bar; taller bar → legend lower on figure.
+    leg_s = ax_s.get_legend().get_window_extent(fig_s.canvas.get_renderer())
+    leg_l = ax_l.get_legend().get_window_extent(fig_l.canvas.get_renderer())
+    assert leg_l.y0 < leg_s.y0
+    plt.close(fig_s)
+    plt.close(fig_l)
+
+
 # test resolve_plot_color
 @pytest.fixture
 def dummy_adata():

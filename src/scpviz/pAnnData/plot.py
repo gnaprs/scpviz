@@ -916,6 +916,8 @@ class PlotMixin:
         fdr_cutoff=0.1,
         size_scale=0.85,
         size_fdr_cap=5.0,
+        pc_pad=0.6,
+        cbar_scale=1.0,
         cmap="coolwarm",
         title_case_labels=True,
         force=False,
@@ -935,7 +937,9 @@ class PlotMixin:
 
         Bubble diameters are sized relative to the current figure/axes and the PC × pathway grid, so
         choose ``figsize`` before calling this function. Marker areas are computed once at plot time
-        (they do not auto-update on interactive window resize).
+        (they do not auto-update on interactive window resize). Column spacing uses ``pc_pad``;
+        pathway rows keep unit pitch with box aspect matched to the data spans. ``cbar_scale``
+        scales NES colorbar height (``1`` = default); the size legend stays stacked under it.
 
         Args:
             ax (matplotlib.axes.Axes): Target axis.
@@ -950,6 +954,10 @@ class PlotMixin:
                 values ``>1`` allow overlap. This is **not** an absolute points² multiplier.
             size_fdr_cap (float): Clip ``-log10(FDR)`` used for sizing (default ``5.0``, FDR ≈ ``1e-5``).
                 Area scales as ``clipped / size_fdr_cap`` of the max area.
+            pc_pad (float): Half-spacing between PC columns in data units (also the x-edge margin).
+                Column centers are ``2 * pc_pad`` apart. Default ``0.6`` (``0.5`` recovers unit spacing).
+            cbar_scale (float): Vertical scale for the NES colorbar relative to the default height
+                (default ``1.0``; ``<1`` shorter, ``>1`` taller). Size legend follows the colorbar.
             cmap (str or Colormap): Colormap for NES-centered coloring.
             title_case_labels (bool): If True, format pathway tick labels for display.
             force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
@@ -968,12 +976,32 @@ class PlotMixin:
             import matplotlib.pyplot as plt
 
             fig, ax = plt.subplots(figsize=(6, 8))
-            ax, df = pdata.plot_pca_gsea_bubble(
+            pdata.plot_pca_gsea_bubble(ax, pcs=[1, 2, 3], top_n=25)
+            ```
+
+            Colorbar height via ``cbar_scale`` (``0.5`` / ``1`` / ``1.5``):
+            ```python
+            for scale in (0.5, 1.0, 1.5):
+                fig, ax = plt.subplots(figsize=(6, 8))
+                pdata.plot_pca_gsea_bubble(ax, pcs=[1, 2, 3], top_n=25, cbar_scale=scale)
+            ```
+
+            Tighter bubbles, or allow more extreme FDR contrast in marker sizes:
+            ```python
+            fig, ax = plt.subplots(figsize=(6, 8))
+            pdata.plot_pca_gsea_bubble(
                 ax,
                 pcs=[1, 2, 3],
                 top_n=25,
-                return_df=True,
+                size_scale=0.5,      # smaller max diameter vs cell pitch
+                size_fdr_cap=10,     # clip -log10(FDR) at 10 (FDR ≈ 1e-10)
             )
+            ```
+
+            Wider gaps between PC columns:
+            ```python
+            fig, ax = plt.subplots(figsize=(6, 8))
+            pdata.plot_pca_gsea_bubble(ax, pcs=[1, 2, 3], top_n=25, pc_pad=0.75)
             ```
 
             Stricter FDR cutoff and title-case pathway labels:
@@ -998,6 +1026,8 @@ class PlotMixin:
             fdr_cutoff=fdr_cutoff,
             size_scale=size_scale,
             size_fdr_cap=size_fdr_cap,
+            pc_pad=pc_pad,
+            cbar_scale=cbar_scale,
             cmap=cmap,
             title_case_labels=title_case_labels,
             force=force,

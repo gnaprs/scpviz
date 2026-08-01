@@ -2851,6 +2851,8 @@ def plot_pca_gsea_bubble(
     fdr_cutoff=0.1,
     size_scale=0.85,
     size_fdr_cap=5.0,
+    pc_pad=0.6,
+    cbar_scale=1.0,
     cmap="coolwarm",
     title_case_labels=True,
     force=False,
@@ -2868,7 +2870,11 @@ def plot_pca_gsea_bubble(
 
     Bubble diameters are sized relative to the current figure/axes and the PC × pathway grid, so
     choose ``figsize`` before calling this function. Marker areas are computed once at plot time
-    (they do not auto-update on interactive window resize).
+    (they do not auto-update on interactive window resize). Column spacing uses ``pc_pad`` (half-gap
+    between PC centers); pathway rows keep unit pitch. Box aspect follows the data spans so cells
+    are not stretched across a wide axes when few PCs are shown. The NES colorbar is top-aligned;
+    ``cbar_scale`` multiplies its default height (``1`` = default, ``<1`` shorter, ``>1`` taller).
+    The bubble-size legend is anchored to the colorbar axes so it stays stacked underneath.
 
     Args:
         ax (matplotlib.axes.Axes): Target axis.
@@ -2884,6 +2890,13 @@ def plot_pca_gsea_bubble(
             values ``>1`` allow overlap. This is **not** an absolute points² multiplier.
         size_fdr_cap (float): Clip ``-log10(FDR)`` used for sizing (default ``5.0``, FDR ≈ ``1e-5``).
             Area scales as ``clipped / size_fdr_cap`` of the max area.
+        pc_pad (float): Half-spacing between PC columns in data units (also used as the x-edge
+            margin). Column centers are ``2 * pc_pad`` apart. Default ``0.6`` (``0.5`` recovers
+            unit spacing). Must be ``> 0``.
+        cbar_scale (float): Vertical scale for the NES colorbar relative to the default height
+            (default ``1.0``). Values ``<1`` shrink and ``>1`` enlarge; effective matplotlib
+            ``shrink`` is capped at ``1``. The size legend is placed in colorbar axes coordinates
+            below the bar, so it moves with this height.
         cmap (str or Colormap): Colormap for NES-centered coloring.
         title_case_labels (bool): If True, format pathway tick labels for display.
         force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
@@ -2897,18 +2910,48 @@ def plot_pca_gsea_bubble(
         matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
 
     Example:
-        Bubble chart for the first three PCs, top 25 pathways by ranking, and return the table used for the plot:
+        Bubble chart for the first three PCs, top 25 pathways (NES colorbar + size legend stack on the right):
             ```python
             import matplotlib.pyplot as plt
             from scpviz import plotting as scplt
 
             fig, ax = plt.subplots(figsize=(6, 8))
-            ax, df = scplt.plot_pca_gsea_bubble(
+            scplt.plot_pca_gsea_bubble(ax, pdata_norm, pcs=[1, 2, 3], top_n=25)
+            ```
+
+        ![Plot PCA-GSEA bubble](../../assets/plots/plot_pca_gsea_bubble.png)
+
+        Colorbar height via ``cbar_scale`` (``0.5`` / ``1`` / ``1.5``; size legend stays stacked under it):
+            ```python
+            for scale in (0.5, 1.0, 1.5):
+                fig, ax = plt.subplots(figsize=(6, 8))
+                scplt.plot_pca_gsea_bubble(
+                    ax, pdata_norm, pcs=[1, 2, 3], top_n=25, cbar_scale=scale
+                )
+            ```
+
+        ![Plot PCA-GSEA bubble cbar_scale=0.5](../../assets/plots/plot_pca_gsea_bubble_cbar_scale_0.5.png)
+        ![Plot PCA-GSEA bubble cbar_scale=1](../../assets/plots/plot_pca_gsea_bubble_cbar_scale_1.png)
+        ![Plot PCA-GSEA bubble cbar_scale=1.5](../../assets/plots/plot_pca_gsea_bubble_cbar_scale_1.5.png)
+
+        Tighter bubbles, or allow more extreme FDR contrast in marker sizes:
+            ```python
+            fig, ax = plt.subplots(figsize=(6, 8))
+            scplt.plot_pca_gsea_bubble(
                 ax,
-                pdata,
+                pdata_norm,
                 pcs=[1, 2, 3],
                 top_n=25,
-                return_df=True,
+                size_scale=0.5,      # smaller max diameter vs cell pitch
+                size_fdr_cap=10,     # clip -log10(FDR) at 10 (FDR ≈ 1e-10)
+            )
+            ```
+
+        Wider gaps between PC columns (``pc_pad`` is half the center-to-center spacing):
+            ```python
+            fig, ax = plt.subplots(figsize=(6, 8))
+            scplt.plot_pca_gsea_bubble(
+                ax, pdata_norm, pcs=[1, 2, 3], top_n=25, pc_pad=0.75
             )
             ```
 
@@ -2987,14 +3030,26 @@ def plot_pca_gsea_bubble(
     size_scale = float(size_scale)
     if size_scale <= 0:
         raise ValueError(f"size_scale must be > 0, got {size_scale}.")
+    pc_pad = float(pc_pad)
+    if pc_pad <= 0:
+        raise ValueError(f"pc_pad must be > 0, got {pc_pad}.")
+    cbar_scale = float(cbar_scale)
+    if cbar_scale <= 0:
+        raise ValueError(f"cbar_scale must be > 0, got {cbar_scale}.")
+    # Default colorbar height corresponds to matplotlib shrink=0.225 at cbar_scale=1.
+    cbar_shrink = min(1.0, 0.225 * cbar_scale)
     neg_log = np.minimum(-np.log10(fdr_safe), size_fdr_cap)
     n_pcs = max(len(pc_order), 1)
     n_pathways = max(len(pathway_order), 1)
+    pc_spacing = 2.0 * pc_pad
+    row_pad = 0.5
+    x_coords = long_df["pc_i"].to_numpy(dtype=float) * pc_spacing
+    y_coords = long_df["pathway_i"].to_numpy(dtype=float)
 
     norm = mcolors.TwoSlopeNorm(vcenter=0)
     scatter = ax.scatter(
-        long_df["pc_i"],
-        long_df["pathway_i"],
+        x_coords,
+        y_coords,
         s=1.0,
         c=long_df["NES"],
         cmap=cmap,
@@ -3004,7 +3059,7 @@ def plot_pca_gsea_bubble(
         linewidths=0.3,
     )
 
-    ax.set_xticks(np.arange(len(pc_order)))
+    ax.set_xticks(np.arange(n_pcs, dtype=float) * pc_spacing)
     ax.set_xticklabels(pc_order)
     ax.set_yticks(np.arange(len(pathway_order)))
     if title_case_labels:
@@ -3014,9 +3069,23 @@ def plot_pca_gsea_bubble(
     ax.set_xlabel("Principal Component")
     ax.set_ylabel("Pathway")
     ax.set_title("PCA-GSEA bubble plot")
-    cbar = plt.colorbar(scatter, ax=ax, label="NES")
+    # PC columns use pc_pad half-spacing; pathway rows keep unit pitch + half-cell edge pad.
+    ax.set_xlim(-pc_pad, (n_pcs - 1) * pc_spacing + pc_pad)
+    ax.set_ylim(-row_pad, n_pathways - 1 + row_pad)
+    # Shorter, top-aligned colorbar so the size legend can stack beneath it.
+    cbar = plt.colorbar(
+        scatter,
+        ax=ax,
+        label="NES",
+        shrink=cbar_shrink,
+        aspect=12,
+        anchor=(0.0, 1.0),
+    )
+    span_x = (n_pcs - 1) * pc_spacing + 2.0 * pc_pad
+    span_y = (n_pathways - 1) + 2.0 * row_pad
+    ax.set_box_aspect(span_y / span_x)
 
-    # Size after colorbar so cell pitch matches the final axes area.
+    # Size after colorbar + box aspect so cell pitch matches the final axes area.
     fig = ax.figure
     pos = ax.get_position()
     ax_w_pts = float(fig.get_size_inches()[0]) * float(pos.width) * 72.0
@@ -3027,7 +3096,7 @@ def plot_pca_gsea_bubble(
     bubble_size = np.asarray(max_area * (neg_log / size_fdr_cap), dtype=float)
     scatter.set_sizes(bubble_size)
 
-    # Bubble size legend for -log10(FDR q-val) — to the right of the colorbar
+    # Bubble size legend stacked under the colorbar (same vertical column).
     fdr_reference = np.array([0.1, 0.05, 0.01])
     legend_neg_log = np.minimum(-np.log10(fdr_reference.clip(min=1e-300)), size_fdr_cap)
     legend_sizes = max_area * (legend_neg_log / size_fdr_cap)
@@ -3039,8 +3108,9 @@ def plot_pca_gsea_bubble(
         handles=handles,
         title="Bubble size",
         loc="upper left",
-        bbox_to_anchor=(4.0, 1.0),
+        bbox_to_anchor=(0.0, -0.12),
         bbox_transform=cbar.ax.transAxes,
+        borderaxespad=0.0,
         frameon=True,
     )
 
