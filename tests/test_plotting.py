@@ -1726,6 +1726,66 @@ def test_plot_pca_mapping_incomplete_warn_default(pdata):
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
 
+
+def test_plot_pca_mapping_single_key_string(pdata):
+    """Single mapping_keys column may use string keys instead of 1-tuples."""
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    adata = pdata.prot
+    mapping_keys = ["treatment"]
+    mapping = {
+        str(lv): {"edge_color": "black"}
+        for lv in adata.obs["treatment"].dropna().unique()
+    }
+    result = scplt.plot_pca(
+        ax,
+        pdata,
+        color=gene,
+        cmap="plasma",
+        mapping_keys=mapping_keys,
+        mapping=mapping,
+        force=True,
+        on="protein",
+    )
+    assert _is_axes_container(result)
+    assert len(ax.collections) > 0
+
+
+def test_plot_pca_mapping_single_key_one_tuple_still_works(pdata):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    adata = pdata.prot
+    mapping_keys = ["treatment"]
+    mapping = {
+        (str(lv),): {"edge_color": "black"}
+        for lv in adata.obs["treatment"].dropna().unique()
+    }
+    result = scplt.plot_pca(
+        ax,
+        pdata,
+        color=gene,
+        cmap="plasma",
+        mapping_keys=mapping_keys,
+        mapping=mapping,
+        force=True,
+        on="protein",
+    )
+    assert _is_axes_container(result)
+
+
+def test_plot_pca_mapping_rejects_string_key_for_multi_column(pdata):
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="must be tuples of length 2"):
+        scplt.plot_pca(
+            ax,
+            pdata,
+            mapping_keys=["cellline", "treatment"],
+            mapping={"ctrl": {"color": "white", "edge_color": "black"}},
+            force=True,
+            on="protein",
+        )
+
+
 # tests for plot_umap
 def test_plot_umap_runs_without_error(pdata):
     fig, ax = plt.subplots()
@@ -2595,8 +2655,7 @@ def test_shift_legend_no_legend_does_nothing():
     assert ax.get_legend() is None
 
     plt.close(fig)
-
-
+# ---------------------------------------------------------------------------
 # plot_grouped_heatmap / plot_clustered_heatmap
 # ---------------------------------------------------------------------------
 
