@@ -526,46 +526,56 @@ The same parameters apply to [`plot_umap`](#umap-code).
 
 #### Tuple-key mapping
 
-For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a `mapping` dict keyed by metadata tuples. This assigns colors, edge colors, and marker shapes to specific combinations without pre-encoding a combined column:
+For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a `mapping` dict keyed by metadata combinations. Multi-column keys are tuples; a single column may use string keys. This assigns colors, edge colors, and marker shapes without pre-encoding a combined column:
 
-=== "Literal face + edge colors"
+=== "Literal face + edge colors (bulk)"
 
     ```python
-    mapping_keys = ["condition", "batch"]
+    mapping_keys = ["cellline", "condition"]
     mapping = {
-        ("case", "b1"): {"color": "#ffffff", "edge_color": "black"},
-        ("case", "b2"): {"color": "#eeeeee", "edge_color": "blue"},
-        ("ctrl", "b1"): {"color": "#dddddd", "edge_color": "black"},
-        ("ctrl", "b2"): {"color": "#cccccc", "edge_color": "blue"},
+        ("AS", "kd"): {"color": "white", "edge_color": "black"},
+        ("AS", "sc"): {"color": "white", "edge_color": "steelblue"},
+        ("BE", "kd"): {"color": "lightgrey", "edge_color": "black"},
+        ("BE", "sc"): {"color": "lightgrey", "edge_color": "steelblue"},
     }
 
-    fig, ax = plt.subplots(figsize=(3, 3))
-    scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, force=True)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, force=True)
     scplt.shift_legend(ax)
     plt.show()
     ```
 
-=== "Abundance face color + mapped edges"
+    ![Plot PCA mapping](../assets/plots/plot_pca_mapping.png)
+
+=== "Abundance face + mapped edges (single-cell)"
 
     ```python
-    mapping_keys = ["condition", "batch"]
+    mapping_keys = ["region"]
     mapping = {
-        ("case", "b1"): {"edge_color": "black"},
-        ("case", "b2"): {"edge_color": "steelblue"},
-        ("ctrl", "b1"): {"edge_color": "black"},
-        ("ctrl", "b2"): {"edge_color": "steelblue"},
+        "Cortex": {"edge_color": "#D19DCB"},
+        "SNpc": {"edge_color": "#85BE9E"},
     }
 
-    fig, ax = plt.subplots(figsize=(3, 3))
-    scplt.plot_pca(ax, pdata, color="Itgam", cmap="plasma",
-                   mapping_keys=mapping_keys, mapping=mapping, force=True)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax, pdata_sc, color="Gapdh", cmap="plasma",
+        mapping_keys=mapping_keys, mapping=mapping, force=True,
+    )
     scplt.shift_legend(ax)
     plt.show()
     ```
+
+    ![Plot PCA mapping abundance (single-cell)](../assets/plots/plot_pca_mapping_abundance_sc.png)
 
 Combinations missing from `mapping` default to grey face with no edge. Pass `mapping_on_missing="raise"` to require all combinations to be present.
 
-#### PCA overlays
+#### Sequential overlay (3D PCA)
+
+Reuse one embedding and layer subsets with `subset_mask` (order matters). Example for `HCT116` treatment/time overlays:
+
+![Plot PCA sequential overlay (HCT116)](../assets/plots/sc_treatment_hct116.png)
+
+#### PCA Protein Vectors
 
 [`plot_pca_protein_vectors`](#pca-code) overlays the top protein loadings as arrows:
 
@@ -634,7 +644,7 @@ plt.show()
 
 [API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_umap)
 
-[`plot_umap`](#umap-code) mirrors the `plot_pca` interface. Run `pca()` first; pass `force=True` on first call or after changing normalization.
+[`plot_umap`](#umap-code) mirrors the `plot_pca` interface. Pass `force=True` on first call or after changing normalization.
 
 ```python
 import matplotlib.pyplot as plt
@@ -654,14 +664,14 @@ scplt.shift_legend(ax)
 plt.show()
 ```
 
-[`plot_umap`](#umap-code) accepts the same abundance-coloring options as PCA — see [Abundance coloring](#abundance-coloring). On single-cell data after `directlfq`:
+[`plot_umap`](#umap-code) accepts the same abundance-coloring options as PCA — see [Abundance coloring](#abundance-coloring). On single-cell data after `directlfq` (mouse gene ``Gapdh``):
 
 ```python
 fig, ax = plt.subplots(figsize=(4.5, 4))
 pdata_sc.pca(on="protein")
 scplt.plot_umap(
     ax, pdata_sc,
-    color="Itgam",
+    color="Gapdh",
     cmap="plasma",
     colorbar_norm="log10",
     nan_color="grey",

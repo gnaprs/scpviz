@@ -2,32 +2,37 @@
 Generate static figures for scpviz API documentation.
 
 Run from the repo root:
-    conda activate py311-main
+    conda activate py311-dev
     python docs/generate_plot_figures.py
-    python docs/generate_plot_figures.py --skip-umap   # skips SC import, directlfq, plot_umap.png, and plot_*_sc.png
+    python docs/generate_plot_figures.py --skip-umap   # skips SC import, directlfq, plot_umap*.png, and plot_*_sc.png
 
 On Windows, if you see ``UnicodeEncodeError`` from console logging, run with UTF-8 output, for example:
     ``$env:PYTHONIOENCODING='utf-8'; python docs/generate_plot_figures.py``
 
-**UMAP data:** Prefer the large DIA-NN cohort under ``SCPVIZ_UMAP_DATA_ROOT`` (must contain
+**UMAP / SC data:** Prefer the large DIA-NN cohort under ``SCPVIZ_UMAP_DATA_ROOT`` (must contain
 ``data/2505_rna_prot_full/report.tsv`` and ``abc_analysis/file_annotation.csv``). If unset, the
 script uses ``<repo>/../3. Results/5. Analysis/2310_PD`` (path relative to the repo root). If those
 are missing, it falls back to ``docs/assets/report_sc.parquet`` when present.
 
 When a single-cell bundle loads (large cohort or parquet), the script also writes
-``plot_pca_sc.png``, ``plot_pairwise_correlation_sc.png``, ``plot_rankquant_sc.png``, and
-``plot_raincloud_sc.png`` (separate from bulk ``plot_pca.png``, ``plot_pairwise_correlation.png``, etc.).
+``plot_pca_sc.png``, ``plot_pairwise_correlation_sc.png``, ``plot_rankquant_sc.png``,
+``plot_raincloud_sc.png``, ``plot_pca_mapping_abundance_sc.png``, ``plot_umap_mapping.png``,
+and ``plot_umap_mapping_abundance.png`` (separate from bulk ``plot_pca.png``, etc.).
 
 Output: docs/assets/plots/<name>.png at 150 dpi.
 Also writes abundance-colored PCA/UMAP examples:
 ``plot_pca_abundance_raw.png``, ``plot_pca_abundance_log10.png``, and (when UMAP data load)
 ``plot_umap_abundance_log10.png``.
+Also writes ``plot_pca_mapping.png`` (bulk tuple-key mapping) and PCA-GSEA figures
+``plot_pca_gsea_pathway_vectors.png``, ``plot_pca_gsea_bubble.png``, ``plot_pca_gsea_heatmap.png``.
 Also writes ``plot_abundance_boxgrid_bar.png``, ``plot_abundance_boxgrid_line.png``,
 ``plot_abundance_boxgrid_violin.png``, ``plot_abundance_boxgrid_custom.png``,
 ``plot_abundance_boxgrid_significance.png``, and ``plot_abundance_boxgrid_significance_multi.png``
 alongside ``plot_abundance_boxgrid.png``,
 and ``plot_cv_annotate.png`` / ``plot_cv_custom_annotate.png`` alongside ``plot_cv.png``.
 Existing files are overwritten.
+
+Note: ``sc_treatment_hct116.png`` is a user-supplied overlay example (not generated here).
 """
 from __future__ import annotations
 
@@ -79,18 +84,72 @@ def save_current_fig(name: str) -> None:
 
 
 def _resolve_abundance_gene(
-    pdata: pAnnData, candidates: tuple[str, ...] = ("GAPDH", "TUBB", "ACTB")
+    pdata: pAnnData, candidates: tuple[str, ...] = ("GAPDH", "Gapdh", "TUBB", "ACTB")
 ) -> str:
     """Pick a gene name present in ``pdata.prot`` for abundance coloring examples."""
     adata = pdata.prot
     if "Genes" in adata.var.columns:
         genes = adata.var["Genes"].astype(str)
         for cand in candidates:
+            # Prefer exact symbol match (GAPDH human vs Gapdh mouse).
+            exact = genes == cand
+            if exact.any():
+                return str(genes[exact].iloc[0])
             hit = genes.str.upper() == cand.upper()
             if hit.any():
                 return str(genes[hit].iloc[0])
         return str(genes.dropna().iloc[0])
     return str(adata.var_names[0])
+
+
+def _mapping_keys_from_umap_kw(umap_kw: dict) -> list[str]:
+    color_cols = umap_kw.get("color")
+    if isinstance(color_cols, (list, tuple)) and color_cols:
+        return [str(color_cols[0])]
+    if isinstance(color_cols, str):
+        return [color_cols]
+    return ["region"]
+
+
+def _region_edge_mapping(umap_kw: dict) -> tuple[list[str], dict]:
+    """String-key edge mapping from SC ``umap_kw`` categorical cmap."""
+    mapping_keys = _mapping_keys_from_umap_kw(umap_kw)
+    cmap = umap_kw.get("cmap") if isinstance(umap_kw.get("cmap"), dict) else {}
+    if not cmap:
+        cmap = {"Cortex": "#D19DCB", "SNpc": "#85BE9E"}
+    mapping = {str(k): {"edge_color": v} for k, v in cmap.items()}
+    return mapping_keys, mapping
+
+
+def _region_literal_mapping(umap_kw: dict) -> tuple[list[str], dict]:
+    """String-key face+edge mapping from SC ``umap_kw`` categorical cmap."""
+    mapping_keys = _mapping_keys_from_umap_kw(umap_kw)
+    cmap = umap_kw.get("cmap") if isinstance(umap_kw.get("cmap"), dict) else {}
+    if not cmap:
+        cmap = {"Cortex": "#D19DCB", "SNpc": "#85BE9E"}
+    mapping = {
+        str(k): {"color": v, "edge_color": "black"} for k, v in cmap.items()
+    }
+    return mapping_keys, mapping
+
+
+def _bulk_literal_mapping(adata, mapping_keys: list[str]) -> dict:
+    """Literal face+edge styles for bulk ``cellline`` × ``condition|treatment`` combos."""
+    mapping: dict = {}
+    combos = adata.obs[mapping_keys].drop_duplicates()
+    for row in combos.itertuples(index=False, name=None):
+        key = tuple(row)
+        cell = str(row[0])
+        g2 = str(row[1]) if len(row) > 1 else ""
+        face = "white" if cell == "AS" else "lightgrey" if cell == "BE" else "#f0f0f0"
+        if g2 == "kd":
+            edge = "black"
+        elif g2 == "sc":
+            edge = "steelblue"
+        else:
+            edge = "black"
+        mapping[key] = {"color": face, "edge_color": edge}
+    return mapping
 
 
 def _zero_gene_for_figure(pdata_in: pAnnData, gene: str, n_zero: int) -> pAnnData:
@@ -537,7 +596,19 @@ def main(*, skip_umap: bool = False) -> None:
     scplt.plot_pca(ax, pdata_norm, classes=classes_2, add_ellipses=True)
     save_current_fig("plot_pca")
 
-    gene_abund = _resolve_abundance_gene(pdata_norm)
+    mapping_bulk = _bulk_literal_mapping(pdata_norm.prot, classes_2)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax,
+        pdata_norm,
+        mapping_keys=classes_2,
+        mapping=mapping_bulk,
+        force=True,
+    )
+    scplt.shift_legend(ax)
+    save_current_fig("plot_pca_mapping")
+
+    gene_abund = _resolve_abundance_gene(pdata_norm, ("GAPDH", "Gapdh", "TUBB", "ACTB"))
     pdata_abund = _zero_gene_for_figure(
         pdata_norm, gene_abund, max(2, pdata_norm.prot.n_obs // 4)
     )
@@ -570,11 +641,66 @@ def main(*, skip_umap: bool = False) -> None:
     scplt.plot_pca_protein_vectors(ax, pdata_norm, n_vectors=10)
     save_current_fig("plot_pca_protein_vectors")
 
+    # PCA-GSEA figures (bulk). Compact library + fewer permutations for docs runtime.
+    gsea_kwargs_doc = {
+        "gene_sets": "MSigDB_Hallmark_2020",
+        "permutation_num": 100,
+        "threads": 4,
+        "verbose": False,
+    }
+    pdata_norm.pca_gsea(pcs=[1, 2, 3, 4], **gsea_kwargs_doc)
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    scplt.plot_pca_gsea_pathway_vectors(
+        ax,
+        pdata_norm,
+        plot_pc=[1, 2],
+        n_vectors=12,
+        adjust_text_kwargs={"expand": (1.3, 1.3)},
+    )
+    save_current_fig("plot_pca_gsea_pathway_vectors")
+
+    fig, ax = plt.subplots(figsize=(6, 8))
+    scplt.plot_pca_gsea_bubble(
+        ax,
+        pdata_norm,
+        pcs=[1, 2, 3],
+        top_n=25,
+    )
+    save_current_fig("plot_pca_gsea_bubble")
+
+    fig, ax = plt.subplots(figsize=(5, 10))
+    scplt.plot_pca_gsea_heatmap(
+        ax,
+        pdata_norm,
+        pcs=[1, 2, 3, 4],
+        top_n=40,
+    )
+    save_current_fig("plot_pca_gsea_heatmap")
+
     umap_bundle = load_sc_for_umap(skip_umap=skip_umap)
     if umap_bundle is not None:
         pdata_umap, umap_kw = umap_bundle
         pdata_umap.pca(on="protein")
         _single_cell_supplement_figures(pdata_umap, umap_kw)
+
+        gene_sc = _resolve_abundance_gene(
+            pdata_umap, ("Gapdh", "GAPDH", "Itgam", "TUBB", "ACTB")
+        )
+        map_keys_sc, map_edges_sc = _region_edge_mapping(umap_kw)
+        fig, ax = plt.subplots(figsize=umap_kw.get("figsize", (4, 4)))
+        scplt.plot_pca(
+            ax,
+            pdata_umap,
+            color=gene_sc,
+            cmap="plasma",
+            mapping_keys=map_keys_sc,
+            mapping=map_edges_sc,
+            force=True,
+        )
+        scplt.shift_legend(ax)
+        save_current_fig("plot_pca_mapping_abundance_sc")
+
         fig, ax = plt.subplots(figsize=umap_kw.get("figsize", (3, 3)))
         scplt.plot_umap(
             ax,
@@ -589,17 +715,31 @@ def main(*, skip_umap: bool = False) -> None:
         scplt.shift_legend(ax)
         save_current_fig("plot_umap")
 
+        map_keys_lit, map_lit = _region_literal_mapping(umap_kw)
+        fig, ax = plt.subplots(figsize=umap_kw.get("figsize", (3, 3)))
+        scplt.plot_umap(
+            ax,
+            pdata_umap,
+            mapping_keys=map_keys_lit,
+            mapping=map_lit,
+            force=False,
+            umap_params=umap_kw.get("umap_params", {}),
+            s=umap_kw.get("s", 20),
+            alpha=umap_kw.get("alpha", 0.8),
+        )
+        scplt.shift_legend(ax)
+        save_current_fig("plot_umap_mapping")
+
         pdata_umap_ab = _zero_gene_for_figure(
             pdata_umap,
-            _resolve_abundance_gene(pdata_umap, ("GAPDH", "Itgam", "TUBB", "ACTB")),
+            gene_sc,
             max(4, pdata_umap.prot.n_obs // 5),
         )
-        gene_umap = _resolve_abundance_gene(pdata_umap, ("GAPDH", "Itgam", "TUBB", "ACTB"))
         fig, ax = plt.subplots(figsize=umap_kw.get("figsize", (3, 3)))
         scplt.plot_umap(
             ax,
             pdata_umap_ab,
-            color=gene_umap,
+            color=gene_sc,
             cmap="plasma",
             colorbar_norm="log10",
             nan_color="grey",
@@ -607,6 +747,22 @@ def main(*, skip_umap: bool = False) -> None:
             umap_params=umap_kw.get("umap_params", {}),
         )
         save_current_fig("plot_umap_abundance_log10")
+
+        fig, ax = plt.subplots(figsize=umap_kw.get("figsize", (3, 3)))
+        scplt.plot_umap(
+            ax,
+            pdata_umap_ab,
+            color=gene_sc,
+            cmap="plasma",
+            mapping_keys=map_keys_sc,
+            mapping=map_edges_sc,
+            force=False,
+            umap_params=umap_kw.get("umap_params", {}),
+            s=umap_kw.get("s", 20),
+            alpha=umap_kw.get("alpha", 0.8),
+        )
+        scplt.shift_legend(ax)
+        save_current_fig("plot_umap_mapping_abundance")
     else:
         if skip_umap:
             print(
