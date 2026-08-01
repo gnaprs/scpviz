@@ -35,6 +35,7 @@ Quick view of what to work on. Full tables below.
 | M | [ ] | viz-2 | Compare two comparisons: log(fc) vs log(fc) with significance coloring |
 | H | [x] | viz-3 | Add gsea — one for PCA, one for ssGSEA |
 | M | [x] | viz-4 | Hypothesis testing — ANOVA with Tukey and BH correction |
+| M | [x] | viz-5 | plot_grouped_heatmap + plot_clustered_heatmap (publication heatmaps) |
 | M | [ ] | enr-1 | String DB values rank API — check API key; per-user or local copy in package? [API help](https://string-db.org/cgi/help?subpage=api%23valuesranks-enrichment-api) |
 | L | [ ] | feat-qc-1 | Consider QC metrics beyond what we already have |
 

@@ -46,7 +46,9 @@ Functions:
 ## Clustering and Heatmaps
 
 Functions:
-    plot_clustermap: Clustered heatmap of proteins/peptides × samples.
+    plot_grouped_heatmap: Curated protein-group blocks × samples with header strips.
+    plot_clustered_heatmap: Hierarchically clustered proteins × samples with optional group strip.
+    plot_clustermap: Clustered heatmap of proteins/peptides × samples (seaborn; legacy).
     plot_pairwise_correlation: Group- or sample-level pairwise correlation / distance heatmap with annotation bars.
 
 ## Differential Expression and Volcano Plots
@@ -99,5 +101,6 @@ from .style import *  # noqa: E402
 from .correlation import *  # noqa: E402
 from .dimreduc import *  # noqa: E402
 from .enrichment import *  # noqa: E402
+from .heatmap import *  # noqa: E402
 from .sets import *  # noqa: E402
 from .volcano import *  # noqa: E402

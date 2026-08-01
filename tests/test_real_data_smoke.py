@@ -420,3 +420,125 @@ def test_diann_update_summary_zero_as_missing(pdata_diann):
     pdata.update_summary(recompute=True, verbose=False)
     assert pdata.prot.obs["protein_count"].between(1, 5).all()
     assert pdata.prot.obs["protein_quant"].between(0, 1).all()
+
+
+# ---------------------------------------------------------------------------
+# Heatmap smoke tests (PD + DIA-NN)
+# ---------------------------------------------------------------------------
+
+def _heatmap_gene_groups(pdata, n=4):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:n].tolist()
+    return {
+        "GroupA": genes[: max(1, n // 2)],
+        "GroupB": genes[max(1, n // 2) :],
+    }, genes
+
+
+def test_pd_plot_grouped_heatmap(pdata_pd_sample_column):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_pd_sample_column
+    groups, _ = _heatmap_gene_groups(pdata)
+    classes = [c for c in ("treatment", "cellline") if c in pdata.prot.obs.columns]
+    fig = scplt.plot_grouped_heatmap(
+        pdata, protein_groups=groups, classes=classes, figsize=(7, 5)
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_pd_plot_clustered_heatmap_proteins(pdata_pd_sample_column):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_pd_sample_column
+    groups, genes = _heatmap_gene_groups(pdata, n=5)
+    classes = [c for c in ("treatment", "cellline") if c in pdata.prot.obs.columns]
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=classes,
+        proteins=genes,
+        protein_groups=groups,
+        figsize=(7, 5),
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_pd_plot_clustered_heatmap_stats_key(pdata_pd_sample_column):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_pd_sample_column
+    accs = list(pdata.prot.var_names[:5].astype(str))
+    de = pd.DataFrame(
+        {
+            "log2fc": [1.0, -1.0, 0.2, 1.5, -0.1],
+            "p_value": [1e-4, 1e-3, 0.4, 1e-5, 0.8],
+            "significance": [
+                "upregulated",
+                "downregulated",
+                "not significant",
+                "upregulated",
+                "not significant",
+            ],
+        },
+        index=accs,
+    )
+    key = "smoke_pd_heatmap_de"
+    pdata.stats[key] = de
+    classes = [c for c in ("treatment", "cellline") if c in pdata.prot.obs.columns]
+    fig = scplt.plot_clustered_heatmap(
+        pdata, classes=classes, stats_key=key, figsize=(7, 5)
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_diann_plot_grouped_heatmap(pdata_diann):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_diann
+    groups, _ = _heatmap_gene_groups(pdata)
+    # DIA-NN fixture obs columns
+    classes = [c for c in ("gradient", "region", "replicate") if c in pdata.prot.obs.columns]
+    if not classes:
+        classes = [pdata.prot.obs.columns[0]]
+    fig = scplt.plot_grouped_heatmap(
+        pdata, protein_groups=groups, classes=classes[:2], figsize=(7, 5)
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_diann_plot_clustered_heatmap_proteins(pdata_diann):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_diann
+    groups, genes = _heatmap_gene_groups(pdata, n=5)
+    classes = [c for c in ("gradient", "region") if c in pdata.prot.obs.columns]
+    if not classes:
+        classes = [pdata.prot.obs.columns[0]]
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=classes,
+        proteins=genes,
+        protein_groups=groups,
+        show_unassigned=True,
+        figsize=(7, 5),
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_diann_plot_clustered_heatmap_mixin(pdata_diann):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_diann
+    _, genes = _heatmap_gene_groups(pdata, n=4)
+    classes = [c for c in ("gradient",) if c in pdata.prot.obs.columns] or [
+        pdata.prot.obs.columns[0]
+    ]
+    fig = pdata.plot_clustered_heatmap(
+        classes=classes, proteins=genes, metric="euclidean", figsize=(7, 5)
+    )
+    assert fig is not None
+    plt.close(fig)

@@ -25,6 +25,7 @@ class PlotMixin:
         plot_grouped_heatmap: Grouped abundance heatmap.
         plot_clustered_heatmap: Clustered abundance heatmap.
     """
+
     def plot_counts(self, classes=None, y='protein_count', **kwargs):
         """
         Violin plot of per-sample count metrics from ``pdata.summary``.
@@ -1119,4 +1120,287 @@ class PlotMixin:
             include_pathways=include_pathways,
             exclude_pathways=exclude_pathways,
             return_df=return_df,
+        )
+
+    def plot_grouped_heatmap(
+        self,
+        protein_groups,
+        classes,
+        on="protein",
+        sort_by=None,
+        layer="X",
+        display_scale="auto",
+        group_colors=None,
+        header_colors=None,
+        cmap=None,
+        gap_rows=0.5,
+        group_bar_pad=0.25,
+        sample_label_col=None,
+        figsize=None,
+        text_size=8,
+        cbar_scale=1.0,
+        auto_log2=True,
+        gene_col="Genes",
+        separate_legend=False,
+        **kwargs,
+    ):
+        """
+        Plot a curated protein-group × sample heatmap with header strips.
+
+        Thin wrapper around :func:`scpviz.plotting.plot_grouped_heatmap`.
+        Filter samples on the object beforehand if you need a subset.
+
+        Args:
+            protein_groups (dict): ``group_name → list of gene/accession ids``.
+            classes (list of str): ``.obs`` columns for headers and sample order.
+            on (str): ``"protein"`` or ``"peptide"``.
+            sort_by (dict, optional): Per-class category order.
+            layer (str): Abundance layer (default ``"X"``).
+            display_scale (str): ``"auto"`` / ``"zscore"`` / ``"log"`` / ``"raw"``.
+            group_colors (dict, optional): Override colors for group brackets/legend.
+            header_colors (dict, optional): Nested ``{class: {category: color}}``
+                overrides for header strips.
+            cmap (str, optional): Colormap; ``None`` auto-selects by display scale.
+            gap_rows (float): Vertical spacer between groups in protein-row units
+                (default ``0.5``).
+            group_bar_pad (float): Horizontal gap between heatmap and group bars
+                (default 0.25).
+            sample_label_col (str, optional): ``.obs`` / ``.summary`` column for
+                bottom tick labels (e.g. ``"replicate"``). Default uses ``obs_names``.
+            figsize (tuple, optional): Figure size; auto if None.
+            text_size (int): Base font size for ticks, colorbar, and legends
+                (default 8; same convention as ``plot_pairwise_correlation``).
+            cbar_scale (float): Vertical scale factor for the colorbar (default
+                ``1.0``). Legends stack tightly below it; also applies with
+                ``separate_legend=True``.
+            auto_log2 (bool): In-memory log2 when layer looks linear.
+            gene_col (str): ``.var`` gene label column.
+            separate_legend (bool): If True, return ``(fig, legend_fig)`` with
+                colorbar and legends on a second figure.
+            **kwargs: Forwarded (e.g. ``title``).
+
+        Returns:
+            fig (matplotlib.figure.Figure): Constructed figure, or
+            ``(fig, legend_fig)`` when ``separate_legend=True``.
+
+        Example:
+            Grouped pathway heatmap with condition headers:
+            ```python
+            fig = pdata.plot_grouped_heatmap(
+                {
+                    "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+                    "Stress": ["HSPA1A", "HSP90AA1"],
+                },
+                classes=["treatment", "cellline"],
+                sort_by={"treatment": ["DMSO", "Drug"]},
+            )
+            ```
+
+            Custom header and group colors (via ``get_color`` or hex):
+            ```python
+            from scpviz import plotting as scplt
+
+            c = scplt.get_color("colors", 7)
+            fig = pdata.plot_grouped_heatmap(
+                {"Cell cycle": ["Cdk1", "Pcna"], "Stress": ["Hspa1a"]},
+                classes=["condition"],
+                sort_by={"condition": ["SWI", "Uninjured"]},
+                group_colors={"Cell cycle": c[0], "Stress": c[1]},
+                header_colors={
+                    "condition": {"SWI": "#FF0000", "Uninjured": "#6EDC00"},
+                },
+            )
+            ```
+
+            Spacing, fonts, display scale, and colorbar height:
+            ```python
+            fig = pdata.plot_grouped_heatmap(
+                {"Cell cycle": ["Cdk1", "Pcna"], "Stress": ["Hspa1a"]},
+                classes=["condition"],
+                sample_label_col="replicate",
+                gap_rows=0.5,
+                group_bar_pad=0.15,
+                display_scale="zscore",
+                text_size=10,
+                cbar_scale=0.8,
+            )
+            ```
+
+            Separate legend figure when resizing the heatmap:
+            ```python
+            fig, legend_fig = pdata.plot_grouped_heatmap(
+                {"Cell cycle": ["Cdk1", "Pcna"], "Stress": ["Hspa1a"]},
+                classes=["condition"],
+                separate_legend=True,
+                cbar_scale=1.25,
+            )
+            ```
+        """
+        self._check_data(on)
+        return plotting.plot_grouped_heatmap(
+            self,
+            protein_groups,
+            classes,
+            on=on,
+            sort_by=sort_by,
+            layer=layer,
+            display_scale=display_scale,
+            group_colors=group_colors,
+            header_colors=header_colors,
+            cmap=cmap,
+            gap_rows=gap_rows,
+            group_bar_pad=group_bar_pad,
+            sample_label_col=sample_label_col,
+            figsize=figsize,
+            text_size=text_size,
+            cbar_scale=cbar_scale,
+            auto_log2=auto_log2,
+            gene_col=gene_col,
+            separate_legend=separate_legend,
+            **kwargs,
+        )
+
+    def plot_clustered_heatmap(
+        self,
+        classes,
+        proteins=None,
+        stats_key=None,
+        significance_categories=None,
+        protein_groups=None,
+        on="protein",
+        sort_by=None,
+        layer="X",
+        display_scale="auto",
+        metric="correlation",
+        cor_method="pearson",
+        linkage_method="average",
+        optimal_ordering=True,
+        show_unassigned=True,
+        group_colors=None,
+        header_colors=None,
+        label_color=None,
+        sample_label_col=None,
+        cmap=None,
+        figsize=None,
+        text_size=8,
+        cbar_scale=1.0,
+        auto_log2=True,
+        gene_col="Genes",
+        separate_legend=False,
+        **kwargs,
+    ):
+        """
+        Plot a hierarchically clustered protein/peptide × sample heatmap.
+
+        Thin wrapper around :func:`scpviz.plotting.plot_clustered_heatmap`.
+        Provide exactly one of ``proteins`` or ``stats_key``.
+
+        Args:
+            classes (list of str): ``.obs`` columns for headers and sample order.
+            proteins (list of str, optional): Explicit feature list.
+            stats_key (str, optional): ``pdata.stats`` key for a DE volcano table
+                (same convention as ``plot_volcano``).
+            significance_categories (list of str or str, optional): Categories kept
+                for ``stats_key``. Default ``["upregulated", "downregulated"]``.
+                A bare string or one-element list selects a single category
+                (e.g. ``"not comparable"`` / ``["not comparable"]``).
+            protein_groups (dict, optional): Annotation overlay for the color strip.
+            on (str): ``"protein"`` or ``"peptide"``.
+            sort_by (dict, optional): Per-class category order.
+            layer (str): Abundance layer (default ``"X"``).
+            display_scale (str): ``"auto"`` / ``"zscore"`` / ``"log"`` / ``"raw"``.
+                Auto uses ``log`` when ``"not comparable"`` is selected.
+            metric (str): ``"correlation"`` (default) or ``"euclidean"``.
+            cor_method (str): ``"pearson"`` or ``"spearman"``; only used when
+                ``metric="correlation"``.
+            linkage_method (str): Passed to scipy linkage (default ``"average"``).
+            optimal_ordering (bool): Improve leaf order for display (default True).
+            show_unassigned (bool): If False, drop features not in ``protein_groups``.
+            group_colors (dict, optional): Override colors for the group strip/legend.
+            header_colors (dict, optional): Nested ``{class: {category: color}}``
+                overrides for header strips.
+            label_color (str, optional): Fixed color for all gene row labels
+                (e.g. ``"black"``). ``None`` colors labels by ``protein_groups``.
+            sample_label_col (str, optional): ``.obs`` / ``.summary`` column for
+                bottom tick labels (e.g. ``"replicate"``). Default uses ``obs_names``.
+            cmap (str, optional): Colormap; ``None`` auto-selects by display scale.
+            figsize (tuple, optional): Figure size; auto if None.
+            text_size (int): Base font size for ticks, colorbar, and legends
+                (default 8; same convention as ``plot_pairwise_correlation``).
+            cbar_scale (float): Vertical scale factor for the colorbar (default
+                ``1.0``). Legends stack tightly below it; also applies with
+                ``separate_legend=True``.
+            auto_log2 (bool): In-memory log2 when layer looks linear.
+            gene_col (str): ``.var`` gene label column.
+            separate_legend (bool): If True, return ``(fig, legend_fig)`` with
+                colorbar and legends on a second figure.
+            **kwargs: Forwarded (e.g. ``title``).
+
+        Returns:
+            fig (matplotlib.figure.Figure): Constructed figure, or
+            ``(fig, legend_fig)`` when ``separate_legend=True``.
+
+        Example:
+            Cluster an explicit protein list:
+            ```python
+            fig = pdata.plot_clustered_heatmap(
+                classes=["treatment", "cellline"],
+                proteins=["CDK1", "PCNA", "HSPA1A", "GAPDH"],
+                protein_groups={"Cell cycle": ["CDK1", "PCNA"]},
+            )
+            ```
+
+            Cluster DE hits from a stored contrast (default up + down):
+            ```python
+            fig = pdata.plot_clustered_heatmap(
+                classes=["condition"],
+                stats_key="SWI vs Uninjured",
+                sort_by={"condition": ["SWI", "Uninjured"]},
+            )
+            ```
+
+            Fonts, display scale, colorbar height, and a separate legend:
+            ```python
+            fig, legend_fig = pdata.plot_clustered_heatmap(
+                classes=["condition"],
+                stats_key="SWI vs Uninjured",
+                significance_categories=["not comparable"],
+                sample_label_col="replicate",
+                label_color="black",
+                display_scale="log",
+                text_size=10,
+                cbar_scale=0.8,
+                separate_legend=True,
+            )
+            ```
+        """
+        self._check_data(on)
+        return plotting.plot_clustered_heatmap(
+            self,
+            classes,
+            proteins=proteins,
+            stats_key=stats_key,
+            significance_categories=significance_categories,
+            protein_groups=protein_groups,
+            on=on,
+            sort_by=sort_by,
+            layer=layer,
+            display_scale=display_scale,
+            metric=metric,
+            cor_method=cor_method,
+            linkage_method=linkage_method,
+            optimal_ordering=optimal_ordering,
+            show_unassigned=show_unassigned,
+            group_colors=group_colors,
+            header_colors=header_colors,
+            label_color=label_color,
+            sample_label_col=sample_label_col,
+            cmap=cmap,
+            figsize=figsize,
+            text_size=text_size,
+            cbar_scale=cbar_scale,
+            auto_log2=auto_log2,
+            gene_col=gene_col,
+            separate_legend=separate_legend,
+            **kwargs,
         )
