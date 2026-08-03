@@ -1159,8 +1159,10 @@ class PlotMixin:
             layer (str): Abundance layer (default ``"X"``).
             display_scale (str): ``"auto"`` / ``"zscore"`` / ``"log"`` / ``"raw"``.
             group_colors (dict, optional): Override colors for group brackets/legend.
-            header_colors (dict, optional): Nested ``{class: {category: color}}``
-                overrides for header strips.
+            header_colors (dict, optional): Header strip colors. Nested
+                ``{class: {category: color}}``, or flat ``{category: color}``
+                when ``len(classes)==1``. Each class is its own row (not one
+                color per class combination).
             cmap (str, optional): Colormap; ``None`` auto-selects by display scale.
             gap_rows (float): Vertical spacer between groups in protein-row units
                 (default ``0.5``).
@@ -1200,7 +1202,8 @@ class PlotMixin:
             )
             ```
 
-            Custom header and group colors (via ``get_color`` or hex):
+            Custom header and group colors (via ``get_color`` or hex).
+            Single class may use a flat map; multiple classes nest by class:
             ```python
             from scpviz import plotting as scplt
 
@@ -1210,9 +1213,7 @@ class PlotMixin:
                 classes=["condition"],
                 sort_by={"condition": ["SWI", "Uninjured"]},
                 group_colors={"Cell cycle": c[0], "Stress": c[1]},
-                header_colors={
-                    "condition": {"SWI": "#FF0000", "Uninjured": "#6EDC00"},
-                },
+                header_colors={"SWI": "#FF0000", "Uninjured": "#6EDC00"},
             )
             ```
 
@@ -1291,6 +1292,7 @@ class PlotMixin:
         text_size=8,
         cbar_scale=1.0,
         legend_width=None,
+        dendrogram_linewidth=None,
         auto_log2=True,
         gene_col="Genes",
         separate_legend=False,
@@ -1324,8 +1326,10 @@ class PlotMixin:
             optimal_ordering (bool): Improve leaf order for display (default True).
             show_unassigned (bool): If False, drop features not in ``protein_groups``.
             group_colors (dict, optional): Override colors for the group strip/legend.
-            header_colors (dict, optional): Nested ``{class: {category: color}}``
-                overrides for header strips.
+            header_colors (dict, optional): Header strip colors. Nested
+                ``{class: {category: color}}``, or flat ``{category: color}``
+                when ``len(classes)==1``. Each class is its own row (not one
+                color per class combination).
             label_color (str, optional): Fixed color for all gene row labels
                 (e.g. ``"black"``). ``None`` colors labels by ``protein_groups``.
             sample_label_col (str, optional): ``.obs`` / ``.summary`` column for
@@ -1340,6 +1344,8 @@ class PlotMixin:
             legend_width (float, optional): Left margin for colorbar + legends.
                 `None` (default) auto-sizes from legend text; pass a float to
                 override. Ignored when `separate_legend=True`.
+            dendrogram_linewidth (float, optional): Line width for the cluster
+                tree. ``None`` keeps matplotlib's default.
             auto_log2 (bool): In-memory log2 when layer looks linear.
             gene_col (str): ``.var`` gene label column.
             separate_legend (bool): If True, return ``(fig, legend_fig)`` with
@@ -1381,6 +1387,7 @@ class PlotMixin:
                 text_size=10,
                 cbar_scale=0.8,
                 legend_width=0.36,
+                dendrogram_linewidth=0.8,
                 separate_legend=True,
             )
             ```
@@ -1411,6 +1418,7 @@ class PlotMixin:
             text_size=text_size,
             cbar_scale=cbar_scale,
             legend_width=legend_width,
+            dendrogram_linewidth=dendrogram_linewidth,
             auto_log2=auto_log2,
             gene_col=gene_col,
             separate_legend=separate_legend,

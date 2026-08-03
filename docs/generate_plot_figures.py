@@ -860,12 +860,26 @@ def main(*, skip_umap: bool = False) -> None:
     save_current_fig("plot_volcano")
 
     # Clustered heatmap of DE hits (top 40 by |score| for a readable docs figure)
-    de_keys = list(getattr(pdata_norm, "stats", {}) or {})
-    if de_keys:
-        de_key = de_keys[0]
-        de_df = pdata_norm.stats[de_key]
+    de_key = None
+    de_df = None
+    if isinstance(volcano_df, pd.DataFrame) and "significance" in volcano_df.columns:
+        de_df = volcano_df
+        # Prefer the stats key written by volcano/de when present
+        for k, v in (getattr(pdata_norm, "stats", {}) or {}).items():
+            if (
+                hasattr(v, "columns")
+                and "significance" in v.columns
+                and "significance_score" in v.columns
+            ):
+                de_key = k
+                de_df = v
+                break
+        if de_key is None:
+            de_key = "volcano_de"
+            pdata_norm.stats[de_key] = de_df
+    if de_df is not None and "significance_score" in de_df.columns:
         hits = de_df[de_df["significance"].isin(["upregulated", "downregulated"])]
-        if "significance_score" in hits.columns and len(hits) > 0:
+        if len(hits) > 0:
             top40 = (
                 hits.assign(_s=hits["significance_score"].abs())
                 .sort_values("_s", ascending=False)
@@ -887,12 +901,12 @@ def main(*, skip_umap: bool = False) -> None:
         else:
             print(
                 f"{scutils.format_log_prefix('warn')} Skipping plot_clustered_heatmap_de: "
-                f"no scored significant hits in {de_key!r}."
+                f"no significant hits in {de_key!r}."
             )
     else:
         print(
             f"{scutils.format_log_prefix('warn')} Skipping plot_clustered_heatmap_de: "
-            f"no pdata.stats keys after volcano."
+            f"no scored DE table after volcano."
         )
     fig, ax = plt.subplots(figsize=(4, 4))
     ax, volcano_df = scplt.plot_volcano(

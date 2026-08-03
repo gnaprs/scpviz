@@ -702,13 +702,29 @@ plt.show()
 
     Sample × sample Pearson/Spearman heatmap.
 
+-   **[`plot_grouped_heatmap`](#grouped-heatmap-code)**
+
+    ---
+
+    ![Plot grouped heatmap](../assets/plots/plot_grouped_heatmap.png)
+
+    Curated protein-group blocks × samples with header strips.
+
+-   **[`plot_clustered_heatmap`](#clustered-heatmap-code)**
+
+    ---
+
+    ![Plot clustered heatmap](../assets/plots/plot_clustered_heatmap.png)
+
+    Hierarchically clustered proteins × samples with optional group strip.
+
 -   **[`plot_clustermap`](#clustermap-code)**
 
     ---
 
     ![Plot clustermap](../assets/plots/plot_clustermap.png)
 
-    Hierarchically clustered heatmap with annotation bars.
+    Legacy seaborn clustered heatmap with annotation bars.
 
 </div>
 
@@ -746,11 +762,133 @@ Same approach on single-cell data (align `classes` with your UMAP coloring):
 
 ![Plot pairwise correlation (single-cell)](../assets/plots/plot_pairwise_correlation_sc.png)
 
+### `plot_grouped_heatmap` { #grouped-heatmap-code }
+
+[API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_grouped_heatmap)
+
+[`plot_grouped_heatmap`](#grouped-heatmap-code) draws curated protein groups as spatial blocks (with optional gaps), sample header strips from `classes`, and a right-hand group colour bar. Proteins missing from the object still keep a grey row so block sizes stay stable.
+
+```python
+from scpviz import plotting as scplt
+
+fig = scplt.plot_grouped_heatmap(
+    pdata_norm,
+    protein_groups={
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+        "Stress": ["HSP90AA1", "UBE4B"],
+    },
+    classes=["cellline", "condition"],
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    layer="X",
+    figsize=(7, 5),
+    text_size=8,
+)
+```
+
+![Plot grouped heatmap](../assets/plots/plot_grouped_heatmap.png)
+
+Header colours are one strip per class (not one colour per class combination). With a single class you can pass a flat map; with multiple classes nest by class name:
+
+```python
+# Single class
+header_colors = {"sc": "#55A868", "kd": "#C44E52"}
+
+# Multiple classes
+header_colors = {
+    "cellline": {"AS": "#4C72B0", "BE": "#DD8452"},
+    "condition": {"sc": "#55A868", "kd": "#C44E52"},
+}
+```
+
+### `plot_clustered_heatmap` { #clustered-heatmap-code }
+
+[API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_clustered_heatmap)
+
+[`plot_clustered_heatmap`](#clustered-heatmap-code) hierarchically clusters protein rows. Provide exactly one of `proteins=` (explicit list) or `stats_key=` (DE / volcano table in `pdata.stats`). Optional `protein_groups` annotate rows with a colour strip (not spatial blocks).
+
+```python
+from scpviz import plotting as scplt
+
+fig = scplt.plot_clustered_heatmap(
+    pdata_norm,
+    classes=["cellline", "condition"],
+    proteins=[
+        "CDK1", "CDK2", "PCNA",
+        "GAPDH", "TUBB", "ACTB",
+        "HSP90AA1", "ENO1", "PGK1",
+    ],
+    protein_groups={
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+    },
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    show_unassigned=True,
+    figsize=(7, 5),
+    text_size=8,
+)
+```
+
+![Plot clustered heatmap](../assets/plots/plot_clustered_heatmap.png)
+
+After `plot_volcano` / `de`, cluster significant hits. For a readable figure, keep a top-N subset (same approach as `docs/generate_plot_figures.py`):
+
+```python
+import matplotlib.pyplot as plt
+from scpviz import plotting as scplt
+
+values = [
+    {"cellline": "BE", "condition": "kd"},
+    {"cellline": "BE", "condition": "sc"},
+]
+
+fig, ax = plt.subplots(figsize=(4, 4))
+ax, volcano_df = scplt.plot_volcano(
+    ax, pdata_norm, values=values, return_df=True
+)
+
+# Prefer the stats key written by volcano/de when present
+de_key = None
+de_df = volcano_df
+for k, v in (getattr(pdata_norm, "stats", {}) or {}).items():
+    if (
+        hasattr(v, "columns")
+        and "significance" in v.columns
+        and "significance_score" in v.columns
+    ):
+        de_key = k
+        de_df = v
+        break
+if de_key is None:
+    de_key = "volcano_de"
+    pdata_norm.stats[de_key] = de_df
+
+hits = de_df[de_df["significance"].isin(["upregulated", "downregulated"])]
+top40 = (
+    hits.assign(_s=hits["significance_score"].abs())
+    .sort_values("_s", ascending=False)
+    .head(40)
+)
+slim_key = f"{de_key} (top 40)"
+pdata_norm.stats[slim_key] = top40
+
+fig = scplt.plot_clustered_heatmap(
+    pdata_norm,
+    classes=["cellline", "condition"],
+    stats_key=slim_key,
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    figsize=(7, 6),
+    text_size=7,
+)
+```
+
+![Plot clustered heatmap (DE hits)](../assets/plots/plot_clustered_heatmap_de.png)
+
 ### `plot_clustermap` { #clustermap-code }
 
 [API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_clustermap)
 
-[`plot_clustermap`](#clustermap-code) returns a seaborn `ClusterGrid` object (`g`), not a figure — call `g.savefig(...)` if saving.
+[`plot_clustermap`](#clustermap-code) returns a seaborn `ClusterGrid` object (`g`), not a figure — call `g.savefig(...)` if saving. Prefer [`plot_clustered_heatmap`](#clustered-heatmap-code) for new publication figures.
 
 ```python
 import matplotlib.pyplot as plt

@@ -3253,3 +3253,52 @@ def test_heatmap_legend_width(pdata):
         )
     plt.close(fig_auto)
     plt.close(fig_wide)
+
+
+def test_heatmap_header_colors_flat_and_nested(pdata):
+    from scpviz.plotting.heatmap import _normalize_header_colors
+
+    flat = {"Agg+": "#C64D4A", "Agg-": "#BFBFBF"}
+    assert _normalize_header_colors(flat, ["sample"]) == {"sample": flat}
+    nested = {"sample": flat, "cellline": {"AS": "#4C72B0"}}
+    assert _normalize_header_colors(nested, ["sample", "cellline"]) == nested
+    assert _normalize_header_colors(None, ["sample"]) == {}
+
+    with pytest.raises(ValueError, match="Flat header_colors"):
+        _normalize_header_colors(flat, ["sample", "cellline"])
+    with pytest.raises(ValueError, match="Mixed forms"):
+        _normalize_header_colors({"sample": flat, "Agg+": "#C64D4A"}, ["sample"])
+
+    genes = list(pdata.prot.var["Genes"].astype(str).unique()[:4])
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=genes,
+        header_colors={"kd": "#C64D4A", "sc": "#BFBFBF"},
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_plot_clustered_heatmap_dendrogram_linewidth(pdata):
+    from matplotlib.collections import LineCollection
+
+    genes = list(pdata.prot.var["Genes"].astype(str).unique()[:5])
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=genes,
+        dendrogram_linewidth=0.8,
+    )
+    # Dendrogram axes: LineCollection only (no images / QuadMesh colorbar)
+    dendro_axes = [
+        ax
+        for ax in fig.axes
+        if ax.collections
+        and all(isinstance(c, LineCollection) for c in ax.collections)
+        and not ax.images
+    ]
+    assert dendro_axes
+    for coll in dendro_axes[0].collections:
+        assert np.allclose(np.atleast_1d(coll.get_linewidth()), 0.8)
+    plt.close(fig)

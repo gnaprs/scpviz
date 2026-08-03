@@ -478,17 +478,49 @@ def _sample_tick_labels(
         )
     return [str(obs.loc[s, sample_label_col]) for s in samples]
 
+def _normalize_header_colors(
+    header_colors: dict[str, dict[str, str]] | dict[str, str] | None,
+    classes: list[str],
+) -> dict[str, dict[str, str]]:
+    """
+    Normalize ``header_colors`` to nested ``{class: {category: color}}``.
+
+    Flat ``{category: color}`` is accepted only when ``len(classes) == 1``
+    (mapped onto that single class). Nested form is required for multiple
+    header rows — one category map per class, not one color per combination.
+    """
+    if not header_colors:
+        return {}
+    values = list(header_colors.values())
+    if all(isinstance(v, dict) for v in values):
+        return header_colors  # type: ignore[return-value]
+    if any(isinstance(v, dict) for v in values):
+        raise ValueError(
+            "header_colors must be either nested {class: {category: color}} "
+            "or, when len(classes)==1, flat {category: color}. Mixed forms "
+            "are not supported."
+        )
+    if len(classes) != 1:
+        raise ValueError(
+            "Flat header_colors={category: color} is only allowed when "
+            f"len(classes)==1; got classes={list(classes)!r}. "
+            "For multiple classes use "
+            "{class_name: {category: color, ...}, ...} — one map per "
+            "header row, not one color per class combination."
+        )
+    return {classes[0]: dict(header_colors)}  # type: ignore[arg-type]
+
 def _render_header_rows(
     fig: "Figure",
     gs_rows: list[Any],
     obs: pd.DataFrame,
     samples: list[str],
     classes: list[str],
-    header_colors: dict[str, dict[str, str]] | None,
+    header_colors: dict[str, dict[str, str]] | dict[str, str] | None,
     text_size: int = 8,
 ) -> list[tuple[str, list[Rectangle], list[Any]]]:
     """Draw categorical header strips; return legend specs ``(title, handles, labels)``."""
-    header_colors = header_colors or {}
+    header_colors = _normalize_header_colors(header_colors, classes)
     legend_specs: list[tuple[str, list[Rectangle], list[Any]]] = []
     for ax, col in zip(gs_rows, classes):
         vals = [str(obs.loc[s, col]) for s in samples]
@@ -866,7 +898,7 @@ def plot_grouped_heatmap(
     layer: str = "X",
     display_scale: str = "auto",
     group_colors: dict[str, str] | None = None,
-    header_colors: dict[str, dict[str, str]] | None = None,
+    header_colors: dict[str, dict[str, str]] | dict[str, str] | None = None,
     cmap: str | None = None,
     gap_rows: float = 0.5,
     group_bar_pad: float = 0.25,
@@ -906,8 +938,12 @@ def plot_grouped_heatmap(
             use a sequential colormap by default.
         group_colors (dict, optional): Override colors for group brackets/legend.
             Keys are group names; unspecified groups use package defaults (``get_color('colors', n)``).
-        header_colors (dict, optional): Nested ``{class: {category: color}}``
-            overrides for header strips. Unspecified categories use package defaults (``get_color('colors', n)``).
+        header_colors (dict, optional): Colors for header strips. Nested
+            ``{class: {category: color}}`` for one or more classes. When
+            ``len(classes)==1``, a flat ``{category: color}`` is also accepted.
+            Each class gets its own header row colored by that column's levels
+            (not one color per multi-class combination). Unspecified categories
+            use package defaults (``get_color('colors', n)``).
         cmap (str, optional): Colormap. ``None`` (default) selects ``RdBu_r`` for
             z-score and ``viridis`` for log/raw.
         gap_rows (float): Vertical spacer between groups in units of one protein
@@ -965,9 +1001,21 @@ def plot_grouped_heatmap(
 
         ![Plot grouped heatmap](../../assets/plots/plot_grouped_heatmap.png)
 
-        Custom header and group colors (via ``get_color`` or hex):
+        Custom header and group colors (via ``get_color`` or hex).
+        Single class may use a flat category map; multiple classes use one
+        nested map per header row (not per combination):
             ```python
             c = scplt.get_color("colors", 7)
+            # Single class — flat {category: color} is fine
+            fig = scplt.plot_grouped_heatmap(
+                pdata_norm,
+                protein_groups={"Cell cycle": ["CDK1", "PCNA"]},
+                classes=["condition"],
+                group_colors={"Cell cycle": c[0]},
+                header_colors={"sc": "#55A868", "kd": "#C44E52"},
+            )
+
+            # Multiple classes — nested {class: {category: color}}
             fig = scplt.plot_grouped_heatmap(
                 pdata_norm,
                 protein_groups={
@@ -1188,7 +1236,7 @@ def plot_grouped_heatmap(
 
     title = kwargs.get("title")
     if title:
-        fig.suptitle(title, fontsize=text_size + 3, fontweight="bold", x=0.55)
+        fig.suptitle(title, fontsize=text_size + 3, x=0.55)
 
     return _finish_heatmap_legends(
         fig,
@@ -1226,7 +1274,7 @@ def plot_clustered_heatmap(
     optimal_ordering: bool = True,
     show_unassigned: bool = True,
     group_colors: dict[str, str] | None = None,
-    header_colors: dict[str, dict[str, str]] | None = None,
+    header_colors: dict[str, dict[str, str]] | dict[str, str] | None = None,
     label_color: str | None = None,
     sample_label_col: str | None = None,
     cmap: str | None = None,
@@ -1234,17 +1282,18 @@ def plot_clustered_heatmap(
     text_size: int = 8,
     cbar_scale: float = 1.0,
     legend_width: float | None = None,
+    dendrogram_linewidth: float | None = None,
     auto_log2: bool = True,
     gene_col: str = "Genes",
     separate_legend: bool = False,
     **kwargs: Any,
 ) -> "Figure | tuple[Figure, Figure]":
     """
-    Plot a hierarchically clustered protein/peptide × sample heatmap.
+    Plot a hierarchically clustered protein/peptide x sample heatmap.
 
     Row order comes from hierarchical clustering (correlation or Euclidean
     distance with average linkage). Optional ``protein_groups`` are shown as a
-    colour strip + coloured/bold right-side labels (not spatial blocks). Sample
+    colour strip + coloured right-side labels (not spatial blocks). Sample
     columns use the same ``classes`` / ``sort_by`` ordering as
     :func:`plot_grouped_heatmap`.
 
@@ -1279,11 +1328,14 @@ def plot_clustered_heatmap(
         show_unassigned (bool): If False, drop proteins not in ``protein_groups``.
         group_colors (dict, optional): Override colors for the group strip/legend
             (same pattern as ``plot_grouped_heatmap``).
-        header_colors (dict, optional): Nested ``{class: {category: color}}``
-            overrides for header strips.
+        header_colors (dict, optional): Colors for header strips. Nested
+            ``{class: {category: color}}``, or flat ``{category: color}`` when
+            ``len(classes)==1``. Each class is a separate header row (not one
+            color per multi-class combination). Same rules as
+            ``plot_grouped_heatmap``.
         label_color (str, optional): Fixed color for all gene row labels (e.g.
             ``"black"``). If ``None`` (default), labels use ``protein_groups``
-            colors (bold) and Unassigned stays grey.
+            colors and Unassigned stays grey.
         sample_label_col (str, optional): ``.obs`` / ``.summary`` column for bottom
             tick labels (e.g. ``"replicate"``). Default ``None`` uses sample index
             names (``obs_names``).
@@ -1298,6 +1350,8 @@ def plot_clustered_heatmap(
         legend_width (float, optional): Figure-fraction left margin for colorbar +
             legends. ``None`` (default) auto-sizes from legend text; pass a float
             to override. Ignored when ``separate_legend=True``.
+        dendrogram_linewidth (float, optional): Line width for the hierarchical
+            cluster tree. ``None`` (default) keeps matplotlib's default.
         auto_log2 (bool): Same in-memory log2 policy as ``plot_grouped_heatmap``.
         gene_col (str): Gene label column in ``.var``.
         separate_legend (bool): If True, colorbar and legends are drawn on a
@@ -1380,9 +1434,20 @@ def plot_clustered_heatmap(
             )
             ```
 
-        Custom colors with a separate legend figure:
+        Custom colors with a separate legend figure.
+        Single class may use flat ``{category: color}``; multiple classes use
+        one nested map per header row:
             ```python
             c = scplt.get_color("colors", 7)
+            # Single class — flat map
+            fig = scplt.plot_clustered_heatmap(
+                pdata_norm,
+                classes=["condition"],
+                proteins=["CDK1", "PCNA", "GAPDH"],
+                header_colors={"sc": "#55A868", "kd": "#C44E52"},
+            )
+
+            # Multiple classes — nested maps (one strip per class)
             fig, legend_fig = scplt.plot_clustered_heatmap(
                 pdata_norm,
                 classes=["cellline", "condition"],
@@ -1621,6 +1686,11 @@ def plot_clustered_heatmap(
         color_threshold=0,
         above_threshold_color="#999999",
     )
+    if dendrogram_linewidth is not None:
+        for line in ax_dendro.get_lines():
+            line.set_linewidth(dendrogram_linewidth)
+        for coll in ax_dendro.collections:
+            coll.set_linewidth(dendrogram_linewidth)
     ax_dendro.invert_yaxis()
     for spine in ax_dendro.spines.values():
         spine.set_visible(False)
@@ -1654,11 +1724,8 @@ def plot_clustered_heatmap(
         g = row_groups[i]
         if label_color is not None:
             lab.set_color(label_color)
-            if g is not None:
-                lab.set_fontweight("bold")
         elif g is not None:
             lab.set_color(gcolors.get(g, "#333333"))
-            lab.set_fontweight("bold")
         else:
             lab.set_color(UNASSIGNED_LABEL_COLOUR)
 
@@ -1703,7 +1770,7 @@ def plot_clustered_heatmap(
 
     title = kwargs.get("title")
     if title:
-        fig.suptitle(title, fontsize=text_size + 3, fontweight="bold", x=0.55)
+        fig.suptitle(title, fontsize=text_size + 3, x=0.55)
 
     return _finish_heatmap_legends(
         fig,
