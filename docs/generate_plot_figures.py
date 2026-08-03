@@ -25,6 +25,8 @@ Also writes abundance-colored PCA/UMAP examples:
 ``plot_umap_abundance_log10.png``.
 Also writes ``plot_pca_mapping.png`` (bulk tuple-key mapping) and PCA-GSEA figures
 ``plot_pca_gsea_pathway_vectors.png``, ``plot_pca_gsea_bubble.png``, ``plot_pca_gsea_heatmap.png``.
+Also writes ``plot_grouped_heatmap.png``, ``plot_clustered_heatmap.png``, and
+``plot_clustered_heatmap_de.png`` (DE hits via ``stats_key`` after volcano).
 Also writes ``plot_abundance_boxgrid_bar.png``, ``plot_abundance_boxgrid_line.png``,
 ``plot_abundance_boxgrid_violin.png``, ``plot_abundance_boxgrid_custom.png``,
 ``plot_abundance_boxgrid_significance.png``, and ``plot_abundance_boxgrid_significance_multi.png``
@@ -803,6 +805,53 @@ def main(*, skip_umap: bool = False) -> None:
     g_cm.savefig(OUT / "plot_clustermap.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
 
+    # Publication heatmaps (grouped blocks + clustered rows)
+    hm_groups = {
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+        "Stress": ["HSP90AA1", "UBE4B"],
+    }
+    hm_sort: dict[str, list[str]] = {"cellline": ["AS", "BE"]}
+    if g2 == "condition":
+        hm_sort["condition"] = ["sc", "kd"]
+    elif g2 == "treatment":
+        hm_sort["treatment"] = sorted(
+            pdata_norm.prot.obs["treatment"].astype(str).unique().tolist()
+        )
+    hm_sort = {k: v for k, v in hm_sort.items() if k in classes_2}
+    fig_hm = scplt.plot_grouped_heatmap(
+        pdata_norm,
+        protein_groups=hm_groups,
+        classes=classes_2,
+        sort_by=hm_sort,
+        layer="X",
+        figsize=(7, 5),
+        text_size=8,
+    )
+    fig_hm.savefig(OUT / "plot_grouped_heatmap.png", dpi=DPI, bbox_inches="tight")
+    plt.close("all")
+
+    clustered_proteins = [
+        "CDK1", "CDK2", "PCNA",
+        "GAPDH", "TUBB", "ACTB",
+        "HSP90AA1", "ENO1", "PGK1",
+    ]
+    fig_ch = scplt.plot_clustered_heatmap(
+        pdata_norm,
+        classes=classes_2,
+        proteins=clustered_proteins,
+        protein_groups={
+            "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+            "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+        },
+        sort_by=hm_sort,
+        show_unassigned=True,
+        figsize=(7, 5),
+        text_size=8,
+    )
+    fig_ch.savefig(OUT / "plot_clustered_heatmap.png", dpi=DPI, bbox_inches="tight")
+    plt.close("all")
+
     # ── volcano.py ───────────────────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(4, 4))
     ax, volcano_df = scplt.plot_volcano(
@@ -810,6 +859,41 @@ def main(*, skip_umap: bool = False) -> None:
     )
     save_current_fig("plot_volcano")
 
+    # Clustered heatmap of DE hits (top 40 by |score| for a readable docs figure)
+    de_keys = list(getattr(pdata_norm, "stats", {}) or {})
+    if de_keys:
+        de_key = de_keys[0]
+        de_df = pdata_norm.stats[de_key]
+        hits = de_df[de_df["significance"].isin(["upregulated", "downregulated"])]
+        if "significance_score" in hits.columns and len(hits) > 0:
+            top40 = (
+                hits.assign(_s=hits["significance_score"].abs())
+                .sort_values("_s", ascending=False)
+                .head(40)
+                .drop(columns=["_s"], errors="ignore")
+            )
+            slim_key = f"{de_key} (top 40)"
+            pdata_norm.stats[slim_key] = top40
+            fig_de = scplt.plot_clustered_heatmap(
+                pdata_norm,
+                classes=classes_2,
+                stats_key=slim_key,
+                sort_by=hm_sort,
+                figsize=(7, 6),
+                text_size=7,
+            )
+            fig_de.savefig(OUT / "plot_clustered_heatmap_de.png", dpi=DPI, bbox_inches="tight")
+            plt.close("all")
+        else:
+            print(
+                f"{scutils.format_log_prefix('warn')} Skipping plot_clustered_heatmap_de: "
+                f"no scored significant hits in {de_key!r}."
+            )
+    else:
+        print(
+            f"{scutils.format_log_prefix('warn')} Skipping plot_clustered_heatmap_de: "
+            f"no pdata.stats keys after volcano."
+        )
     fig, ax = plt.subplots(figsize=(4, 4))
     ax, volcano_df = scplt.plot_volcano(
         ax,

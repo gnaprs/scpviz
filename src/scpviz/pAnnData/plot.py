@@ -1139,6 +1139,7 @@ class PlotMixin:
         figsize=None,
         text_size=8,
         cbar_scale=1.0,
+        legend_width=None,
         auto_log2=True,
         gene_col="Genes",
         separate_legend=False,
@@ -1173,6 +1174,9 @@ class PlotMixin:
             cbar_scale (float): Vertical scale factor for the colorbar (default
                 ``1.0``). Legends stack tightly below it; also applies with
                 ``separate_legend=True``.
+            legend_width (float, optional): Left margin for colorbar + legends.
+                `None` (default) auto-sizes from legend text; pass a float to
+                override. Ignored when `separate_legend=True`.
             auto_log2 (bool): In-memory log2 when layer looks linear.
             gene_col (str): ``.var`` gene label column.
             separate_legend (bool): If True, return ``(fig, legend_fig)`` with
@@ -1223,6 +1227,7 @@ class PlotMixin:
                 display_scale="zscore",
                 text_size=10,
                 cbar_scale=0.8,
+                legend_width=0.36,
             )
             ```
 
@@ -1254,6 +1259,7 @@ class PlotMixin:
             figsize=figsize,
             text_size=text_size,
             cbar_scale=cbar_scale,
+            legend_width=legend_width,
             auto_log2=auto_log2,
             gene_col=gene_col,
             separate_legend=separate_legend,
@@ -1284,6 +1290,7 @@ class PlotMixin:
         figsize=None,
         text_size=8,
         cbar_scale=1.0,
+        legend_width=None,
         auto_log2=True,
         gene_col="Genes",
         separate_legend=False,
@@ -1330,6 +1337,9 @@ class PlotMixin:
             cbar_scale (float): Vertical scale factor for the colorbar (default
                 ``1.0``). Legends stack tightly below it; also applies with
                 ``separate_legend=True``.
+            legend_width (float, optional): Left margin for colorbar + legends.
+                `None` (default) auto-sizes from legend text; pass a float to
+                override. Ignored when `separate_legend=True`.
             auto_log2 (bool): In-memory log2 when layer looks linear.
             gene_col (str): ``.var`` gene label column.
             separate_legend (bool): If True, return ``(fig, legend_fig)`` with
@@ -1370,6 +1380,7 @@ class PlotMixin:
                 display_scale="log",
                 text_size=10,
                 cbar_scale=0.8,
+                legend_width=0.36,
                 separate_legend=True,
             )
             ```
@@ -1399,6 +1410,7 @@ class PlotMixin:
             figsize=figsize,
             text_size=text_size,
             cbar_scale=cbar_scale,
+            legend_width=legend_width,
             auto_log2=auto_log2,
             gene_col=gene_col,
             separate_legend=separate_legend,

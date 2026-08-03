@@ -3199,3 +3199,57 @@ def test_heatmap_cbar_scale(pdata):
     plt.close(fig2)
     plt.close(fig_s)
     plt.close(legend_fig)
+
+
+def test_heatmap_legend_width(pdata):
+    from scpviz.plotting.heatmap import (
+        _LEGEND_WIDTH_MAX,
+        _LEGEND_WIDTH_MIN,
+        _estimate_legend_width_frac,
+    )
+
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
+    groups = {"A": genes[:2], "B": genes[2:4]}
+    fig_auto = scplt.plot_grouped_heatmap(
+        pdata, protein_groups=groups, classes=["treatment"], figsize=(8, 5)
+    )
+    fig_wide = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment"],
+        figsize=(8, 5),
+        legend_width=0.40,
+    )
+    left_auto = fig_auto.subplotpars.left
+    left_wide = fig_wide.subplotpars.left
+    # Auto should land in a sensible band and respond to longer labels
+    assert _LEGEND_WIDTH_MIN <= left_auto <= _LEGEND_WIDTH_MAX
+    assert left_wide == pytest.approx(0.40, abs=0.02)
+
+    long_specs = [
+        ("very_long_condition_name", [], ["supercalifragilisticexpialidocious"])
+    ]
+    short_specs = [("x", [], ["a"])]
+    long_w = _estimate_legend_width_frac(8.0, long_specs, text_size=8, cbar_label="z-score")
+    short_w = _estimate_legend_width_frac(8.0, short_specs, text_size=8, cbar_label="z-score")
+    assert long_w > short_w
+
+    # Grouped left y-tick labels require extra margin vs legends-only
+    with_ticks = _estimate_legend_width_frac(
+        8.0,
+        short_specs,
+        text_size=8,
+        cbar_label="z-score",
+        left_tick_labels=["VERYLONGGENENAME1", "VERYLONGGENENAME2"],
+    )
+    assert with_ticks > short_w
+
+    with pytest.raises(ValueError, match="legend_width"):
+        scplt.plot_grouped_heatmap(
+            pdata,
+            protein_groups=groups,
+            classes=["treatment"],
+            legend_width=0,
+        )
+    plt.close(fig_auto)
+    plt.close(fig_wide)

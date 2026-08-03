@@ -35,13 +35,16 @@ UNASSIGNED_COLOUR = "#dddddd"
 UNASSIGNED_LABEL_COLOUR = "#999999"
 
 # Colorbar + legend column on the left (figure fraction / fixed inches).
-# Anchored near the dendrogram / main axes (subplots left≈0.24), not the figure edge.
-_CBAR_LEFT = 0.12
+# Anchored near the dendrogram / main axes, not the figure edge.
+_CBAR_LEFT = 0.02
 _CBAR_WIDTH_IN = 0.14
 _CBAR_HEIGHT_IN = 1.35
 _CBAR_TOP = 0.82  # figure-fraction top of colorbar (inline path)
-_LEGEND_X = 0.12
+_LEGEND_X = 0.05
 _LEGEND_PAD_BELOW_CBAR_IN = 0.12
+_DEFAULT_LEFT_SEPARATE = 0.06  # subplots left when separate_legend=True
+_LEGEND_WIDTH_MIN = 0.18
+_LEGEND_WIDTH_MAX = 0.55
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -510,20 +513,44 @@ def _render_header_rows(
 
 _LEGEND_TEXT_COLOR = "black"
 
-def _style_legend_title(leg) -> None:
-    title = leg.get_title()
-    if title is not None:
-        title.set_color(_LEGEND_TEXT_COLOR)
-
-def _style_colorbar_text(cbar, text_size: int) -> None:
-    """Match colorbar label/ticks to legend text color."""
-    cbar.ax.yaxis.label.set_color(_LEGEND_TEXT_COLOR)
-    cbar.ax.tick_params(labelsize=text_size - 1, colors=_LEGEND_TEXT_COLOR)
-
 def _legend_block_height_in(n_labels: int, text_size: int) -> float:
     """Approximate vertical space (inches) for one titled legend block."""
     scale = text_size / 8.0
     return (0.22 + 0.145 * max(n_labels, 1)) * scale
+
+def _estimate_legend_width_frac(
+    fig_w: float,
+    legend_specs: list[tuple[str, list, list]],
+    text_size: int,
+    cbar_label: str,
+    *,
+    left_tick_labels: list[str] | None = None,
+) -> float:
+    """
+    Estimate figure-fraction left margin for colorbar + legends.
+
+    Uses longest legend/cbar string and ``text_size``. When ``left_tick_labels``
+    is set (grouped heatmaps keep gene names on the left), extra space is
+    reserved so those labels do not collide with the legend column.
+    """
+    strings = [str(cbar_label)]
+    for title, _, labels in legend_specs:
+        strings.append(str(title))
+        strings.extend(str(lab) for lab in labels)
+    max_chars = max((len(s) for s in strings), default=8)
+    # Slightly generous em width for default sans fonts
+    char_in = 0.62 * (text_size / 72.0)
+    # Vertical colorbar: bar + tick numbers (rotated axis label adds little width)
+    cbar_col_in = (_CBAR_LEFT * fig_w) + _CBAR_WIDTH_IN + 0.60
+    # Legends are anchored at ``_LEGEND_X`` (figure fraction)
+    legend_row_in = (_LEGEND_X * fig_w) + 0.40 + max_chars * char_in
+    content_in = max(cbar_col_in, legend_row_in) + 0.12
+    if left_tick_labels:
+        max_tick = max((len(str(s)) for s in left_tick_labels), default=0)
+        # Gene labels sit just left of the axes spine
+        content_in += max_tick * char_in + 0.20
+    frac = content_in / max(float(fig_w), 1e-6)
+    return float(np.clip(frac, _LEGEND_WIDTH_MIN, _LEGEND_WIDTH_MAX))
 
 def _colorbar_axes_rect(
     fig: "Figure",
@@ -561,7 +588,9 @@ def _stack_legends_below_cbar(
             title_fontsize=text_size,
             labelcolor=_LEGEND_TEXT_COLOR,
         )
-        _style_legend_title(leg)
+        title_artist = leg.get_title()
+        if title_artist is not None:
+            title_artist.set_color(_LEGEND_TEXT_COLOR)
         y_cursor -= _legend_block_height_in(len(labels), text_size) / fig_h
 
 def _render_cbar_and_legends(
@@ -621,7 +650,8 @@ def _render_cbar_and_legends(
     cbar_ax = target.add_axes(cbar_rect)
     cbar = target.colorbar(sm, cax=cbar_ax)
     cbar.set_label(cbar_label, fontsize=text_size)
-    _style_colorbar_text(cbar, text_size)
+    cbar.ax.yaxis.label.set_color(_LEGEND_TEXT_COLOR)
+    cbar.ax.tick_params(labelsize=text_size - 1, colors=_LEGEND_TEXT_COLOR)
     _stack_legends_below_cbar(
         target,
         legend_specs,
@@ -640,14 +670,29 @@ def _finish_heatmap_legends(
     cbar_label: str,
     cbar_scale: float,
     separate_legend: bool,
-    left_with_legends: float,
-    left_heatmap_only: float,
+    legend_width: float | None,
     right: float,
     top: float,
     bottom: float = 0.10,
+    left_tick_labels: list[str] | None = None,
 ) -> "Figure | tuple[Figure, Figure]":
     """Apply margins, draw cbar/legends, return ``fig`` or ``(fig, legend_fig)``."""
-    left = left_heatmap_only if separate_legend else left_with_legends
+    if separate_legend:
+        left = _DEFAULT_LEFT_SEPARATE
+    elif legend_width is None:
+        left = _estimate_legend_width_frac(
+            fig.get_size_inches()[0],
+            legend_specs,
+            text_size=text_size,
+            cbar_label=cbar_label,
+            left_tick_labels=left_tick_labels,
+        )
+    else:
+        if legend_width <= 0 or legend_width >= 1:
+            raise ValueError(
+                f"legend_width must be in (0, 1), got {legend_width!r}"
+            )
+        left = float(legend_width)
     fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
     legend_fig = _render_cbar_and_legends(
         fig,
@@ -829,6 +874,7 @@ def plot_grouped_heatmap(
     figsize: tuple[float, float] | None = None,
     text_size: int = 8,
     cbar_scale: float = 1.0,
+    legend_width: float | None = None,
     auto_log2: bool = True,
     gene_col: str = "Genes",
     separate_legend: bool = False,
@@ -880,6 +926,11 @@ def plot_grouped_heatmap(
             base height ≈ 1.35 in). Category legends stack tightly just below it
             (inch-based spacing, so tall heatmaps do not stretch legend gaps).
             Also applies when ``separate_legend=True``.
+        legend_width (float, optional): Figure-fraction left margin for the
+            colorbar + legends. ``None`` (default) auto-sizes from legend text
+            length, ``text_size``, and (for grouped heatmaps) left-side gene
+            labels. Pass a value (e.g. ``0.36``) to override. Ignored when
+            ``separate_legend=True``.
         auto_log2 (bool): If True (default), apply in-memory ``log2(x+pseudocount)``
             when the layer looks linear-scale (same policy as ``mixed_de``). Used for
             z-score / log display paths; ignored for ``display_scale="raw"``.
@@ -895,36 +946,40 @@ def plot_grouped_heatmap(
             ``separate_legend=True``.
 
     Example:
-        Grouped pathway heatmap with condition headers:
+        Grouped pathway heatmap on bulk PD data (``cellline`` x ``condition`` headers):
             ```python
             from scpviz import plotting as scplt
 
             fig = scplt.plot_grouped_heatmap(
-                pdata,
+                pdata_norm,
                 protein_groups={
                     "Cell cycle": ["CDK1", "CDK2", "PCNA"],
-                    "Stress": ["HSPA1A", "HSP90AA1"],
+                    "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+                    "Stress": ["HSP90AA1", "UBE4B"],
                 },
-                classes=["treatment", "cellline"],
-                sort_by={"treatment": ["DMSO", "Drug"]},
+                classes=["cellline", "condition"],
+                sort_by={"condition": ["sc", "kd"], "cellline": ["AS", "BE"]},
                 layer="X",
             )
             ```
+
+        ![Plot grouped heatmap](../../assets/plots/plot_grouped_heatmap.png)
 
         Custom header and group colors (via ``get_color`` or hex):
             ```python
             c = scplt.get_color("colors", 7)
             fig = scplt.plot_grouped_heatmap(
-                pdata,
+                pdata_norm,
                 protein_groups={
                     "Cell cycle": ["CDK1", "PCNA"],
-                    "Stress": ["HSPA1A"],
+                    "Housekeeping": ["GAPDH", "ACTB"],
                 },
-                classes=["condition"],
-                sort_by={"condition": ["SWI", "Uninjured"]},
-                group_colors={"Cell cycle": c[0], "Stress": c[1]},
+                classes=["cellline", "condition"],
+                sort_by={"condition": ["sc", "kd"]},
+                group_colors={"Cell cycle": c[0], "Housekeeping": c[1]},
                 header_colors={
-                    "condition": {"SWI": "#FF0000", "Uninjured": "#6EDC00"},
+                    "cellline": {"AS": "#4C72B0", "BE": "#DD8452"},
+                    "condition": {"sc": "#55A868", "kd": "#C44E52"},
                 },
             )
             ```
@@ -932,31 +987,32 @@ def plot_grouped_heatmap(
         Spacing, fonts, display scale, and colorbar height:
             ```python
             fig = scplt.plot_grouped_heatmap(
-                pdata,
+                pdata_norm,
                 protein_groups={
                     "Cell cycle": ["CDK1", "PCNA"],
-                    "Stress": ["HSPA1A"],
+                    "Housekeeping": ["GAPDH", "ACTB"],
                 },
-                classes=["condition"],
-                sample_label_col="replicate",
+                classes=["cellline", "condition"],
+                sample_label_col="Sample",
                 gap_rows=0.5,
                 group_bar_pad=0.15,
                 display_scale="zscore",
                 text_size=10,
                 cbar_scale=0.8,
+                legend_width=0.36,
             )
             ```
 
-        Legends on a separate figure (useful for setting a specific fig size):
+        Legends on a separate figure (useful when fixing a compact heatmap size):
             ```python
             fig, legend_fig = scplt.plot_grouped_heatmap(
-                pdata,
+                pdata_norm,
                 protein_groups={
                     "Cell cycle": ["CDK1", "PCNA"],
-                    "Stress": ["HSPA1A"],
+                    "Housekeeping": ["GAPDH", "ACTB"],
                 },
-                classes=["condition"],
-                figsize=(4,3),
+                classes=["cellline", "condition"],
+                figsize=(4, 3),
                 separate_legend=True,
                 cbar_scale=1.25,
             )
@@ -1142,10 +1198,10 @@ def plot_grouped_heatmap(
         cbar_label=cbar_label,
         cbar_scale=cbar_scale,
         separate_legend=separate_legend,
-        left_with_legends=0.24,
-        left_heatmap_only=0.06,
+        legend_width=legend_width,
         right=0.72,
         top=0.95,
+        left_tick_labels=list(tick_lab),
     )
 
 # ---------------------------------------------------------------------------
@@ -1177,6 +1233,7 @@ def plot_clustered_heatmap(
     figsize: tuple[float, float] | None = None,
     text_size: int = 8,
     cbar_scale: float = 1.0,
+    legend_width: float | None = None,
     auto_log2: bool = True,
     gene_col: str = "Genes",
     separate_legend: bool = False,
@@ -1238,6 +1295,9 @@ def plot_clustered_heatmap(
         cbar_scale (float): Vertical scale factor for the colorbar (default ``1.0``).
             Same behavior as ``plot_grouped_heatmap`` (legends stack below; applies
             to ``separate_legend`` too).
+        legend_width (float, optional): Figure-fraction left margin for colorbar +
+            legends. ``None`` (default) auto-sizes from legend text; pass a float
+            to override. Ignored when ``separate_legend=True``.
         auto_log2 (bool): Same in-memory log2 policy as ``plot_grouped_heatmap``.
         gene_col (str): Gene label column in ``.var``.
         separate_legend (bool): If True, colorbar and legends are drawn on a
@@ -1255,73 +1315,85 @@ def plot_clustered_heatmap(
         KeyError: ``stats_key`` missing from ``pdata.stats``.
 
     Example:
-        Cluster an explicit protein list:
+        Cluster an explicit protein list (optional group strip for curated subsets):
             ```python
             from scpviz import plotting as scplt
 
             fig = scplt.plot_clustered_heatmap(
-                pdata,
-                classes=["treatment", "cellline"],
-                proteins=["CDK1", "PCNA", "HSPA1A", "GAPDH"],
-                protein_groups={"Cell cycle": ["CDK1", "PCNA"]},
+                pdata_norm,
+                classes=["cellline", "condition"],
+                proteins=[
+                    "CDK1", "CDK2", "PCNA",
+                    "GAPDH", "TUBB", "ACTB",
+                    "HSP90AA1", "ENO1", "PGK1",
+                ],
+                protein_groups={
+                    "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+                    "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+                },
+                sort_by={"condition": ["sc", "kd"], "cellline": ["AS", "BE"]},
                 show_unassigned=True,
             )
             ```
 
-        Cluster DE hits from a stored contrast (default up + down):
+        ![Plot clustered heatmap](../../assets/plots/plot_clustered_heatmap.png)
+
+        Cluster DE hits from a stored contrast. Large tables are hard to read in
+        docs/figures — here we keep the top 40 by ``|significance_score|``:
             ```python
+            de = pdata_norm.stats["BE_kd vs BE_sc"]
+            hits = de[de["significance"].isin(["upregulated", "downregulated"])]
+            top40 = (
+                hits.assign(_s=hits["significance_score"].abs())
+                .sort_values("_s", ascending=False)
+                .head(40)
+            )
+            pdata_norm.stats["BE_kd vs BE_sc (top 40)"] = top40
+
             fig = scplt.plot_clustered_heatmap(
-                pdata,
-                classes=["condition"],
-                stats_key="SWI vs Uninjured",
-                sort_by={"condition": ["SWI", "Uninjured"]},
+                pdata_norm,
+                classes=["cellline", "condition"],
+                stats_key="BE_kd vs BE_sc (top 40)",
+                sort_by={"condition": ["sc", "kd"], "cellline": ["AS", "BE"]},
             )
             ```
 
-        Only upregulated, or only not-comparable features:
+        ![Plot clustered heatmap (DE hits)](../../assets/plots/plot_clustered_heatmap_de.png)
+
+        Only upregulated features, or black row labels on the full contrast key:
             ```python
             fig = scplt.plot_clustered_heatmap(
-                pdata,
-                classes=["condition"],
-                stats_key="SWI vs Uninjured",
+                pdata_norm,
+                classes=["cellline", "condition"],
+                stats_key="BE_kd vs BE_sc",
                 significance_categories=["upregulated"],
             )
             fig = scplt.plot_clustered_heatmap(
-                pdata,
-                classes=["condition"],
-                stats_key="SWI vs Uninjured",
-                significance_categories="not comparable",
-                label_color="black",
-            )
-            ```
-
-        Fonts, row-label color, display scale, and colorbar height:
-            ```python
-            fig = scplt.plot_clustered_heatmap(
-                pdata,
-                classes=["condition"],
-                stats_key="SWI vs Uninjured",
-                sample_label_col="replicate",
+                pdata_norm,
+                classes=["cellline", "condition"],
+                stats_key="BE_kd vs BE_sc",
                 label_color="black",
                 display_scale="log",
                 text_size=10,
                 cbar_scale=0.8,
+                legend_width=0.36,
             )
             ```
 
-        Custom colors with a separate legend figure (useful for setting a specific fig size):
+        Custom colors with a separate legend figure:
             ```python
             c = scplt.get_color("colors", 7)
             fig, legend_fig = scplt.plot_clustered_heatmap(
-                pdata,
-                classes=["condition"],
-                stats_key="SWI vs Uninjured",
-                protein_groups={"Cell cycle": ["Tubb2a", "Ncstn"]},
+                pdata_norm,
+                classes=["cellline", "condition"],
+                proteins=["CDK1", "PCNA", "GAPDH", "ACTB", "HSP90AA1"],
+                protein_groups={"Cell cycle": ["CDK1", "PCNA"]},
                 group_colors={"Cell cycle": c[0]},
                 header_colors={
-                    "condition": {"SWI": "#FF0000", "Uninjured": "#6EDC00"},
+                    "cellline": {"AS": "#4C72B0", "BE": "#DD8452"},
+                    "condition": {"sc": "#55A868", "kd": "#C44E52"},
                 },
-                figsize=(4,3),
+                figsize=(4, 3),
                 separate_legend=True,
                 cbar_scale=1.25,
             )
@@ -1641,8 +1713,7 @@ def plot_clustered_heatmap(
         cbar_label=cbar_label,
         cbar_scale=cbar_scale,
         separate_legend=separate_legend,
-        left_with_legends=0.24,
-        left_heatmap_only=0.06,
+        legend_width=legend_width,
         right=0.88,
         top=0.94,
     )
