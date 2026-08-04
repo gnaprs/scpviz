@@ -1373,6 +1373,162 @@ def test_plot_pca_gsea_bubble_include_exclude_pathways(pdata):
     assert set(bubble_df["pathway_raw"]) == {"OXPHOS"}
     plt.close(fig)
 
+
+def test_plot_pca_gsea_bubble_figsize_scales_sizes(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig_small, ax_small = plt.subplots(figsize=(3, 4))
+    _, df_small = scplt.plot_pca_gsea_bubble(
+        ax=ax_small,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+        return_df=True,
+    )
+    fig_large, ax_large = plt.subplots(figsize=(9, 12))
+    _, df_large = scplt.plot_pca_gsea_bubble(
+        ax=ax_large,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+        return_df=True,
+    )
+    assert df_large["bubble_size"].max() > df_small["bubble_size"].max()
+    plt.close(fig_small)
+    plt.close(fig_large)
+
+
+def test_plot_pca_gsea_bubble_size_fdr_cap_and_size_scale(pdata):
+    pdata.pca(on="protein")
+    adata = pdata.prot
+    adata.uns["pca_gsea"] = {
+        "results": {
+            "PC1": pd.DataFrame(
+                {
+                    "Term": ["OXPHOS", "Immune"],
+                    "NES": [2.0, -1.5],
+                    "FDR q-val": [1e-20, 0.01],
+                }
+            ),
+            "PC2": pd.DataFrame(
+                {
+                    "Term": ["OXPHOS", "Immune"],
+                    "NES": [-1.0, 1.8],
+                    "FDR q-val": [0.05, 1e-20],
+                }
+            ),
+        }
+    }
+    fig, ax = plt.subplots(figsize=(4, 5))
+    _, df_cap = scplt.plot_pca_gsea_bubble(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=2,
+        fdr_cutoff=None,
+        size_scale=0.85,
+        size_fdr_cap=5.0,
+        return_df=True,
+    )
+    # Extreme FDR must not exceed size of an FDR that hits the cap exactly (1e-5).
+    max_at_cap = df_cap.loc[df_cap["FDR q-val"] <= 1e-5, "bubble_size"].max()
+    assert np.isclose(df_cap["bubble_size"].max(), max_at_cap)
+    plt.close(fig)
+
+    fig_a, ax_a = plt.subplots(figsize=(4, 5))
+    _, df_a = scplt.plot_pca_gsea_bubble(
+        ax=ax_a,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=2,
+        fdr_cutoff=None,
+        size_scale=0.5,
+        return_df=True,
+    )
+    fig_b, ax_b = plt.subplots(figsize=(4, 5))
+    _, df_b = scplt.plot_pca_gsea_bubble(
+        ax=ax_b,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=2,
+        fdr_cutoff=None,
+        size_scale=1.0,
+        return_df=True,
+    )
+    # Area scales with size_scale**2 for the same FDR weight.
+    assert np.isclose(df_b["bubble_size"].max() / df_a["bubble_size"].max(), (1.0 / 0.5) ** 2)
+    plt.close(fig_a)
+    plt.close(fig_b)
+
+
+def test_plot_pca_gsea_bubble_square_cells_and_padding(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig, ax = plt.subplots(figsize=(6, 4))
+    pc_pad = 0.6
+    _, bubble_df = scplt.plot_pca_gsea_bubble(
+        ax=ax,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+        pc_pad=pc_pad,
+        return_df=True,
+    )
+    n_pcs = bubble_df["pc_i"].nunique()
+    n_pathways = bubble_df["pathway_i"].nunique()
+    pc_spacing = 2.0 * pc_pad
+    row_pad = 0.5
+    assert ax.get_xlim() == pytest.approx((-pc_pad, (n_pcs - 1) * pc_spacing + pc_pad))
+    assert ax.get_ylim() == pytest.approx((-row_pad, n_pathways - 1 + row_pad))
+    span_x = (n_pcs - 1) * pc_spacing + 2.0 * pc_pad
+    span_y = (n_pathways - 1) + 2.0 * row_pad
+    assert ax.get_box_aspect() == pytest.approx(span_y / span_x)
+    # Larger pc_pad → wider x-span for the same number of PCs.
+    fig2, ax2 = plt.subplots(figsize=(6, 4))
+    scplt.plot_pca_gsea_bubble(
+        ax=ax2,
+        pdata=pdata,
+        on="protein",
+        pcs=[1, 2],
+        top_n=3,
+        fdr_cutoff=0.2,
+        pc_pad=0.9,
+    )
+    assert (ax2.get_xlim()[1] - ax2.get_xlim()[0]) > (ax.get_xlim()[1] - ax.get_xlim()[0])
+    plt.close(fig)
+    plt.close(fig2)
+
+
+def test_plot_pca_gsea_bubble_cbar_scale_moves_size_legend(pdata):
+    _seed_mock_pca_gsea(pdata, on="protein")
+    fig_s, ax_s = plt.subplots(figsize=(5, 6))
+    scplt.plot_pca_gsea_bubble(
+        ax=ax_s, pdata=pdata, on="protein", pcs=[1, 2], top_n=3, fdr_cutoff=0.2, cbar_scale=0.5
+    )
+    fig_l, ax_l = plt.subplots(figsize=(5, 6))
+    scplt.plot_pca_gsea_bubble(
+        ax=ax_l, pdata=pdata, on="protein", pcs=[1, 2], top_n=3, fdr_cutoff=0.2, cbar_scale=1.5
+    )
+    fig_s.canvas.draw()
+    fig_l.canvas.draw()
+    cbar_s = [a for a in fig_s.axes if a is not ax_s][0]
+    cbar_l = [a for a in fig_l.axes if a is not ax_l][0]
+    assert cbar_l.get_position().height > cbar_s.get_position().height
+    # Size legend is in colorbar axes coords just below the bar; taller bar → legend lower on figure.
+    leg_s = ax_s.get_legend().get_window_extent(fig_s.canvas.get_renderer())
+    leg_l = ax_l.get_legend().get_window_extent(fig_l.canvas.get_renderer())
+    assert leg_l.y0 < leg_s.y0
+    plt.close(fig_s)
+    plt.close(fig_l)
+
+
 # test resolve_plot_color
 @pytest.fixture
 def dummy_adata():
@@ -1569,6 +1725,66 @@ def test_plot_pca_mapping_incomplete_warn_default(pdata):
     )
     assert _is_axes_container(result)
     assert len(ax.collections) > 0
+
+
+def test_plot_pca_mapping_single_key_string(pdata):
+    """Single mapping_keys column may use string keys instead of 1-tuples."""
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    adata = pdata.prot
+    mapping_keys = ["treatment"]
+    mapping = {
+        str(lv): {"edge_color": "black"}
+        for lv in adata.obs["treatment"].dropna().unique()
+    }
+    result = scplt.plot_pca(
+        ax,
+        pdata,
+        color=gene,
+        cmap="plasma",
+        mapping_keys=mapping_keys,
+        mapping=mapping,
+        force=True,
+        on="protein",
+    )
+    assert _is_axes_container(result)
+    assert len(ax.collections) > 0
+
+
+def test_plot_pca_mapping_single_key_one_tuple_still_works(pdata):
+    fig, ax = plt.subplots()
+    gene = pdata.prot.var["Genes"].dropna().iloc[0]
+    adata = pdata.prot
+    mapping_keys = ["treatment"]
+    mapping = {
+        (str(lv),): {"edge_color": "black"}
+        for lv in adata.obs["treatment"].dropna().unique()
+    }
+    result = scplt.plot_pca(
+        ax,
+        pdata,
+        color=gene,
+        cmap="plasma",
+        mapping_keys=mapping_keys,
+        mapping=mapping,
+        force=True,
+        on="protein",
+    )
+    assert _is_axes_container(result)
+
+
+def test_plot_pca_mapping_rejects_string_key_for_multi_column(pdata):
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="must be tuples of length 2"):
+        scplt.plot_pca(
+            ax,
+            pdata,
+            mapping_keys=["cellline", "treatment"],
+            mapping={"ctrl": {"color": "white", "edge_color": "black"}},
+            force=True,
+            on="protein",
+        )
+
 
 # tests for plot_umap
 def test_plot_umap_runs_without_error(pdata):
@@ -2439,3 +2655,756 @@ def test_shift_legend_no_legend_does_nothing():
     assert ax.get_legend() is None
 
     plt.close(fig)
+# ---------------------------------------------------------------------------
+# plot_grouped_heatmap / plot_clustered_heatmap
+# ---------------------------------------------------------------------------
+
+def test_plot_grouped_heatmap_smoke(pdata, capsys):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
+    groups = {
+        "A": genes[:2] + ["NOT_A_REAL_GENE_XYZ"],
+        "B": genes[2:4],
+    }
+    fig = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment", "cellline"],
+        sort_by={"treatment": ["sc", "kd"]},
+        sample_label_col="treatment",
+        row_spacing=True,
+        group_bar_pad=0.15,
+        figsize=(7, 5),
+    )
+    assert isinstance(fig, plt.Figure)
+    captured = capsys.readouterr().out
+    assert "NOT_A_REAL_GENE_XYZ" in captured
+    assert "WARN" in captured
+    plt.close(fig)
+
+    with pytest.raises(KeyError, match="sample_label_col"):
+        scplt.plot_grouped_heatmap(
+            pdata,
+            protein_groups=groups,
+            classes=["treatment"],
+            sample_label_col="not_a_real_obs_col_xyz",
+        )
+
+
+def test_plot_grouped_heatmap_header_count(pdata):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:3].tolist()
+    groups = {"G": genes}
+    for n in (1, 2):
+        classes = ["treatment", "cellline"][:n]
+        fig = scplt.plot_grouped_heatmap(
+            pdata, protein_groups=groups, classes=classes, figsize=(6, 4)
+        )
+        # n header axes + 1 main = n+1 axes with images; blanks not used in grouped
+        assert len(fig.axes) >= n + 1
+        plt.close(fig)
+
+
+def test_plot_grouped_heatmap_sort_by_order(pdata):
+    from scpviz.plotting.heatmap import _compute_sample_order
+
+    classes = ["treatment", "cellline"]
+    sort_by = {"treatment": ["sc", "kd"]}
+    order = _compute_sample_order(
+        pdata.prot.obs, list(pdata.prot.obs_names.astype(str)), classes, sort_by
+    )
+    treatments = [str(pdata.prot.obs.loc[s, "treatment"]) for s in order]
+    if "sc" in treatments and "kd" in treatments:
+        last_sc = max(i for i, t in enumerate(treatments) if t == "sc")
+        first_kd = min(i for i, t in enumerate(treatments) if t == "kd")
+        assert last_sc < first_kd
+
+
+def test_plot_grouped_heatmap_mixin(pdata):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:2].tolist()
+    fig = pdata.plot_grouped_heatmap(
+        {"G": genes}, classes=["treatment"], figsize=(6, 4)
+    )
+    assert isinstance(fig, plt.Figure)
+    plt.close(fig)
+
+
+def test_plot_clustered_heatmap_smoke(pdata, capsys):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:5].tolist()
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=genes + ["MISSING_CLUSTER_GENE"],
+        protein_groups={"SetA": genes[:2]},
+        figsize=(7, 5),
+    )
+    assert isinstance(fig, plt.Figure)
+    captured = capsys.readouterr().out
+    assert "MISSING_CLUSTER_GENE" in captured
+    plt.close(fig)
+
+
+def test_plot_clustered_heatmap_xor_proteins_stats_key(pdata):
+    with pytest.raises(ValueError, match="exactly one"):
+        scplt.plot_clustered_heatmap(pdata, classes=["treatment"])
+    with pytest.raises(ValueError, match="exactly one"):
+        scplt.plot_clustered_heatmap(
+            pdata,
+            classes=["treatment"],
+            proteins=["TUBB"],
+            stats_key="nope",
+        )
+
+
+def test_plot_clustered_heatmap_stats_key(pdata):
+    # Inject a synthetic DE table shaped like de()/mixed_de output
+    accs = list(pdata.prot.var_names[:6].astype(str))
+    de = pd.DataFrame(
+        {
+            "log2fc": [1.5, -1.2, 0.1, 2.0, -0.5, 0.0],
+            "p_value": [1e-4, 1e-3, 0.5, 1e-5, 0.2, 0.9],
+            "significance": [
+                "upregulated",
+                "downregulated",
+                "not significant",
+                "upregulated",
+                "not comparable",
+                "not significant",
+            ],
+            "Genes": pdata.prot.var.loc[accs, "Genes"].astype(str).tolist(),
+        },
+        index=accs,
+    )
+    key = "test_heatmap_de"
+    pdata.stats[key] = de
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment", "cellline"],
+        stats_key=key,
+        significance_categories=["upregulated", "downregulated"],
+        figsize=(7, 5),
+    )
+    assert isinstance(fig, plt.Figure)
+    plt.close(fig)
+
+    with pytest.raises(KeyError, match="not found"):
+        scplt.plot_clustered_heatmap(
+            pdata, classes=["treatment"], stats_key="does_not_exist_xyz"
+        )
+
+
+def test_plot_clustered_heatmap_stats_key_single_category_str(pdata, capsys):
+    """Bare string significance_categories must not be iterated as characters."""
+    accs = list(pdata.prot.var_names[:6].astype(str))
+    de = pd.DataFrame(
+        {
+            "log2fc": [np.nan, np.nan, 0.1, 2.0, np.nan, 0.0],
+            "p_value": [np.nan, np.nan, 0.5, 1e-5, np.nan, 0.9],
+            "significance": [
+                "not comparable",
+                "not comparable",
+                "not significant",
+                "upregulated",
+                "not comparable",
+                "not significant",
+            ],
+        },
+        index=accs,
+    )
+    key = "test_heatmap_de_nc"
+    pdata.stats[key] = de
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        stats_key=key,
+        significance_categories="not comparable",
+        figsize=(6, 4),
+    )
+    assert isinstance(fig, plt.Figure)
+    plt.close(fig)
+    captured = capsys.readouterr().out
+    assert "not comparable" in captured.lower()
+    assert "WARN" in captured or "warn" in captured.lower()
+
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        stats_key=key,
+        significance_categories=["not comparable"],
+        label_color="#ff00aa",
+        figsize=(6, 4),
+    )
+    from matplotlib.colors import to_rgba
+
+    target = to_rgba("#ff00aa")
+    assert any(
+        to_rgba(t.get_color()) == target
+        for ax in fig.axes
+        for t in ax.get_yticklabels()
+        if t.get_text()
+    )
+    plt.close(fig)
+
+
+def test_plot_clustered_heatmap_mixed_de_collection_raises(pdata):
+    pdata.stats["mixed_collection_fake"] = {
+        "contrasts": {"A vs B": pd.DataFrame({"significance": ["upregulated"]})},
+        "meta": {},
+    }
+    with pytest.raises(ValueError, match="mixed_de collection"):
+        scplt.plot_clustered_heatmap(
+            pdata, classes=["treatment"], stats_key="mixed_collection_fake"
+        )
+
+
+def test_plot_clustered_heatmap_same_sample_order_as_grouped(pdata):
+    from scpviz.plotting.heatmap import _compute_sample_order
+
+    classes = ["treatment", "cellline"]
+    sort_by = {"treatment": ["kd", "sc"]}
+    order = _compute_sample_order(
+        pdata.prot.obs, list(pdata.prot.obs_names.astype(str)), classes, sort_by
+    )
+    # Both functions call the same helper — assert helper output is stable/deterministic
+    order2 = _compute_sample_order(
+        pdata.prot.obs, list(pdata.prot.obs_names.astype(str)), classes, sort_by
+    )
+    assert order == order2
+    assert len(order) == pdata.prot.n_obs
+
+
+def test_plot_clustered_heatmap_metric_branches(pdata, monkeypatch):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
+    called = {"corr": 0}
+
+    import scpviz.plotting.heatmap as hm
+
+    real = hm.correlation_linkage
+
+    def spy(*args, **kwargs):
+        called["corr"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(hm, "correlation_linkage", spy)
+
+    fig = scplt.plot_clustered_heatmap(
+        pdata, classes=["treatment"], proteins=genes, metric="correlation", figsize=(6, 4)
+    )
+    assert called["corr"] == 1
+    plt.close(fig)
+
+    fig = scplt.plot_clustered_heatmap(
+        pdata, classes=["treatment"], proteins=genes, metric="euclidean", figsize=(6, 4)
+    )
+    assert called["corr"] == 1  # unchanged
+    plt.close(fig)
+
+    with pytest.raises(ValueError, match="metric must be"):
+        scplt.plot_clustered_heatmap(
+            pdata, classes=["treatment"], proteins=genes, metric="cosine"
+        )
+
+
+def test_plot_clustered_heatmap_euclidean_ignores_cor_method(pdata, capsys):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=genes,
+        metric="euclidean",
+        cor_method="spearman",
+        figsize=(6, 4),
+    )
+    captured = capsys.readouterr().out
+    assert "ignored" in captured.lower() or "cor_method" in captured
+    plt.close(fig)
+
+
+def test_correlation_linkage_zero_variance_raises():
+    from scpviz.utils import correlation_linkage
+
+    X = np.array([[1.0, 2.0, 3.0], [5.0, 5.0, 5.0]])
+    with pytest.raises(ValueError, match="zero variance"):
+        correlation_linkage(X)
+
+
+def test_correlation_linkage_adjacent_correlated_rows():
+    from scpviz.utils import correlation_linkage
+    from scipy.cluster.hierarchy import leaves_list
+
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=20)
+    X = np.vstack([base, base + 0.01 * rng.normal(size=20), rng.normal(size=20)])
+    Z, _ = correlation_linkage(X, optimal_ordering=True)
+    leaves = list(leaves_list(Z))
+    # first two rows should be adjacent in leaf order
+    i0, i1 = leaves.index(0), leaves.index(1)
+    assert abs(i0 - i1) == 1
+
+
+def test_plot_clustered_heatmap_dendrogram_adjacent(pdata):
+    # Hand-build three synthetic proteins with clear correlation structure
+    from scpviz.utils import correlation_linkage, get_adata_layer
+    from scipy.cluster.hierarchy import leaves_list
+
+    adata = pdata.prot
+    names = list(adata.var_names[:3].astype(str))
+    X = np.asarray(get_adata_layer(adata, "X"), dtype=float).copy()
+    # Make row0 and row1 nearly identical patterns; row2 unrelated
+    rng = np.random.default_rng(1)
+    pattern = rng.normal(size=adata.n_obs)
+    X[:, 0] = pattern
+    X[:, 1] = pattern + 0.01 * rng.normal(size=adata.n_obs)
+    X[:, 2] = rng.normal(size=adata.n_obs)
+    adata.layers["X_heat_test"] = X
+    # Mark as log-like so auto_log2 does not transform
+    adata.uns.setdefault("layer_provenance", {})
+    adata.uns["layer_provenance"]["X_heat_test"] = {
+        "op": "log_transform",
+        "input_layer": "X_raw",
+        "base": "2",
+    }
+
+    # z-score rows
+    mat = X[:, :3].T  # 3 proteins x samples
+    mat = (mat - mat.mean(1, keepdims=True)) / mat.std(1, keepdims=True)
+    Z, _ = correlation_linkage(mat)
+    leaves = list(leaves_list(Z))
+    assert abs(leaves.index(0) - leaves.index(1)) == 1
+
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=names,
+        layer="X_heat_test",
+        metric="correlation",
+        figsize=(6, 4),
+        auto_log2=False,
+    )
+    assert isinstance(fig, plt.Figure)
+    plt.close(fig)
+
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=names,
+        layer="X_heat_test",
+        metric="euclidean",
+        figsize=(6, 4),
+        auto_log2=False,
+    )
+    plt.close(fig)
+
+
+def test_heatmap_display_scale_branches(pdata, capsys):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
+    groups = {"A": genes[:2], "B": genes[2:4]}
+
+    with pytest.raises(ValueError, match="display_scale"):
+        scplt.plot_grouped_heatmap(
+            pdata, protein_groups=groups, classes=["treatment"], display_scale="nope"
+        )
+
+    fig = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment"],
+        display_scale="log",
+        figsize=(6, 4),
+    )
+    assert isinstance(fig, plt.Figure)
+    plt.close(fig)
+    out = capsys.readouterr().out
+    assert "display_scale" in out
+
+    # Explicit RdBu_r with log should warn
+    fig = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment"],
+        display_scale="log",
+        cmap="RdBu_r",
+        figsize=(5, 3),
+    )
+    plt.close(fig)
+    out = capsys.readouterr().out
+    assert "RdBu_r" in out and "WARN" in out
+
+    accs = list(pdata.prot.var_names[:4].astype(str))
+    de = pd.DataFrame(
+        {
+            "log2fc": [np.nan] * 4,
+            "p_value": [np.nan] * 4,
+            "significance": ["not comparable"] * 4,
+        },
+        index=accs,
+    )
+    key = "test_heatmap_display_scale_nc"
+    pdata.stats[key] = de
+
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        stats_key=key,
+        significance_categories="not comparable",
+        figsize=(6, 4),
+    )
+    plt.close(fig)
+    out = capsys.readouterr().out
+    assert "display_scale='log'" in out
+
+    # Leaf order stable across display_scale (clustering always on z-scores)
+    from scipy.cluster.hierarchy import dendrogram
+
+    captured = {}
+
+    def _capture_dendrogram(*args, **kwargs):
+        dn = dendrogram(*args, **kwargs)
+        captured.setdefault("leaves", []).append(list(dn["leaves"]))
+        return dn
+
+    import scpviz.plotting.heatmap as hm
+
+    original = hm.dendrogram if hasattr(hm, "dendrogram") else None
+    # dendrogram is imported inside the function; patch scipy symbol used there
+    import scipy.cluster.hierarchy as sch
+
+    real_dendrogram = sch.dendrogram
+
+    def wrapped(*a, **k):
+        dn = real_dendrogram(*a, **k)
+        captured.setdefault("leaves", []).append(list(dn["leaves"]))
+        return dn
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(sch, "dendrogram", wrapped)
+    try:
+        for scale in ("zscore", "log", "raw"):
+            fig = scplt.plot_clustered_heatmap(
+                pdata,
+                classes=["treatment"],
+                proteins=accs,
+                display_scale=scale,
+                figsize=(5, 3),
+            )
+            plt.close(fig)
+    finally:
+        monkeypatch.undo()
+
+    assert len(captured["leaves"]) == 3
+    assert captured["leaves"][0] == captured["leaves"][1] == captured["leaves"][2]
+
+
+def test_plot_grouped_heatmap_fractional_row_spacing():
+    rgba = np.zeros((4, 3, 4))
+    rgba[:, :, 3] = 1.0
+    row_groups = ["A", "A", "B", "B"]
+    labels = ["a1", "a2", "b1", "b2"]
+    from scpviz.plotting.heatmap import _GROUP_GAP_PX, _ROW_PX, _rasterize_with_gaps
+
+    disp0, *_ = _rasterize_with_gaps(rgba, row_groups, labels, row_spacing=False)
+    disp_true, ticks, tick_labs, yr = _rasterize_with_gaps(
+        rgba, row_groups, labels, row_spacing=True
+    )
+    disp_half, *_ = _rasterize_with_gaps(rgba, row_groups, labels, row_spacing=0.5)
+    assert disp0.shape[0] == 4 * _ROW_PX
+    assert disp_true.shape[0] == 4 * _ROW_PX + _GROUP_GAP_PX
+    assert disp_half.shape[0] == 4 * _ROW_PX + int(round(0.5 * _GROUP_GAP_PX))
+    assert tick_labs == labels
+    assert set(yr) == {"A", "B"}
+    assert len(ticks) == 4
+
+    with pytest.raises(ValueError, match="row_spacing"):
+        _rasterize_with_gaps(rgba, row_groups, labels, row_spacing=-1)
+
+
+def test_heatmap_separate_legend(pdata):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
+    groups = {"A": genes[:2], "B": genes[2:4]}
+    out = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment"],
+        separate_legend=True,
+        figsize=(6, 4),
+    )
+    assert isinstance(out, tuple) and len(out) == 2
+    fig, legend_fig = out
+    assert isinstance(fig, plt.Figure)
+    assert isinstance(legend_fig, plt.Figure)
+    assert legend_fig is not fig
+    # Legend figure must have drawable axes (colorbar + legend host)
+    assert len(legend_fig.axes) >= 2
+    # Main heatmap should not keep the left-side colorbar axes
+    # (only header + main heatmap axes from gridspec)
+    assert len(fig.legends) == 0
+    plt.close(fig)
+    plt.close(legend_fig)
+
+    genes2 = list(pdata.prot.var_names[:4].astype(str))
+    out2 = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=genes2,
+        separate_legend=True,
+        figsize=(6, 4),
+    )
+    fig2, legend_fig2 = out2
+    assert isinstance(legend_fig2, plt.Figure)
+    assert len(legend_fig2.axes) >= 2
+    plt.close(fig2)
+    plt.close(legend_fig2)
+
+
+def test_heatmap_cbar_scale(pdata):
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
+    groups = {"A": genes[:2], "B": genes[2:4]}
+
+    fig1 = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment"],
+        figsize=(6, 10),
+        cbar_scale=1.0,
+    )
+    fig2 = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment"],
+        figsize=(6, 10),
+        cbar_scale=1.5,
+    )
+
+    def _cbar_height_in(fig):
+        for ax in fig.axes:
+            if ax.yaxis.label.get_text():
+                return ax.get_position().height * fig.get_size_inches()[1]
+        raise AssertionError("colorbar axes not found")
+
+    assert _cbar_height_in(fig1) == pytest.approx(1.35, rel=0.05)
+    assert _cbar_height_in(fig2) == pytest.approx(1.35 * 1.5, rel=0.05)
+
+    # Tall figsize: consecutive legends use figure-fraction anchors ~0.05 apart
+    # (≈0.5 in on a 10 in figure), not stretched by figure height.
+    assert len(fig1.legends) >= 2
+    y_fracs = [leg.get_bbox_to_anchor()._bbox.y0 for leg in fig1.legends]
+    gaps_in = [(y_fracs[i] - y_fracs[i + 1]) * 10.0 for i in range(len(y_fracs) - 1)]
+    assert all(0.2 < g < 1.2 for g in gaps_in)
+
+    out = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment"],
+        separate_legend=True,
+        cbar_scale=0.75,
+        figsize=(6, 4),
+    )
+    fig_s, legend_fig = out
+    assert _cbar_height_in(legend_fig) == pytest.approx(1.35 * 0.75, rel=0.08)
+    assert len(legend_fig.legends) >= 1
+    plt.close(fig1)
+    plt.close(fig2)
+    plt.close(fig_s)
+    plt.close(legend_fig)
+
+
+def test_heatmap_legend_width(pdata):
+    from scpviz.plotting.heatmap import (
+        _LEGEND_WIDTH_MAX,
+        _LEGEND_WIDTH_MIN,
+        _estimate_legend_width_frac,
+    )
+
+    genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
+    groups = {"A": genes[:2], "B": genes[2:4]}
+    fig_auto = scplt.plot_grouped_heatmap(
+        pdata, protein_groups=groups, classes=["treatment"], figsize=(8, 5)
+    )
+    fig_wide = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=["treatment"],
+        figsize=(8, 5),
+        legend_width=0.40,
+    )
+    left_auto = fig_auto.subplotpars.left
+    left_wide = fig_wide.subplotpars.left
+    # Auto should land in a sensible band and respond to longer labels
+    assert _LEGEND_WIDTH_MIN <= left_auto <= _LEGEND_WIDTH_MAX
+    assert left_wide == pytest.approx(0.40, abs=0.02)
+
+    long_specs = [
+        ("very_long_condition_name", [], ["supercalifragilisticexpialidocious"])
+    ]
+    short_specs = [("x", [], ["a"])]
+    long_w = _estimate_legend_width_frac(8.0, long_specs, text_size=8, cbar_label="z-score")
+    short_w = _estimate_legend_width_frac(8.0, short_specs, text_size=8, cbar_label="z-score")
+    assert long_w > short_w
+
+    # Grouped left y-tick labels require extra margin vs legends-only
+    with_ticks = _estimate_legend_width_frac(
+        8.0,
+        short_specs,
+        text_size=8,
+        cbar_label="z-score",
+        left_tick_labels=["VERYLONGGENENAME1", "VERYLONGGENENAME2"],
+    )
+    assert with_ticks > short_w
+
+    with pytest.raises(ValueError, match="legend_width"):
+        scplt.plot_grouped_heatmap(
+            pdata,
+            protein_groups=groups,
+            classes=["treatment"],
+            legend_width=0,
+        )
+    plt.close(fig_auto)
+    plt.close(fig_wide)
+
+
+def test_heatmap_header_colors_flat_and_nested(pdata):
+    from scpviz.plotting.heatmap import _normalize_header_colors
+
+    flat = {"Agg+": "#C64D4A", "Agg-": "#BFBFBF"}
+    assert _normalize_header_colors(flat, ["sample"]) == {"sample": flat}
+    nested = {"sample": flat, "cellline": {"AS": "#4C72B0"}}
+    assert _normalize_header_colors(nested, ["sample", "cellline"]) == nested
+    assert _normalize_header_colors(None, ["sample"]) == {}
+
+    with pytest.raises(ValueError, match="Flat header_colors"):
+        _normalize_header_colors(flat, ["sample", "cellline"])
+    with pytest.raises(ValueError, match="Mixed forms"):
+        _normalize_header_colors({"sample": flat, "Agg+": "#C64D4A"}, ["sample"])
+
+    genes = list(pdata.prot.var["Genes"].astype(str).unique()[:4])
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=genes,
+        header_colors={"kd": "#C64D4A", "sc": "#BFBFBF"},
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_plot_clustered_heatmap_dendrogram_linewidth(pdata):
+    from matplotlib.collections import LineCollection
+
+    genes = list(pdata.prot.var["Genes"].astype(str).unique()[:5])
+    fig = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=["treatment"],
+        proteins=genes,
+        dendrogram_linewidth=0.8,
+        column_spacing=False,
+    )
+    # Dendrogram axes: LineCollection only (no images / QuadMesh colorbar)
+    dendro_axes = [
+        ax
+        for ax in fig.axes
+        if ax.collections
+        and all(isinstance(c, LineCollection) for c in ax.collections)
+        and not ax.images
+    ]
+    assert dendro_axes
+    for coll in dendro_axes[0].collections:
+        assert np.allclose(np.atleast_1d(coll.get_linewidth()), 0.8)
+    plt.close(fig)
+
+
+def test_heatmap_column_spacing(pdata):
+    from scpviz.plotting.heatmap import _GROUP_GAP_PX, _rasterize_with_column_gaps
+
+    genes = list(pdata.prot.var["Genes"].astype(str).unique()[:4])
+    groups = {"G1": genes[:2], "G2": genes[2:]}
+    classes = ["treatment"]
+    samples = list(pdata.prot.obs_names.astype(str))
+    n = len(samples)
+    rgba = np.zeros((2, n, 4), dtype=float)
+    labels = [str(s) for s in samples]
+
+    _, _, _, col_off = _rasterize_with_column_gaps(
+        rgba, samples, pdata.prot.obs, classes, False, labels
+    )
+    assert col_off == list(range(n))
+
+    _, _, _, col_on = _rasterize_with_column_gaps(
+        rgba, samples, pdata.prot.obs, classes, True, labels
+    )
+    n_gap_true = sum(1 for x in col_on if x is None)
+    assert n_gap_true > 0
+    assert len(col_on) > n
+
+    _, _, _, col_half = _rasterize_with_column_gaps(
+        rgba, samples, pdata.prot.obs, classes, 0.5, labels
+    )
+    n_gap_half = sum(1 for x in col_half if x is None)
+    n_blocks_gaps = n_gap_true // _GROUP_GAP_PX
+    assert n_gap_half == int(round(0.5 * _GROUP_GAP_PX)) * n_blocks_gaps
+
+    with pytest.raises(ValueError, match="column_spacing"):
+        _rasterize_with_column_gaps(
+            rgba, samples, pdata.prot.obs, classes, -1, labels
+        )
+
+    with pytest.raises(ValueError, match="header_spacing"):
+        scplt.plot_grouped_heatmap(
+            pdata, protein_groups=groups, classes=classes, header_spacing=-0.1
+        )
+
+    fig_off = scplt.plot_grouped_heatmap(
+        pdata, protein_groups=groups, classes=classes, column_spacing=False
+    )
+    fig_on = scplt.plot_grouped_heatmap(
+        pdata, protein_groups=groups, classes=classes, column_spacing=True
+    )
+    # Main heatmap is last non-colorbar axes with an image in the gridspec stack
+    def _main_ncols(fig):
+        imgs = [ax.images[0] for ax in fig.axes if ax.images]
+        return imgs[-1].get_array().shape[1]
+
+    assert _main_ncols(fig_on) > _main_ncols(fig_off)
+    plt.close(fig_off)
+    plt.close(fig_on)
+
+    fig_c = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=classes,
+        proteins=genes,
+        column_spacing=0.5,
+    )
+    assert fig_c is not None
+    plt.close(fig_c)
+
+
+def test_heatmap_header_height_and_group_bar_width(pdata):
+    genes = list(pdata.prot.var["Genes"].astype(str).unique()[:4])
+    groups = {"G1": genes[:2], "G2": genes[2:]}
+    classes = ["treatment"]
+
+    with pytest.raises(ValueError, match="header_height"):
+        scplt.plot_grouped_heatmap(
+            pdata, protein_groups=groups, classes=classes, header_height=0
+        )
+    with pytest.raises(ValueError, match="group_bar_width"):
+        scplt.plot_grouped_heatmap(
+            pdata, protein_groups=groups, classes=classes, group_bar_width=-0.1
+        )
+
+    fig = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=classes,
+        header_height=0.6,
+        group_bar_width=0.8,
+        column_spacing=False,
+    )
+    # Main axes is the last axes that has an image and Rectangle patches for groups
+    main = [ax for ax in fig.axes if ax.images and ax.patches][-1]
+    bar_widths = [p.get_width() for p in main.patches]
+    assert bar_widths and all(np.isclose(w, 0.8) for w in bar_widths)
+    plt.close(fig)
+
+    fig_c = scplt.plot_clustered_heatmap(
+        pdata, classes=classes, proteins=genes, header_height=0.55
+    )
+    assert fig_c is not None
+    plt.close(fig_c)

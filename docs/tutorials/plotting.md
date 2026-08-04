@@ -526,46 +526,56 @@ The same parameters apply to [`plot_umap`](#umap-code).
 
 #### Tuple-key mapping
 
-For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a `mapping` dict keyed by metadata tuples. This assigns colors, edge colors, and marker shapes to specific combinations without pre-encoding a combined column:
+For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a `mapping` dict keyed by metadata combinations. Multi-column keys are tuples; a single column may use string keys. This assigns colors, edge colors, and marker shapes without pre-encoding a combined column:
 
-=== "Literal face + edge colors"
+=== "Literal face + edge colors (bulk)"
 
     ```python
-    mapping_keys = ["condition", "batch"]
+    mapping_keys = ["cellline", "condition"]
     mapping = {
-        ("case", "b1"): {"color": "#ffffff", "edge_color": "black"},
-        ("case", "b2"): {"color": "#eeeeee", "edge_color": "blue"},
-        ("ctrl", "b1"): {"color": "#dddddd", "edge_color": "black"},
-        ("ctrl", "b2"): {"color": "#cccccc", "edge_color": "blue"},
+        ("AS", "kd"): {"color": "white", "edge_color": "black"},
+        ("AS", "sc"): {"color": "white", "edge_color": "steelblue"},
+        ("BE", "kd"): {"color": "lightgrey", "edge_color": "black"},
+        ("BE", "sc"): {"color": "lightgrey", "edge_color": "steelblue"},
     }
 
-    fig, ax = plt.subplots(figsize=(3, 3))
-    scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, force=True)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, force=True)
     scplt.shift_legend(ax)
     plt.show()
     ```
 
-=== "Abundance face color + mapped edges"
+    ![Plot PCA mapping](../assets/plots/plot_pca_mapping.png)
+
+=== "Abundance face + mapped edges (single-cell)"
 
     ```python
-    mapping_keys = ["condition", "batch"]
+    mapping_keys = ["region"]
     mapping = {
-        ("case", "b1"): {"edge_color": "black"},
-        ("case", "b2"): {"edge_color": "steelblue"},
-        ("ctrl", "b1"): {"edge_color": "black"},
-        ("ctrl", "b2"): {"edge_color": "steelblue"},
+        "Cortex": {"edge_color": "#D19DCB"},
+        "SNpc": {"edge_color": "#85BE9E"},
     }
 
-    fig, ax = plt.subplots(figsize=(3, 3))
-    scplt.plot_pca(ax, pdata, color="Itgam", cmap="plasma",
-                   mapping_keys=mapping_keys, mapping=mapping, force=True)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax, pdata_sc, color="Gapdh", cmap="plasma",
+        mapping_keys=mapping_keys, mapping=mapping, force=True,
+    )
     scplt.shift_legend(ax)
     plt.show()
     ```
+
+    ![Plot PCA mapping abundance (single-cell)](../assets/plots/plot_pca_mapping_abundance_sc.png)
 
 Combinations missing from `mapping` default to grey face with no edge. Pass `mapping_on_missing="raise"` to require all combinations to be present.
 
-#### PCA overlays
+#### Sequential overlay (3D PCA)
+
+Reuse one embedding and layer subsets with `subset_mask` (order matters). Example for `HCT116` treatment/time overlays:
+
+![Plot PCA sequential overlay (HCT116)](../assets/plots/sc_treatment_hct116.png)
+
+#### PCA Protein Vectors
 
 [`plot_pca_protein_vectors`](#pca-code) overlays the top protein loadings as arrows:
 
@@ -576,7 +586,49 @@ scplt.plot_pca_protein_vectors(ax, pdata_norm, n_vectors=10)
 plt.show()
 ```
 
-[`plot_pca_gsea_pathway_vectors`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_pathway_vectors), [`plot_pca_gsea_bubble`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_bubble), and [`plot_pca_gsea_heatmap`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_heatmap) overlay GSEA pathway results on PCA space — available after running `pdata.gsea_pca()`.
+#### PCA-GSEA enrichment
+
+We can also perform GSEA on the protein loadings per PC and visualize them in pathway vectors, bubble or heatmap style.
+[`plot_pca_gsea_pathway_vectors`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_pathway_vectors), [`plot_pca_gsea_bubble`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_bubble), and [`plot_pca_gsea_heatmap`](../reference/plotting.md#src.scpviz.plotting.plot_pca_gsea_heatmap) overlay GSEA pathway results on PCA space — these functions automatically run `pdata.pca_gsea()` and plot using that data.
+
+![Plot PCA-GSEA pathway vectors](../assets/plots/plot_pca_gsea_pathway_vectors.png)
+
+![Plot PCA-GSEA bubble](../assets/plots/plot_pca_gsea_bubble.png)
+
+```python
+fig, ax = plt.subplots(figsize=(6, 8))
+scplt.plot_pca_gsea_bubble(ax, pdata_norm, pcs=[1, 2, 3], top_n=25)
+plt.show()
+```
+
+Optional size controls: `size_scale` sets max bubble diameter as a fraction of cell pitch (default `0.85`); `size_fdr_cap` clips `-log10(FDR)` used for sizing (default `5.0`). Use `pc_pad` to widen/narrow gaps between PC columns (half-spacing; default `0.6`). `cbar_scale` multiplies NES colorbar height (`1` = default; `<1` shorter, `>1` taller); the size legend stays stacked under it.
+
+```python
+fig, ax = plt.subplots(figsize=(6, 8))
+scplt.plot_pca_gsea_bubble(
+    ax,
+    pdata_norm,
+    pcs=[1, 2, 3],
+    top_n=25,
+    size_scale=0.5,   # tighter bubbles
+    size_fdr_cap=10,  # more extreme FDR contrast
+    pc_pad=0.75,      # wider gaps between PC columns
+    cbar_scale=1.5,   # taller NES colorbar
+)
+plt.show()
+```
+
+Colorbar height comparison (`cbar_scale` = 0.5 / 1 / 1.5):
+
+![Plot PCA-GSEA bubble cbar_scale=0.5](../assets/plots/plot_pca_gsea_bubble_cbar_scale_0.5.png)
+
+![Plot PCA-GSEA bubble cbar_scale=1](../assets/plots/plot_pca_gsea_bubble_cbar_scale_1.png)
+
+![Plot PCA-GSEA bubble cbar_scale=1.5](../assets/plots/plot_pca_gsea_bubble_cbar_scale_1.5.png)
+
+We can also plot similarly using a heatmap.
+
+![Plot PCA-GSEA heatmap](../assets/plots/plot_pca_gsea_heatmap.png)
 
 ### `plot_pca_scree` { #scree-code }
 
@@ -592,7 +644,7 @@ plt.show()
 
 [API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_umap)
 
-[`plot_umap`](#umap-code) mirrors the `plot_pca` interface. Run `pca()` first; pass `force=True` on first call or after changing normalization.
+[`plot_umap`](#umap-code) mirrors the `plot_pca` interface. Pass `force=True` on first call or after changing normalization.
 
 ```python
 import matplotlib.pyplot as plt
@@ -612,14 +664,14 @@ scplt.shift_legend(ax)
 plt.show()
 ```
 
-[`plot_umap`](#umap-code) accepts the same abundance-coloring options as PCA — see [Abundance coloring](#abundance-coloring). On single-cell data after `directlfq`:
+[`plot_umap`](#umap-code) accepts the same abundance-coloring options as PCA — see [Abundance coloring](#abundance-coloring). On single-cell data after `directlfq` (mouse gene ``Gapdh``):
 
 ```python
 fig, ax = plt.subplots(figsize=(4.5, 4))
 pdata_sc.pca(on="protein")
 scplt.plot_umap(
     ax, pdata_sc,
-    color="Itgam",
+    color="Gapdh",
     cmap="plasma",
     colorbar_norm="log10",
     nan_color="grey",
@@ -650,13 +702,29 @@ plt.show()
 
     Sample × sample Pearson/Spearman heatmap.
 
+-   **[`plot_grouped_heatmap`](#grouped-heatmap-code)**
+
+    ---
+
+    ![Plot grouped heatmap](../assets/plots/plot_grouped_heatmap.png)
+
+    Curated protein-group blocks × samples with header strips.
+
+-   **[`plot_clustered_heatmap`](#clustered-heatmap-code)**
+
+    ---
+
+    ![Plot clustered heatmap](../assets/plots/plot_clustered_heatmap.png)
+
+    Hierarchically clustered proteins × samples with optional group strip.
+
 -   **[`plot_clustermap`](#clustermap-code)**
 
     ---
 
     ![Plot clustermap](../assets/plots/plot_clustermap.png)
 
-    Hierarchically clustered heatmap with annotation bars.
+    Legacy seaborn clustered heatmap with annotation bars.
 
 </div>
 
@@ -694,11 +762,179 @@ Same approach on single-cell data (align `classes` with your UMAP coloring):
 
 ![Plot pairwise correlation (single-cell)](../assets/plots/plot_pairwise_correlation_sc.png)
 
+### `plot_grouped_heatmap` { #grouped-heatmap-code }
+
+[API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_grouped_heatmap)
+
+[`plot_grouped_heatmap`](#grouped-heatmap-code) draws curated protein groups as spatial blocks (with optional gaps), sample header strips from `classes`, and a right-hand group colour bar. Proteins missing from the object still keep a grey row so block sizes stay stable.
+
+Horizontal white gaps between sample leaf blocks (same full `classes` combination) default on via `column_spacing=True` (half a content cell). Vertical gaps between protein groups use the same scale via `row_spacing=True`. Use `False`/`0` for none, or a float to scale that default (`0.5` = half, `2` = double). Header-to-heatmap space is `header_spacing` (default `0.06`). Header band thickness is `header_height` (default `0.35`, relative GridSpec height). Grouped side-bar thickness is `group_bar_width` (default `0.4`, sample-column units; pair with `group_bar_pad`).
+
+```python
+from scpviz import plotting as scplt
+
+fig = scplt.plot_grouped_heatmap(
+    pdata_norm,
+    protein_groups={
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+        "Stress": ["HSP90AA1", "UBE4B"],
+    },
+    classes=["cellline", "condition"],
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    layer="X",
+    figsize=(7, 5),
+    text_size=8,
+)
+```
+
+![Plot grouped heatmap](../assets/plots/plot_grouped_heatmap.png)
+
+Row / column / header spacing (`row_spacing`, `column_spacing`, `header_spacing`):
+
+```python
+fig = scplt.plot_grouped_heatmap(
+    pdata_norm,
+    protein_groups={
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+        "Stress": ["HSP90AA1", "UBE4B"],
+    },
+    classes=["cellline", "condition"],
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    row_spacing=0.75,
+    column_spacing=0.5,
+    header_spacing=0.08,
+)
+```
+
+![Plot grouped heatmap spacing](../assets/plots/plot_grouped_heatmap_spacing.png)
+
+Header colours are one strip per class (not one colour per class combination). With a single class you can pass a flat map; with multiple classes nest by class name:
+
+```python
+# Single class
+header_colors = {"sc": "#55A868", "kd": "#C44E52"}
+
+# Multiple classes
+header_colors = {
+    "cellline": {"AS": "#4C72B0", "BE": "#DD8452"},
+    "condition": {"sc": "#55A868", "kd": "#C44E52"},
+}
+```
+
+### `plot_clustered_heatmap` { #clustered-heatmap-code }
+
+[API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_clustered_heatmap)
+
+[`plot_clustered_heatmap`](#clustered-heatmap-code) hierarchically clusters protein rows. Provide exactly one of `proteins=` (explicit list) or `stats_key=` (DE / volcano table in `pdata.stats`). Optional `protein_groups` annotate rows with a colour strip (not spatial blocks). Same `column_spacing` / `header_spacing` semantics as the grouped heatmap.
+
+```python
+from scpviz import plotting as scplt
+
+fig = scplt.plot_clustered_heatmap(
+    pdata_norm,
+    classes=["cellline", "condition"],
+    proteins=[
+        "CDK1", "CDK2", "PCNA",
+        "GAPDH", "TUBB", "ACTB",
+        "HSP90AA1", "ENO1", "PGK1",
+    ],
+    protein_groups={
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+    },
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    show_unassigned=True,
+    figsize=(7, 5),
+    text_size=8,
+)
+```
+
+![Plot clustered heatmap](../assets/plots/plot_clustered_heatmap.png)
+
+Column / header spacing:
+
+```python
+fig = scplt.plot_clustered_heatmap(
+    pdata_norm,
+    classes=["cellline", "condition"],
+    proteins=[
+        "CDK1", "CDK2", "PCNA",
+        "GAPDH", "TUBB", "ACTB",
+        "HSP90AA1", "ENO1", "PGK1",
+    ],
+    protein_groups={
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+    },
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    column_spacing=0.5,
+    header_spacing=0.08,
+    show_unassigned=True,
+)
+```
+
+![Plot clustered heatmap spacing](../assets/plots/plot_clustered_heatmap_spacing.png)
+
+After `plot_volcano` / `de`, cluster significant hits. For a readable figure, keep a top-N subset (same approach as `docs/generate_plot_figures.py`):
+
+```python
+import matplotlib.pyplot as plt
+from scpviz import plotting as scplt
+
+values = [
+    {"cellline": "BE", "condition": "kd"},
+    {"cellline": "BE", "condition": "sc"},
+]
+
+fig, ax = plt.subplots(figsize=(4, 4))
+ax, volcano_df = scplt.plot_volcano(
+    ax, pdata_norm, values=values, return_df=True
+)
+
+# Prefer the stats key written by volcano/de when present
+de_key = None
+de_df = volcano_df
+for k, v in (getattr(pdata_norm, "stats", {}) or {}).items():
+    if (
+        hasattr(v, "columns")
+        and "significance" in v.columns
+        and "significance_score" in v.columns
+    ):
+        de_key = k
+        de_df = v
+        break
+if de_key is None:
+    de_key = "volcano_de"
+    pdata_norm.stats[de_key] = de_df
+
+hits = de_df[de_df["significance"].isin(["upregulated", "downregulated"])]
+top40 = (
+    hits.assign(_s=hits["significance_score"].abs())
+    .sort_values("_s", ascending=False)
+    .head(40)
+)
+slim_key = f"{de_key} (top 40)"
+pdata_norm.stats[slim_key] = top40
+
+fig = scplt.plot_clustered_heatmap(
+    pdata_norm,
+    classes=["cellline", "condition"],
+    stats_key=slim_key,
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    figsize=(7, 6),
+    text_size=7,
+)
+```
+
+![Plot clustered heatmap (DE hits)](../assets/plots/plot_clustered_heatmap_de.png)
+
 ### `plot_clustermap` { #clustermap-code }
 
 [API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_clustermap)
 
-[`plot_clustermap`](#clustermap-code) returns a seaborn `ClusterGrid` object (`g`), not a figure — call `g.savefig(...)` if saving.
+[`plot_clustermap`](#clustermap-code) returns a seaborn `ClusterGrid` object (`g`), not a figure — call `g.savefig(...)` if saving. Prefer [`plot_clustered_heatmap`](#clustered-heatmap-code) for new publication figures.
 
 ```python
 import matplotlib.pyplot as plt

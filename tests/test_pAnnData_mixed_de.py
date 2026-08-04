@@ -269,6 +269,9 @@ def _build_adversarial_alpha_pdata(*, shift: float = 3.0, rng_seed: int = 31):
     Plants ``+shift`` on ``zsample`` cells. Any code path that relies on Patsy's
     default alphabetical baseline without releveling to the contrast *ref* will
     break when ``test='asample'`` (no coefficient for the baseline level).
+
+    Also plants a modest donor random intercept so MixedLM is not estimating a
+    near-zero RE variance (flaky across BLAS builds).
     """
     rows = []
     for d in range(4):
@@ -279,6 +282,9 @@ def _build_adversarial_alpha_pdata(*, shift: float = 3.0, rng_seed: int = 31):
     obs.index = [f"cell_{i}" for i in range(len(obs))]
     rng = np.random.default_rng(rng_seed)
     X = rng.normal(scale=0.25, size=(len(obs), 3))
+    donor_effects = {"D0": 0.7, "D1": -0.5, "D2": 0.3, "D3": -0.5}
+    for d, eff in donor_effects.items():
+        X[obs["donor"].to_numpy() == d, :] += eff
     X[obs["group"].to_numpy() == "zsample", 0] += shift
     var = pd.DataFrame({"Genes": ["G0", "G1", "G2"]}, index=["P0", "P1", "P2"])
     return pAnnData(prot=AnnData(X=X, obs=obs, var=var)), shift
@@ -293,6 +299,9 @@ def _build_adversarial_alpha_k3_pdata(
     Sorted pairwise order is alphabetical. Patsy baseline defaults to ``asample``,
     so ``one_vs_rest`` with ``focal_level='asample'`` makes *test* the model
     baseline — the exact failure mode that silent-fell-back before.
+
+    Plants a modest donor random intercept so MixedLM is not estimating a
+    boundary (near-zero) RE variance — that path is flaky across BLAS builds.
     """
     level_shifts = level_shifts or {
         "asample": 0.0,
@@ -308,6 +317,9 @@ def _build_adversarial_alpha_k3_pdata(
     obs.index = [f"cell_{i}" for i in range(len(obs))]
     rng = np.random.default_rng(rng_seed)
     X = rng.normal(scale=0.2, size=(len(obs), 3))
+    donor_effects = {"D0": 0.7, "D1": -0.5, "D2": 0.3, "D3": -0.5}
+    for d, eff in donor_effects.items():
+        X[obs["donor"].to_numpy() == d, :] += eff
     for lvl, shift in level_shifts.items():
         X[obs["group"].to_numpy() == lvl, 0] += shift
     var = pd.DataFrame({"Genes": ["G0", "G1", "G2"]}, index=["P0", "P1", "P2"])

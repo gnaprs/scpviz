@@ -123,6 +123,7 @@ nav:
           - Overview: reference/pAnnData/pAnnData.md
           - .analysis: reference/pAnnData/analysis_mixin.md
           - .base: reference/pAnnData/base_mixin.md
+          - .biophysical: reference/pAnnData/biophysical_mixin.md
           - .editing: reference/pAnnData/editing_mixin.md
           - .enrichment: reference/pAnnData/enrichment_mixin.md
           - .filtering: reference/pAnnData/filtering_mixin.md

@@ -1,4 +1,3 @@
-from scpviz.pAnnData.plot import PlotMixin
 from .base import BaseMixin
 from .validation import ValidationMixin
 from .summary import SummaryMixin
@@ -11,6 +10,7 @@ from .filtering import FilterMixin
 from .analysis import AnalysisMixin
 from .enrichment import EnrichmentMixin
 from .io import IOMixin
+from .plot import PlotMixin
 
 import pandas as pd
 import anndata as ad

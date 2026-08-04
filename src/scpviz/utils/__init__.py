@@ -59,6 +59,7 @@ Functions:
     de_adata: Differential expression helper over AnnData matrices.
     get_pca_importance: Identify most important features for PCA components.
     get_protein_clusters: Retrieve hierarchical clusters from stored linkage.
+    correlation_linkage: Average-linkage clustering with correlation distance (1 − r).
 
 !!! warning
     Many functions here are internal helpers. For common workflows (filtering, plotting, enrichment),

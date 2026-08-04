@@ -1061,7 +1061,21 @@ def fit_mixedlm_gene(
                 groups=work[donor_col],
                 re_formula=re_formula,
             )
-            fit = model.fit(reml=True, disp=False)
+            # Default MixedLM path often fails near a zero RE-variance boundary
+            # (platform/BLAS dependent). A method *list* still aborts on the first
+            # LinAlgError, so try optimizers one-by-one and keep the first that
+            # reports convergence.
+            fit = None
+            for opt_method in ("bfgs", "lbfgs", "cg", "powell"):
+                try:
+                    cand = model.fit(reml=True, method=opt_method, disp=False)
+                except Exception:
+                    continue
+                fit = cand
+                if bool(cand.converged):
+                    break
+        if fit is None:
+            return np.nan, np.nan, False, None, "fit_error"
         if not bool(fit.converged):
             re_var = float(fit.cov_re.iloc[0, 0]) if hasattr(fit, "cov_re") else None
             return np.nan, np.nan, False, re_var, "not_converged"

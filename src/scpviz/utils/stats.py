@@ -458,3 +458,78 @@ def get_protein_clusters(
         clusters[label].append(prot)
 
     return dict(clusters)
+
+
+def correlation_linkage(
+    X: np.ndarray,
+    method: str = "pearson",
+    linkage_method: str = "average",
+    optimal_ordering: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute a hierarchical clustering linkage matrix using correlation distance.
+
+    Distance is defined as ``1 - correlation(x, y)`` for each pair of rows in ``X``.
+    Rows are typically feature profiles across samples (e.g. z-scored protein
+    abundance). Aggregate to group means before calling if per-cell relationships
+    are not the intent.
+
+    Args:
+        X: Array of shape ``(n_rows, n_features)``. Each row is a profile to
+            compare pairwise. Must not contain NaN (impute upstream).
+        method: Correlation method, either ``"pearson"`` or ``"spearman"``.
+            Spearman is Pearson correlation on rank-transformed rows (ties via
+            average rank).
+        linkage_method: Linkage rule passed to ``scipy.cluster.hierarchy.linkage``.
+            Defaults to ``"average"`` (UPGMA).
+        optimal_ordering: If True, reorders the linkage so adjacent leaves are as
+            similar as possible (display only; does not change cluster membership).
+
+    Returns:
+        A tuple of:
+
+        - ``Z``: ``(n_rows - 1, 4)`` linkage matrix for ``dendrogram()``.
+        - ``condensed_dist``: Condensed pairwise distance vector used to build ``Z``.
+
+    Raises:
+        ValueError: If ``method`` is invalid, or any row of ``X`` has zero variance
+            (correlation undefined).
+
+    Note:
+        Uses signed ``1 - r``, not ``1 - |r|`` — anti-correlated profiles are treated
+        as dissimilar.
+
+    Example:
+        Compute linkage for group-averaged profiles:
+            ```python
+            from scpviz.utils import correlation_linkage
+            from scipy.cluster.hierarchy import dendrogram
+
+            Z, dist = correlation_linkage(group_means, method="pearson")
+            dendrogram(Z, labels=group_labels)
+            ```
+    """
+    from scipy.cluster.hierarchy import linkage
+    from scipy.spatial.distance import pdist
+    from scipy.stats import rankdata
+
+    if method not in ("pearson", "spearman"):
+        raise ValueError(f"method must be 'pearson' or 'spearman', got {method!r}")
+
+    X = np.asarray(X, dtype=float)
+    row_var = X.var(axis=1)
+    if np.any(row_var == 0):
+        bad_rows = np.where(row_var == 0)[0].tolist()
+        raise ValueError(
+            f"Rows {bad_rows} have zero variance; correlation is undefined"
+        )
+
+    if method == "spearman":
+        X = np.apply_along_axis(rankdata, axis=1, arr=X)
+
+    # pdist 'correlation' metric computes 1 - Pearson r directly
+    condensed_dist = pdist(X, metric="correlation")
+    Z = linkage(
+        condensed_dist, method=linkage_method, optimal_ordering=optimal_ordering
+    )
+    return Z, condensed_dist

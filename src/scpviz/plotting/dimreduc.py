@@ -154,13 +154,15 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         ellipse_kwargs (dict, optional): Extra keyword arguments passed to the ellipse patch
             (e.g., `{"alpha": 0.12, "lw": 1.5}`).
 
-        mapping_keys (list of str, optional): `.obs` columns whose tuple of levels keys `mapping`.
+        mapping_keys (list of str, optional): `.obs` columns whose levels key `mapping`.
             Must be provided together with ``mapping``.
 
-        mapping (dict, optional): Keys are tuples matching observed metadata combinations; values
-            are dicts with optional ``color`` (literal or abundance feature), ``edge_color`` (literal
-            only), and ``marker``. Cannot be combined with ``edge_color`` / ``edge_cmap``. When
-            ``color=`` is an abundance feature, mapping entries must not include ``color``.
+        mapping (dict, optional): Keys match observed metadata combinations: use a tuple when
+            ``mapping_keys`` has multiple columns, or a scalar/string (or 1-tuple) when it has a
+            single column. Values are dicts with optional ``color`` (literal or abundance feature),
+            ``edge_color`` (literal only), and ``marker``. Cannot be combined with ``edge_color`` /
+            ``edge_cmap``. When ``color=`` is an abundance feature, mapping entries must not include
+            ``color``.
 
         mapping_on_missing (str): ``"warn"`` (default) prints a log-prefixed message and uses grey
             face with no edge for missing combinations (abundance ``color=``: missing combo keeps
@@ -248,25 +250,29 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
             plot_pca(ax, pdata, color=["cellline", "treatment"])
             ```
 
-        Face color by gene/protein abundance (continuous) with a matplotlib colormap:
+        Face color by gene/protein abundance (continuous) on bulk PD data (human gene symbol ``GAPDH``):
             ```python
-            plot_pca(ax, pdata, color="UBE4B", cmap="plasma")
+            plot_pca(ax, pdata_norm, color="GAPDH", cmap="plasma", nan_color="grey")
             ```
 
-        Log-scale abundance coloring with undetected cells in grey (`log10` or `log2`):
+        ![Plot PCA abundance (linear)](../../assets/plots/plot_pca_abundance_raw.png)
+
+        Log-scale abundance coloring with undetected samples in grey (`log10` or `log2`):
             ```python
             plot_pca(
-                ax, pdata, color="UBE4B", cmap="plasma",
+                ax, pdata_norm, color="GAPDH", cmap="plasma",
                 colorbar_norm="log10", nan_color="grey",
             )
             ```
 
-        Log-scale with explicit ``LogNorm`` limits (common for sparse single-cell data):
+        ![Plot PCA abundance (log10)](../../assets/plots/plot_pca_abundance_log10.png)
+
+        Log-scale with explicit ``LogNorm`` limits (common for sparse single-cell data; mouse gene ``Gapdh``):
             ```python
             import matplotlib.colors as mcolors
 
             plot_pca(
-                ax, pdata, color="UBE4B", cmap="plasma",
+                ax, pdata_sc, color="Gapdh", cmap="plasma",
                 colorbar_norm=mcolors.LogNorm(vmin=1, vmax=1e7),
                 nan_color="black",
             )
@@ -280,7 +286,7 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
                 "expr", ["#ffffff", "#fee090", "#d73027"]
             )
             plot_pca(
-                ax, pdata, color="UBE4B", cmap=cmap,
+                ax, pdata_norm, color="GAPDH", cmap=cmap,
                 colorbar_norm=Normalize(vmin=0, vmax=100), nan_color="grey",
             )
             ```
@@ -321,91 +327,89 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
             plot_pca(ax, pdata, color="treatment", show_labels=True, label_column="short_name")
             ```
 
-        Tuple-key ``mapping`` (literal face + edge per combination of ``.obs`` columns):
+        Tuple-key ``mapping`` on bulk PD data (literal face + edge per ``cellline`` × ``condition``):
             ```python
             mapping_keys = ["cellline", "condition"]
             mapping = {
-                ("A", "ctrl"): {"color": "white", "edge_color": "black"},
-                ("A", "treat"): {"color": "white", "edge_color": "blue"},
-                ("B", "ctrl"): {"color": "lightgrey", "edge_color": "black"},
-                ("B", "treat"): {"color": "lightgrey", "edge_color": "blue"},
+                ("AS", "kd"): {"color": "white", "edge_color": "black"},
+                ("AS", "sc"): {"color": "white", "edge_color": "steelblue"},
+                ("BE", "kd"): {"color": "lightgrey", "edge_color": "black"},
+                ("BE", "sc"): {"color": "lightgrey", "edge_color": "steelblue"},
             }
-            plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, force=True)
+            plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, force=True)
             ```
 
-        Global abundance face color with per-combination edges (``mapping`` must not set ``color``):
+        ![Plot PCA mapping](../../assets/plots/plot_pca_mapping.png)
+
+        Single-column string-key ``mapping`` on the large single-cell cohort: ``Gapdh`` abundance
+        face color with ``region`` edge colors (``mapping`` must not set ``color`` when ``color=`` is abundance):
             ```python
-            mapping_keys = ["cellline", "condition"]
+            mapping_keys = ["region"]
             mapping = {
-                ("A", "ctrl"): {"edge_color": "black"},
-                ("A", "treat"): {"edge_color": "steelblue"},
-                ("B", "ctrl"): {"edge_color": "black"},
-                ("B", "treat"): {"edge_color": "steelblue"},
+                "Cortex": {"edge_color": "#D19DCB"},
+                "SNpc": {"edge_color": "#85BE9E"},
             }
-            plot_pca(ax, pdata, color="UBE4B", cmap="plasma", mapping_keys=mapping_keys, mapping=mapping)
+            plot_pca(
+                ax, pdata_sc, color="Gapdh", cmap="plasma",
+                mapping_keys=mapping_keys, mapping=mapping, force=True,
+            )
             ```
 
-        Sequential overlays on the same axes (same embedding, using different ``subset_mask``; order matters).
-        Replace column names and palettes with your metadata:
-            ```python
-            line = "LineA"
-            cell_line_color = {"LineA": "#4C72B0", "LineB": "#DD8452"}
-            cell_line_color_6h = {"LineA": "#9fb8d9", "LineB": "#e8b896"}
+        ![Plot PCA mapping abundance (single-cell)](../../assets/plots/plot_pca_mapping_abundance_sc.png)
 
-            mask_dark = (
-                (pdata.summary["treatment"] == "Drug")
-                & (pdata.summary["cell_line"] == line)
-                & (pdata.summary["duration"] == "24hr")
+        Sequential overlays on the same axes (same embedding, different ``subset_mask``; order matters).
+        Example for one cell line (``HCT116``) from a treatment-time single-cell object:
+            ```python
+            import matplotlib.pyplot as plt
+            from scpviz import plotting as scplt
+
+            dataset = pdata_sc_bio_norm
+            line = "HCT116"
+            cell_line_color = {"HCT116": "#C4A574"}
+            cell_line_color_6h = {"HCT116": "#E8D4B8"}
+
+            mask_filled_dark = (
+                (dataset.summary["treatment"] == "CB")
+                & (dataset.summary["cell_line"] == line)
+                & (dataset.summary["duration"] == "24hr")
             )
-            mask_light = (
-                (pdata.summary["treatment"] == "Drug")
-                & (pdata.summary["cell_line"] == line)
-                & (pdata.summary["duration"] == "6hr")
+            mask_filled_light = (
+                (dataset.summary["treatment"] == "CB")
+                & (dataset.summary["cell_line"] == line)
+                & (dataset.summary["duration"] == "6hr")
             )
-            mask_ctrl = (
-                (pdata.summary["treatment"] == "Vehicle")
-                & (pdata.summary["cell_line"] == line)
+            mask_hollow = (
+                (dataset.summary["treatment"] == "DMSO")
+                & (dataset.summary["cell_line"] == line)
             )
 
             fig = plt.figure(figsize=(4, 4))
             ax = fig.add_subplot(111, projection="3d")
 
-            ax, _ = plot_pca(
-                ax,
-                pdata,
-                color="cell_line",
-                cmap=cell_line_color,
-                edge_color="duration",
-                edge_cmap={"6hr": "grey", "24hr": "black"},
-                plot_pc=[1, 2, 3],
-                subset_mask=mask_dark,
-                return_fit=True,
-                force=True,
+            ax, _ = scplt.plot_pca(
+                ax, dataset,
+                color="cell_line", cmap=cell_line_color,
+                edge_color="duration", edge_cmap={"6hr": "grey", "24hr": "k"},
+                plot_pc=[1, 2, 3], pca_params={"n_components": 23},
+                subset_mask=mask_filled_dark, return_fit=True, force=True,
             )
-            ax, _ = plot_pca(
-                ax,
-                pdata,
-                color="cell_line",
-                cmap=cell_line_color_6h,
-                edge_color="duration",
-                edge_cmap={"6hr": "grey", "24hr": "black"},
+            ax, _ = scplt.plot_pca(
+                ax, dataset,
+                color="cell_line", cmap=cell_line_color_6h,
+                edge_color="duration", edge_cmap={"6hr": "grey", "24hr": "k"},
                 plot_pc=[1, 2, 3],
-                subset_mask=mask_light,
-                return_fit=True,
+                subset_mask=mask_filled_light, return_fit=True,
             )
-            plot_pca(
-                ax,
-                pdata,
-                color="cell_line",
-                cmap={k: "white" for k in cell_line_color},
+            scplt.plot_pca(
+                ax, dataset,
+                color="cell_line", cmap={k: "white" for k in cell_line_color},
                 plot_pc=[1, 2, 3],
-                edge_color="cell_line",
-                edge_cmap=cell_line_color,
-                edge_lw=1.2,
-                subset_mask=mask_ctrl,
-                force=False,
+                edge_color="cell_line", edge_cmap=cell_line_color, edge_lw=1.2,
+                subset_mask=mask_hollow, force=False,
             )
             ```
+
+        ![Plot PCA sequential overlay (HCT116)](../../assets/plots/sc_treatment_hct116.png)
     """
     
     # Validate PCA dimensions
@@ -712,7 +716,7 @@ def _resolve_embedding_style_mapping(
     adata: ad.AnnData,
     *,
     mapping_keys: list[str],
-    mapping: dict[tuple, dict[str, Any]],
+    mapping: dict[Any, dict[str, Any]],
     mapping_on_missing: str,
     color: Any,
     cmap: Any,
@@ -726,9 +730,12 @@ def _resolve_embedding_style_mapping(
 
     Abundance is allowed for face color only (top-level ``color=`` and/or per-entry ``color``);
     edge colors must be literal matplotlib colors (or ``\"none\"``).
+
+    Mapping keys are normalized to tuples. When ``mapping_keys`` has a single column, scalar keys
+    (e.g. ``\"Cortex\"``) are accepted and treated as 1-tuples.
     """
     if not isinstance(mapping, dict):
-        raise ValueError("mapping must be a dict mapping tuple keys to style dicts.")
+        raise ValueError("mapping must be a dict mapping combination keys to style dicts.")
     if mapping_on_missing not in ("raise", "warn"):
         raise ValueError("mapping_on_missing must be one of: 'raise', 'warn'.")
 
@@ -743,6 +750,7 @@ def _resolve_embedding_style_mapping(
     missing_cols = [k for k in mapping_keys if k not in adata.obs.columns]
     if missing_cols:
         raise ValueError(f"mapping_keys: column(s) not found in adata.obs: {missing_cols}")
+    n_keys = len(mapping_keys)
     sub = adata.obs[mapping_keys]
     keys_series = pd.Series(
         [tuple(sub.iloc[i].values.tolist()) for i in range(sub.shape[0])],
@@ -750,13 +758,28 @@ def _resolve_embedding_style_mapping(
     )
     n_obs = len(keys_series)
 
-    for mk in mapping.keys():
-        if not isinstance(mk, tuple):
-            raise ValueError(f"mapping keys must be tuples, got {type(mk).__name__}: {mk!r}")
-        if len(mk) != len(mapping_keys):
+    normalized_mapping: dict[tuple, dict[str, Any]] = {}
+    for mk, style in mapping.items():
+        if isinstance(mk, tuple):
+            if len(mk) != n_keys:
+                raise ValueError(
+                    f"mapping key {mk!r} has length {len(mk)} but mapping_keys has length {n_keys}."
+                )
+            key = mk
+        elif n_keys == 1:
+            key = (mk,)
+        else:
             raise ValueError(
-                f"mapping key {mk!r} has length {len(mk)} but mapping_keys has length {len(mapping_keys)}."
+                f"mapping keys must be tuples of length {n_keys}, got {type(mk).__name__}: {mk!r}. "
+                "For a single mapping_keys column, a scalar key (e.g. a string) is also accepted."
             )
+        if key in normalized_mapping:
+            raise ValueError(
+                f"Duplicate mapping key after normalization: {key!r} "
+                f"(from {mk!r}; also provided as {key!r})."
+            )
+        normalized_mapping[key] = style
+    mapping = normalized_mapping
 
     mapping_has_marker = any("marker" in v for v in mapping.values())
     if mapping_has_marker and marker_shape is not None:
@@ -1756,11 +1779,12 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
 
         ellipse_kwargs (dict, optional): Extra keyword arguments passed to the ellipse patch.
 
-        mapping_keys (list of str, optional): `.obs` columns whose tuple of levels keys `mapping`.
+        mapping_keys (list of str, optional): `.obs` columns whose levels key `mapping`.
             Must be provided together with ``mapping``.
 
-        mapping (dict, optional): Tuple-keyed style dicts (``color``, ``edge_color``, ``marker``).
-            See ``plot_pca`` for semantics; cannot be combined with ``edge_color`` / ``edge_cmap``.
+        mapping (dict, optional): Style dicts keyed by metadata combinations (tuple for multiple
+            columns; scalar/string or 1-tuple for a single column). See ``plot_pca`` for semantics;
+            cannot be combined with ``edge_color`` / ``edge_cmap``.
 
         mapping_on_missing (str): ``"warn"`` (default) or ``"raise"`` (see ``plot_pca``).
 
@@ -1819,22 +1843,24 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
             plot_umap(ax, pdata, color='treatment', umap_params=umap_params)
             ```
 
-        Plot by protein abundance (continuous coloring):
+        Log-scale abundance coloring on the large single-cell cohort (mouse gene ``Gapdh``):
             ```python
-            plot_umap(ax, pdata, color='P12345', cmap='plasma')
+            plot_umap(
+                ax, pdata_sc, color="Gapdh", cmap="plasma",
+                colorbar_norm="log10", nan_color="grey",
+                force=True,
+                umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
+            )
             ```
 
-        Log-scale abundance coloring (`log10` or `log2`):
-            ```python
-            plot_umap(ax, pdata, color='GAPDH', cmap='plasma', colorbar_norm='log10', nan_color='grey')
-            ```
+        ![Plot UMAP abundance (log10)](../../assets/plots/plot_umap_abundance_log10.png)
 
         Log-scale with explicit ``LogNorm`` limits:
             ```python
             import matplotlib.colors as mcolors
 
             plot_umap(
-                ax, pdata, color="GAPDH", cmap="plasma",
+                ax, pdata_sc, color="Gapdh", cmap="plasma",
                 colorbar_norm=mcolors.LogNorm(vmin=1, vmax=1e7),
                 nan_color="black",
             )
@@ -1859,7 +1885,7 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
             ellipse_colors = {"WT": "#000000", "MUT": "#377EB8"}
             plot_umap(
                 ax, pdata,
-                color="UBE4B", cmap="viridis",
+                color="GAPDH", cmap="viridis",
                 marker_shape="genotype",
                 add_ellipses=True,
                 ellipse_group="genotype",
@@ -1875,109 +1901,43 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
             plot_umap(ax, pdata, color='treatment', umap_params=umap_params)
             ```
 
-        Tuple-key ``mapping`` (literal face + edge per combination of ``.obs`` columns):
+        String-key ``mapping`` on the large single-cell cohort (literal face + edge by ``region``):
             ```python
-            umap_params = {"n_neighbors": 10, "min_dist": 0.1}
-            mapping_keys = ["cellline", "condition"]
+            mapping_keys = ["region"]
             mapping = {
-                ("A", "ctrl"): {"color": "white", "edge_color": "black"},
-                ("A", "treat"): {"color": "white", "edge_color": "blue"},
-                ("B", "ctrl"): {"color": "lightgrey", "edge_color": "black"},
-                ("B", "treat"): {"color": "lightgrey", "edge_color": "blue"},
+                "Cortex": {"color": "#D19DCB", "edge_color": "black"},
+                "SNpc": {"color": "#85BE9E", "edge_color": "black"},
             }
             plot_umap(
-                ax, pdata,
+                ax, pdata_sc,
                 mapping_keys=mapping_keys,
                 mapping=mapping,
-                umap_params=umap_params,
+                umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
                 force=True,
             )
             ```
 
-        Global abundance face color with per-combination edges:
+        ![Plot UMAP mapping](../../assets/plots/plot_umap_mapping.png)
+
+        ``Gapdh`` abundance face color with ``region`` edge colors:
             ```python
-            umap_params = {"n_neighbors": 10, "min_dist": 0.1}
-            mapping_keys = ["cellline", "condition"]
+            mapping_keys = ["region"]
             mapping = {
-                ("A", "ctrl"): {"edge_color": "black"},
-                ("A", "treat"): {"edge_color": "steelblue"},
-                ("B", "ctrl"): {"edge_color": "black"},
-                ("B", "treat"): {"edge_color": "steelblue"},
+                "Cortex": {"edge_color": "#D19DCB"},
+                "SNpc": {"edge_color": "#85BE9E"},
             }
             plot_umap(
-                ax, pdata,
-                color="UBE4B",
+                ax, pdata_sc,
+                color="Gapdh",
                 cmap="plasma",
                 mapping_keys=mapping_keys,
                 mapping=mapping,
-                umap_params=umap_params,
-            )
-            ```
-
-        Sequential overlays on the same axes (same UMAP, different ``subset_mask``). Replace
-        columns and palettes with your metadata; use matching ``umap_params`` and ``force``
-        so all layers share one embedding:
-            ```python
-            umap_params = {"n_neighbors": 10, "min_dist": 0.1}
-            line = "LineA"
-            cell_line_color = {"LineA": "#4C72B0", "LineB": "#DD8452"}
-            cell_line_color_6h = {"LineA": "#9fb8d9", "LineB": "#e8b896"}
-
-            mask_dark = (
-                (pdata.summary["treatment"] == "Drug")
-                & (pdata.summary["cell_line"] == line)
-                & (pdata.summary["duration"] == "24hr")
-            )
-            mask_light = (
-                (pdata.summary["treatment"] == "Drug")
-                & (pdata.summary["cell_line"] == line)
-                & (pdata.summary["duration"] == "6hr")
-            )
-            mask_ctrl = (
-                (pdata.summary["treatment"] == "Vehicle")
-                & (pdata.summary["cell_line"] == line)
-            )
-
-            fig = plt.figure(figsize=(4, 4))
-            ax = fig.add_subplot(111, projection="3d")
-
-            ax, _ = plot_umap(
-                ax,
-                pdata,
-                color="cell_line",
-                cmap=cell_line_color,
-                edge_color="duration",
-                edge_cmap={"6hr": "grey", "24hr": "black"},
-                umap_params={**umap_params, "n_components": 3},
-                subset_mask=mask_dark,
-                return_fit=True,
+                umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
                 force=True,
             )
-            ax, _ = plot_umap(
-                ax,
-                pdata,
-                color="cell_line",
-                cmap=cell_line_color_6h,
-                edge_color="duration",
-                edge_cmap={"6hr": "grey", "24hr": "black"},
-                umap_params={**umap_params, "n_components": 3},
-                subset_mask=mask_light,
-                return_fit=True,
-                force=False,
-            )
-            plot_umap(
-                ax,
-                pdata,
-                color="cell_line",
-                cmap={k: "white" for k in cell_line_color},
-                edge_color="cell_line",
-                edge_cmap=cell_line_color,
-                edge_lw=1.2,
-                umap_params={**umap_params, "n_components": 3},
-                subset_mask=mask_ctrl,
-                force=False,
-            )
             ```
+
+        ![Plot UMAP mapping abundance](../../assets/plots/plot_umap_mapping_abundance.png)
 
     """
     default_umap_params = {'n_components': 2, 'random_state': 42}
@@ -2178,12 +2138,15 @@ def plot_pca_gsea_pathway_vectors(
             fig, ax = plt.subplots()
             ax, vec_df = scplt.plot_pca_gsea_pathway_vectors(
                 ax,
-                pdata,
+                pdata_norm,
                 plot_pc=[1, 2],
+                n_vectors=12,
                 adjust_text_kwargs={"expand": (1.3, 1.3)},
                 return_df=True,
             )
             ```
+
+        ![Plot PCA-GSEA pathway vectors](../../assets/plots/plot_pca_gsea_pathway_vectors.png)
 
         Reuse label positions from a previous run (e.g. after editing coordinates in ``vec_df``):
             ```python
@@ -2849,7 +2812,10 @@ def plot_pca_gsea_bubble(
     pcs=None,
     top_n=20,
     fdr_cutoff=0.1,
-    size_scale=120.0,
+    size_scale=0.85,
+    size_fdr_cap=5.0,
+    pc_pad=0.6,
+    cbar_scale=1.0,
     cmap="coolwarm",
     title_case_labels=True,
     force=False,
@@ -2865,6 +2831,14 @@ def plot_pca_gsea_bubble(
     Bubble color encodes NES; bubble area reflects significance (``-log10(FDR)``). Rows and columns
     are ordered by pathway and PC. If ``pcs`` is omitted, all PCs present in stored results are used.
 
+    Bubble diameters are sized relative to the current figure/axes and the PC × pathway grid, so
+    choose ``figsize`` before calling this function. Marker areas are computed once at plot time
+    (they do not auto-update on interactive window resize). Column spacing uses ``pc_pad`` (half-gap
+    between PC centers); pathway rows keep unit pitch. Box aspect follows the data spans so cells
+    are not stretched across a wide axes when few PCs are shown. The NES colorbar is top-aligned;
+    ``cbar_scale`` multiplies its default height (``1`` = default, ``<1`` shorter, ``>1`` taller).
+    The bubble-size legend is anchored to the colorbar axes so it stays stacked underneath.
+
     Args:
         ax (matplotlib.axes.Axes): Target axis.
         pdata (pAnnData): Input object.
@@ -2874,7 +2848,18 @@ def plot_pca_gsea_bubble(
         top_n (int): Cap on distinct pathways after ranking; must be >= 1 (required).
         fdr_cutoff (float or None): Same meaning as in ``plot_pca_gsea_pathway_vectors`` (default ``0.1``):
             eligibility on at least one PC plus ``top_n`` ranking gate. ``None`` disables both.
-        size_scale (float): Multiplier for bubble area from ``-log10(FDR)``.
+        size_scale (float): Max bubble diameter as a fraction of the smaller cell pitch
+            (axes size in points divided by grid count). Default ``0.85`` ≈ nearly fill a cell;
+            values ``>1`` allow overlap. This is **not** an absolute points² multiplier.
+        size_fdr_cap (float): Clip ``-log10(FDR)`` used for sizing (default ``5.0``, FDR ≈ ``1e-5``).
+            Area scales as ``clipped / size_fdr_cap`` of the max area.
+        pc_pad (float): Half-spacing between PC columns in data units (also used as the x-edge
+            margin). Column centers are ``2 * pc_pad`` apart. Default ``0.6`` (``0.5`` recovers
+            unit spacing). Must be ``> 0``.
+        cbar_scale (float): Vertical scale for the NES colorbar relative to the default height
+            (default ``1.0``). Values ``<1`` shrink and ``>1`` enlarge; effective matplotlib
+            ``shrink`` is capped at ``1``. The size legend is placed in colorbar axes coordinates
+            below the bar, so it moves with this height.
         cmap (str or Colormap): Colormap for NES-centered coloring.
         title_case_labels (bool): If True, format pathway tick labels for display.
         force (bool): If True, re-run ``pca_gsea`` for the PCs being shown.
@@ -2888,18 +2873,48 @@ def plot_pca_gsea_bubble(
         matplotlib.axes.Axes, or ``(ax, pandas.DataFrame)`` if ``return_df=True``.
 
     Example:
-        Bubble chart for the first three PCs, top 25 pathways by ranking, and return the table used for the plot:
+        Bubble chart for the first three PCs, top 25 pathways (NES colorbar + size legend stack on the right):
             ```python
             import matplotlib.pyplot as plt
             from scpviz import plotting as scplt
 
             fig, ax = plt.subplots(figsize=(6, 8))
-            ax, df = scplt.plot_pca_gsea_bubble(
+            scplt.plot_pca_gsea_bubble(ax, pdata_norm, pcs=[1, 2, 3], top_n=25)
+            ```
+
+        ![Plot PCA-GSEA bubble](../../assets/plots/plot_pca_gsea_bubble.png)
+
+        Colorbar height via ``cbar_scale`` (``0.5`` / ``1`` / ``1.5``; size legend stays stacked under it):
+            ```python
+            for scale in (0.5, 1.0, 1.5):
+                fig, ax = plt.subplots(figsize=(6, 8))
+                scplt.plot_pca_gsea_bubble(
+                    ax, pdata_norm, pcs=[1, 2, 3], top_n=25, cbar_scale=scale
+                )
+            ```
+
+        ![Plot PCA-GSEA bubble cbar_scale=0.5](../../assets/plots/plot_pca_gsea_bubble_cbar_scale_0.5.png)
+        ![Plot PCA-GSEA bubble cbar_scale=1](../../assets/plots/plot_pca_gsea_bubble_cbar_scale_1.png)
+        ![Plot PCA-GSEA bubble cbar_scale=1.5](../../assets/plots/plot_pca_gsea_bubble_cbar_scale_1.5.png)
+
+        Tighter bubbles, or allow more extreme FDR contrast in marker sizes:
+            ```python
+            fig, ax = plt.subplots(figsize=(6, 8))
+            scplt.plot_pca_gsea_bubble(
                 ax,
-                pdata,
+                pdata_norm,
                 pcs=[1, 2, 3],
                 top_n=25,
-                return_df=True,
+                size_scale=0.5,      # smaller max diameter vs cell pitch
+                size_fdr_cap=10,     # clip -log10(FDR) at 10 (FDR ≈ 1e-10)
+            )
+            ```
+
+        Wider gaps between PC columns (``pc_pad`` is half the center-to-center spacing):
+            ```python
+            fig, ax = plt.subplots(figsize=(6, 8))
+            scplt.plot_pca_gsea_bubble(
+                ax, pdata_norm, pcs=[1, 2, 3], top_n=25, pc_pad=0.75
             )
             ```
 
@@ -2972,12 +2987,33 @@ def plot_pca_gsea_bubble(
     long_df["pathway_i"] = long_df["pathway_raw"].map({p: i for i, p in enumerate(pathway_order)})
 
     fdr_safe = long_df["FDR q-val"].fillna(1.0).clip(lower=1e-300, upper=1.0)
-    bubble_size = (-np.log10(fdr_safe)) * float(size_scale)
+    size_fdr_cap = float(size_fdr_cap)
+    if size_fdr_cap <= 0:
+        raise ValueError(f"size_fdr_cap must be > 0, got {size_fdr_cap}.")
+    size_scale = float(size_scale)
+    if size_scale <= 0:
+        raise ValueError(f"size_scale must be > 0, got {size_scale}.")
+    pc_pad = float(pc_pad)
+    if pc_pad <= 0:
+        raise ValueError(f"pc_pad must be > 0, got {pc_pad}.")
+    cbar_scale = float(cbar_scale)
+    if cbar_scale <= 0:
+        raise ValueError(f"cbar_scale must be > 0, got {cbar_scale}.")
+    # Default colorbar height corresponds to matplotlib shrink=0.225 at cbar_scale=1.
+    cbar_shrink = min(1.0, 0.225 * cbar_scale)
+    neg_log = np.minimum(-np.log10(fdr_safe), size_fdr_cap)
+    n_pcs = max(len(pc_order), 1)
+    n_pathways = max(len(pathway_order), 1)
+    pc_spacing = 2.0 * pc_pad
+    row_pad = 0.5
+    x_coords = long_df["pc_i"].to_numpy(dtype=float) * pc_spacing
+    y_coords = long_df["pathway_i"].to_numpy(dtype=float)
+
     norm = mcolors.TwoSlopeNorm(vcenter=0)
     scatter = ax.scatter(
-        long_df["pc_i"],
-        long_df["pathway_i"],
-        s=bubble_size,
+        x_coords,
+        y_coords,
+        s=1.0,
         c=long_df["NES"],
         cmap=cmap,
         norm=norm,
@@ -2986,7 +3022,7 @@ def plot_pca_gsea_bubble(
         linewidths=0.3,
     )
 
-    ax.set_xticks(np.arange(len(pc_order)))
+    ax.set_xticks(np.arange(n_pcs, dtype=float) * pc_spacing)
     ax.set_xticklabels(pc_order)
     ax.set_yticks(np.arange(len(pathway_order)))
     if title_case_labels:
@@ -2996,22 +3032,56 @@ def plot_pca_gsea_bubble(
     ax.set_xlabel("Principal Component")
     ax.set_ylabel("Pathway")
     ax.set_title("PCA-GSEA bubble plot")
-    plt.colorbar(scatter, ax=ax, label="NES")
+    # PC columns use pc_pad half-spacing; pathway rows keep unit pitch + half-cell edge pad.
+    ax.set_xlim(-pc_pad, (n_pcs - 1) * pc_spacing + pc_pad)
+    ax.set_ylim(-row_pad, n_pathways - 1 + row_pad)
+    # Shorter, top-aligned colorbar so the size legend can stack beneath it.
+    cbar = plt.colorbar(
+        scatter,
+        ax=ax,
+        label="NES",
+        shrink=cbar_shrink,
+        aspect=12,
+        anchor=(0.0, 1.0),
+    )
+    span_x = (n_pcs - 1) * pc_spacing + 2.0 * pc_pad
+    span_y = (n_pathways - 1) + 2.0 * row_pad
+    ax.set_box_aspect(span_y / span_x)
 
-    # Bubble size legend for -log10(FDR q-val)
+    # Size after colorbar + box aspect so cell pitch matches the final axes area.
+    fig = ax.figure
+    pos = ax.get_position()
+    ax_w_pts = float(fig.get_size_inches()[0]) * float(pos.width) * 72.0
+    ax_h_pts = float(fig.get_size_inches()[1]) * float(pos.height) * 72.0
+    cell_pts = min(ax_w_pts / n_pcs, ax_h_pts / n_pathways)
+    max_diameter = cell_pts * size_scale
+    max_area = np.pi * (max_diameter / 2.0) ** 2
+    bubble_size = np.asarray(max_area * (neg_log / size_fdr_cap), dtype=float)
+    scatter.set_sizes(bubble_size)
+
+    # Bubble size legend stacked under the colorbar (same vertical column).
     fdr_reference = np.array([0.1, 0.05, 0.01])
-    legend_sizes = (-np.log10(fdr_reference.clip(min=1e-300))) * float(size_scale)
+    legend_neg_log = np.minimum(-np.log10(fdr_reference.clip(min=1e-300)), size_fdr_cap)
+    legend_sizes = max_area * (legend_neg_log / size_fdr_cap)
     handles = [
         ax.scatter([], [], s=s, facecolors="none", edgecolors="black", linewidths=0.6, label=f"-log10(FDR)={-np.log10(f):.1f}")
         for s, f in zip(legend_sizes, fdr_reference)
     ]
-    ax.legend(handles=handles, title="Bubble size", loc="upper left", bbox_to_anchor=(1.02, 1.0), frameon=True)
+    ax.legend(
+        handles=handles,
+        title="Bubble size",
+        loc="upper left",
+        bbox_to_anchor=(0.0, -0.12),
+        bbox_transform=cbar.ax.transAxes,
+        borderaxespad=0.0,
+        frameon=True,
+    )
 
     bubble_df = long_df.copy()
     if title_case_labels:
         bubble_df["pathway"] = bubble_df["pathway"].map(_format_pathway_label)
     bubble_df["neg_log10_fdr"] = -np.log10(fdr_safe.values)
-    bubble_df["bubble_size"] = bubble_size.values
+    bubble_df["bubble_size"] = bubble_size
     bubble_df = bubble_df[
         ["pathway", "pathway_raw", "library", "pc", "NES", "FDR q-val", "neg_log10_fdr", "bubble_size", "pc_i", "pathway_i"]
     ].rename(columns={"pc": "PC"})
@@ -3070,8 +3140,10 @@ def plot_pca_gsea_heatmap(
             from scpviz import plotting as scplt
 
             fig, ax = plt.subplots(figsize=(5, 10))
-            scplt.plot_pca_gsea_heatmap(ax, pdata, pcs=[1, 2, 3, 4], top_n=40)
+            scplt.plot_pca_gsea_heatmap(ax, pdata_norm, pcs=[1, 2, 3, 4], top_n=40)
             ```
+
+        ![Plot PCA-GSEA heatmap](../../assets/plots/plot_pca_gsea_heatmap.png)
 
         Diverging colormap with formatted pathway names on rows:
             ```python
