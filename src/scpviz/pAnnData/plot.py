@@ -1133,7 +1133,9 @@ class PlotMixin:
         group_colors=None,
         header_colors=None,
         cmap=None,
-        gap_rows=0.5,
+        row_spacing=True,
+        column_spacing=True,
+        header_spacing=0.06,
         group_bar_pad=0.25,
         sample_label_col=None,
         figsize=None,
@@ -1164,8 +1166,15 @@ class PlotMixin:
                 when ``len(classes)==1``. Each class is its own row (not one
                 color per class combination).
             cmap (str, optional): Colormap; ``None`` auto-selects by display scale.
-            gap_rows (float): Vertical spacer between groups in protein-row units
-                (default ``0.5``).
+            row_spacing (bool or float): Vertical gaps between protein groups.
+                ``True`` (default) uses a half-cell gap; ``False``/``0`` = none;
+                float scales that default (same semantics as ``column_spacing``).
+            column_spacing (bool or float): Horizontal gaps between sample leaf
+                blocks. ``True`` (default) uses the same half-cell thickness as
+                ``row_spacing=True``; ``False``/``0`` = none; float scales the
+                default.
+            header_spacing (float): Space between header strips and the heatmap
+                (default ``0.06``).
             group_bar_pad (float): Horizontal gap between heatmap and group bars
                 (default 0.25).
             sample_label_col (str, optional): ``.obs`` / ``.summary`` column for
@@ -1223,8 +1232,10 @@ class PlotMixin:
                 {"Cell cycle": ["Cdk1", "Pcna"], "Stress": ["Hspa1a"]},
                 classes=["condition"],
                 sample_label_col="replicate",
-                gap_rows=0.5,
+                row_spacing=True,
                 group_bar_pad=0.15,
+                column_spacing=0.5,
+                header_spacing=0.06,
                 display_scale="zscore",
                 text_size=10,
                 cbar_scale=0.8,
@@ -1254,7 +1265,9 @@ class PlotMixin:
             group_colors=group_colors,
             header_colors=header_colors,
             cmap=cmap,
-            gap_rows=gap_rows,
+            row_spacing=row_spacing,
+            column_spacing=column_spacing,
+            header_spacing=header_spacing,
             group_bar_pad=group_bar_pad,
             sample_label_col=sample_label_col,
             figsize=figsize,
@@ -1292,6 +1305,8 @@ class PlotMixin:
         text_size=8,
         cbar_scale=1.0,
         legend_width=None,
+        column_spacing=True,
+        header_spacing=0.06,
         dendrogram_linewidth=None,
         auto_log2=True,
         gene_col="Genes",
@@ -1344,6 +1359,12 @@ class PlotMixin:
             legend_width (float, optional): Left margin for colorbar + legends.
                 `None` (default) auto-sizes from legend text; pass a float to
                 override. Ignored when `separate_legend=True`.
+            column_spacing (bool or float): Horizontal gaps between sample leaf
+                blocks. ``True`` (default) uses a half-cell gap; ``False``/``0`` =
+                none; float scales the default. Same semantics as
+                ``plot_grouped_heatmap``.
+            header_spacing (float): Space between header strips and the heatmap
+                (default ``0.06``).
             dendrogram_linewidth (float, optional): Line width for the cluster
                 tree. ``None`` keeps matplotlib's default.
             auto_log2 (bool): In-memory log2 when layer looks linear.
@@ -1418,6 +1439,8 @@ class PlotMixin:
             text_size=text_size,
             cbar_scale=cbar_scale,
             legend_width=legend_width,
+            column_spacing=column_spacing,
+            header_spacing=header_spacing,
             dendrogram_linewidth=dendrogram_linewidth,
             auto_log2=auto_log2,
             gene_col=gene_col,

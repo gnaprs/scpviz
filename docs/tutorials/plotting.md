@@ -768,6 +768,8 @@ Same approach on single-cell data (align `classes` with your UMAP coloring):
 
 [`plot_grouped_heatmap`](#grouped-heatmap-code) draws curated protein groups as spatial blocks (with optional gaps), sample header strips from `classes`, and a right-hand group colour bar. Proteins missing from the object still keep a grey row so block sizes stay stable.
 
+Horizontal white gaps between sample leaf blocks (same full `classes` combination) default on via `column_spacing=True` (half a content cell). Vertical gaps between protein groups use the same scale via `row_spacing=True`. Use `False`/`0` for none, or a float to scale that default (`0.5` = half, `2` = double). Header-to-heatmap space is `header_spacing` (default `0.06`).
+
 ```python
 from scpviz import plotting as scplt
 
@@ -788,6 +790,26 @@ fig = scplt.plot_grouped_heatmap(
 
 ![Plot grouped heatmap](../assets/plots/plot_grouped_heatmap.png)
 
+Row / column / header spacing (`row_spacing`, `column_spacing`, `header_spacing`):
+
+```python
+fig = scplt.plot_grouped_heatmap(
+    pdata_norm,
+    protein_groups={
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+        "Stress": ["HSP90AA1", "UBE4B"],
+    },
+    classes=["cellline", "condition"],
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    row_spacing=0.75,
+    column_spacing=0.5,
+    header_spacing=0.08,
+)
+```
+
+![Plot grouped heatmap spacing](../assets/plots/plot_grouped_heatmap_spacing.png)
+
 Header colours are one strip per class (not one colour per class combination). With a single class you can pass a flat map; with multiple classes nest by class name:
 
 ```python
@@ -805,7 +827,7 @@ header_colors = {
 
 [API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_clustered_heatmap)
 
-[`plot_clustered_heatmap`](#clustered-heatmap-code) hierarchically clusters protein rows. Provide exactly one of `proteins=` (explicit list) or `stats_key=` (DE / volcano table in `pdata.stats`). Optional `protein_groups` annotate rows with a colour strip (not spatial blocks).
+[`plot_clustered_heatmap`](#clustered-heatmap-code) hierarchically clusters protein rows. Provide exactly one of `proteins=` (explicit list) or `stats_key=` (DE / volcano table in `pdata.stats`). Optional `protein_groups` annotate rows with a colour strip (not spatial blocks). Same `column_spacing` / `header_spacing` semantics as the grouped heatmap.
 
 ```python
 from scpviz import plotting as scplt
@@ -830,6 +852,30 @@ fig = scplt.plot_clustered_heatmap(
 ```
 
 ![Plot clustered heatmap](../assets/plots/plot_clustered_heatmap.png)
+
+Column / header spacing:
+
+```python
+fig = scplt.plot_clustered_heatmap(
+    pdata_norm,
+    classes=["cellline", "condition"],
+    proteins=[
+        "CDK1", "CDK2", "PCNA",
+        "GAPDH", "TUBB", "ACTB",
+        "HSP90AA1", "ENO1", "PGK1",
+    ],
+    protein_groups={
+        "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+        "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+    },
+    sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
+    column_spacing=0.5,
+    header_spacing=0.08,
+    show_unassigned=True,
+)
+```
+
+![Plot clustered heatmap spacing](../assets/plots/plot_clustered_heatmap_spacing.png)
 
 After `plot_volcano` / `de`, cluster significant hits. For a readable figure, keep a top-N subset (same approach as `docs/generate_plot_figures.py`):
 

@@ -2671,7 +2671,7 @@ def test_plot_grouped_heatmap_smoke(pdata, capsys):
         classes=["treatment", "cellline"],
         sort_by={"treatment": ["sc", "kd"]},
         sample_label_col="treatment",
-        gap_rows=0.5,
+        row_spacing=True,
         group_bar_pad=0.15,
         figsize=(7, 5),
     )
@@ -3093,22 +3093,27 @@ def test_heatmap_display_scale_branches(pdata, capsys):
     assert captured["leaves"][0] == captured["leaves"][1] == captured["leaves"][2]
 
 
-def test_plot_grouped_heatmap_fractional_gap_rows():
+def test_plot_grouped_heatmap_fractional_row_spacing():
     rgba = np.zeros((4, 3, 4))
     rgba[:, :, 3] = 1.0
     row_groups = ["A", "A", "B", "B"]
     labels = ["a1", "a2", "b1", "b2"]
-    from scpviz.plotting.heatmap import _ROW_PX, _rasterize_with_gaps
+    from scpviz.plotting.heatmap import _GROUP_GAP_PX, _ROW_PX, _rasterize_with_gaps
 
-    disp0, *_ = _rasterize_with_gaps(rgba, row_groups, labels, gap_rows=0)
-    disp_half, ticks, tick_labs, yr = _rasterize_with_gaps(
-        rgba, row_groups, labels, gap_rows=0.5
+    disp0, *_ = _rasterize_with_gaps(rgba, row_groups, labels, row_spacing=False)
+    disp_true, ticks, tick_labs, yr = _rasterize_with_gaps(
+        rgba, row_groups, labels, row_spacing=True
     )
+    disp_half, *_ = _rasterize_with_gaps(rgba, row_groups, labels, row_spacing=0.5)
     assert disp0.shape[0] == 4 * _ROW_PX
-    assert disp_half.shape[0] == 4 * _ROW_PX + int(round(0.5 * _ROW_PX))
+    assert disp_true.shape[0] == 4 * _ROW_PX + _GROUP_GAP_PX
+    assert disp_half.shape[0] == 4 * _ROW_PX + int(round(0.5 * _GROUP_GAP_PX))
     assert tick_labs == labels
     assert set(yr) == {"A", "B"}
     assert len(ticks) == 4
+
+    with pytest.raises(ValueError, match="row_spacing"):
+        _rasterize_with_gaps(rgba, row_groups, labels, row_spacing=-1)
 
 
 def test_heatmap_separate_legend(pdata):
@@ -3289,6 +3294,7 @@ def test_plot_clustered_heatmap_dendrogram_linewidth(pdata):
         classes=["treatment"],
         proteins=genes,
         dendrogram_linewidth=0.8,
+        column_spacing=False,
     )
     # Dendrogram axes: LineCollection only (no images / QuadMesh colorbar)
     dendro_axes = [
@@ -3302,3 +3308,68 @@ def test_plot_clustered_heatmap_dendrogram_linewidth(pdata):
     for coll in dendro_axes[0].collections:
         assert np.allclose(np.atleast_1d(coll.get_linewidth()), 0.8)
     plt.close(fig)
+
+
+def test_heatmap_column_spacing(pdata):
+    from scpviz.plotting.heatmap import _GROUP_GAP_PX, _rasterize_with_column_gaps
+
+    genes = list(pdata.prot.var["Genes"].astype(str).unique()[:4])
+    groups = {"G1": genes[:2], "G2": genes[2:]}
+    classes = ["treatment"]
+    samples = list(pdata.prot.obs_names.astype(str))
+    n = len(samples)
+    rgba = np.zeros((2, n, 4), dtype=float)
+    labels = [str(s) for s in samples]
+
+    _, _, _, col_off = _rasterize_with_column_gaps(
+        rgba, samples, pdata.prot.obs, classes, False, labels
+    )
+    assert col_off == list(range(n))
+
+    _, _, _, col_on = _rasterize_with_column_gaps(
+        rgba, samples, pdata.prot.obs, classes, True, labels
+    )
+    n_gap_true = sum(1 for x in col_on if x is None)
+    assert n_gap_true > 0
+    assert len(col_on) > n
+
+    _, _, _, col_half = _rasterize_with_column_gaps(
+        rgba, samples, pdata.prot.obs, classes, 0.5, labels
+    )
+    n_gap_half = sum(1 for x in col_half if x is None)
+    n_blocks_gaps = n_gap_true // _GROUP_GAP_PX
+    assert n_gap_half == int(round(0.5 * _GROUP_GAP_PX)) * n_blocks_gaps
+
+    with pytest.raises(ValueError, match="column_spacing"):
+        _rasterize_with_column_gaps(
+            rgba, samples, pdata.prot.obs, classes, -1, labels
+        )
+
+    with pytest.raises(ValueError, match="header_spacing"):
+        scplt.plot_grouped_heatmap(
+            pdata, protein_groups=groups, classes=classes, header_spacing=-0.1
+        )
+
+    fig_off = scplt.plot_grouped_heatmap(
+        pdata, protein_groups=groups, classes=classes, column_spacing=False
+    )
+    fig_on = scplt.plot_grouped_heatmap(
+        pdata, protein_groups=groups, classes=classes, column_spacing=True
+    )
+    # Main heatmap is last non-colorbar axes with an image in the gridspec stack
+    def _main_ncols(fig):
+        imgs = [ax.images[0] for ax in fig.axes if ax.images]
+        return imgs[-1].get_array().shape[1]
+
+    assert _main_ncols(fig_on) > _main_ncols(fig_off)
+    plt.close(fig_off)
+    plt.close(fig_on)
+
+    fig_c = scplt.plot_clustered_heatmap(
+        pdata,
+        classes=classes,
+        proteins=genes,
+        column_spacing=0.5,
+    )
+    assert fig_c is not None
+    plt.close(fig_c)

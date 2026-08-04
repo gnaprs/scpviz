@@ -378,25 +378,118 @@ def _composite_heatmap_rgba(
     return rgba, norm
 
 
-_ROW_PX = 10  # content-row pixel height; gap_rows=0.5 → 5 px of white
+_ROW_PX = 10  # content-row pixel height when row/column gaps are on
+_COL_PX = 10  # content-column pixel width when column_spacing > 0 (match _ROW_PX)
+# Default gap at row_spacing=True / column_spacing=True: half a content cell
+_GROUP_GAP_PX = int(round(0.5 * _ROW_PX))  # 5
+# Shared GridSpec spacing between header strips and the heatmap body
+_DEFAULT_HEADER_SPACING = 0.06
+
+
+def _resolve_spacing_scale(spacing: bool | float, name: str) -> float:
+    """``True`` → 1× default gap; ``False``/``0`` → none; float → non-negative scale."""
+    if spacing is True:
+        return 1.0
+    if spacing is False:
+        return 0.0
+    scale = float(spacing)
+    if scale < 0:
+        raise ValueError(f"{name} must be >= 0, got {spacing!r}")
+    return scale
+
+
+def _rasterize_with_column_gaps(
+    rgba: np.ndarray,
+    samples: list[str],
+    obs: pd.DataFrame,
+    classes: list[str],
+    column_spacing: bool | float,
+    sample_labels: list[str],
+    *,
+    col_px: int = _COL_PX,
+    gap_px_base: int = _GROUP_GAP_PX,
+) -> tuple[np.ndarray, list[float], list[str], list[int | None]]:
+    """
+    Expand sample columns so ``column_spacing`` inserts white gaps between leaf blocks.
+
+    A leaf block is a run of samples that share the same full ``classes`` tuple
+    (after sample ordering). ``column_spacing`` may be ``True`` (1× default),
+    ``False``/``0`` (no gaps; 1:1 columns), or a non-negative float scale.
+
+    Returns ``(rgba_disp, tick_positions, tick_labels, col_map)`` where
+    ``col_map[j]`` is the sample index into ``samples`` for display column ``j``,
+    or ``None`` for a gap column (for header strip alignment).
+    """
+    scale = _resolve_spacing_scale(column_spacing, "column_spacing")
+
+    n_rows, n_samples = rgba.shape[0], rgba.shape[1]
+    if n_samples != len(samples) or n_samples != len(sample_labels):
+        raise ValueError("rgba columns, samples, and sample_labels length mismatch")
+
+    if scale == 0 or n_samples == 0:
+        col_map: list[int | None] = list(range(n_samples))
+        tick_pos = [float(i) for i in range(n_samples)]
+        return rgba, tick_pos, list(sample_labels), col_map
+
+    gap_px = int(round(scale * gap_px_base))
+    keys = [tuple(str(obs.loc[s, c]) for c in classes) for s in samples]
+    blocks: list[tuple[int, int]] = []
+    i = 0
+    while i < n_samples:
+        j = i
+        while j + 1 < n_samples and keys[j + 1] == keys[i]:
+            j += 1
+        blocks.append((i, j))
+        i = j + 1
+
+    col_map = []
+    tick_pos = [0.0] * n_samples
+    chunks: list[np.ndarray] = []
+    cursor = 0.0
+    for bi, (i0, i1) in enumerate(blocks):
+        for si in range(i0, i1 + 1):
+            tick_pos[si] = cursor + (col_px - 1) / 2.0
+            tile = np.repeat(rgba[:, si : si + 1, :], col_px, axis=1)
+            chunks.append(tile)
+            col_map.extend([si] * col_px)
+            cursor += col_px
+        if bi != len(blocks) - 1 and gap_px > 0:
+            gap = np.zeros((n_rows, gap_px, 4), dtype=float)
+            gap[:] = GAP_WHITE
+            chunks.append(gap)
+            col_map.extend([None] * gap_px)
+            cursor += gap_px
+
+    if not chunks:
+        return (
+            np.zeros((n_rows, 0, 4), dtype=float),
+            [],
+            [],
+            [],
+        )
+    return np.concatenate(chunks, axis=1), tick_pos, list(sample_labels), col_map
+
 
 def _rasterize_with_gaps(
     rgba: np.ndarray,
     row_groups: list[str | None],
     labels: list[str],
-    gap_rows: float,
+    row_spacing: bool | float,
     *,
     row_px: int = _ROW_PX,
+    gap_px_base: int = _GROUP_GAP_PX,
 ) -> tuple[np.ndarray, list[float], list[str], dict[str, tuple[float, float]]]:
     """
-    Expand content rows so fractional ``gap_rows`` become partial-height spacers.
+    Expand content rows so ``row_spacing`` inserts white gaps between protein groups.
+
+    ``row_spacing`` may be ``True`` (1× default half-cell gap), ``False``/``0``
+    (no gaps), or a non-negative float scale of that default.
 
     Returns ``(rgba_disp, tick_positions, tick_labels, group_yrange)`` where
     ``group_yrange[g] = (y0, y1)`` are inclusive display-row indices for brackets.
     """
-    if gap_rows < 0:
-        raise ValueError(f"gap_rows must be >= 0, got {gap_rows!r}")
-    gap_px = int(round(float(gap_rows) * row_px))
+    scale = _resolve_spacing_scale(row_spacing, "row_spacing")
+    gap_px = int(round(scale * gap_px_base))
     n_content, n_cols = rgba.shape[0], rgba.shape[1]
     if n_content != len(row_groups) or n_content != len(labels):
         raise ValueError("rgba, row_groups, and labels length mismatch")
@@ -518,20 +611,40 @@ def _render_header_rows(
     classes: list[str],
     header_colors: dict[str, dict[str, str]] | dict[str, str] | None,
     text_size: int = 8,
+    col_map: list[int | None] | None = None,
 ) -> list[tuple[str, list[Rectangle], list[Any]]]:
-    """Draw categorical header strips; return legend specs ``(title, handles, labels)``."""
+    """Draw categorical header strips; return legend specs ``(title, handles, labels)``.
+
+    When ``col_map`` is provided (from ``_rasterize_with_column_gaps``), strips are
+    expanded to match the heatmap column layout; ``None`` entries are white gaps.
+    """
     header_colors = _normalize_header_colors(header_colors, classes)
+    if col_map is None:
+        col_map = list(range(len(samples)))
     legend_specs: list[tuple[str, list[Rectangle], list[Any]]] = []
     for ax, col in zip(gs_rows, classes):
         vals = [str(obs.loc[s, col]) for s in samples]
         cats = list(dict.fromkeys(vals))
-        # Allow overrides keyed by original or stringified category labels
         raw_override = header_colors.get(col) or {}
         override = {str(k): v for k, v in raw_override.items()}
         color_map = _build_color_map(cats, override)
-        codes = np.array([[cats.index(v) for v in vals]])
+        disp: list[float] = []
+        for idx in col_map:
+            if idx is None:
+                disp.append(np.nan)
+            else:
+                disp.append(float(cats.index(vals[idx])))
+        codes = np.array([disp], dtype=float)
         lcmap = ListedColormap([color_map[c] for c in cats])
-        ax.imshow(codes, aspect="auto", cmap=lcmap, vmin=-0.5, vmax=len(cats) - 0.5)
+        lcmap.set_bad(GAP_WHITE)
+        ax.imshow(
+            codes,
+            aspect="auto",
+            cmap=lcmap,
+            vmin=-0.5,
+            vmax=len(cats) - 0.5,
+            interpolation="nearest",
+        )
         ax.set_yticks([0])
         ax.set_yticklabels([col], fontsize=text_size)
         ax.set_xticks([])
@@ -900,7 +1013,9 @@ def plot_grouped_heatmap(
     group_colors: dict[str, str] | None = None,
     header_colors: dict[str, dict[str, str]] | dict[str, str] | None = None,
     cmap: str | None = None,
-    gap_rows: float = 0.5,
+    row_spacing: bool | float = True,
+    column_spacing: bool | float = True,
+    header_spacing: float = _DEFAULT_HEADER_SPACING,
     group_bar_pad: float = 0.25,
     sample_label_col: str | None = None,
     figsize: tuple[float, float] | None = None,
@@ -946,8 +1061,17 @@ def plot_grouped_heatmap(
             use package defaults (``get_color('colors', n)``).
         cmap (str, optional): Colormap. ``None`` (default) selects ``RdBu_r`` for
             z-score and ``viridis`` for log/raw.
-        gap_rows (float): Vertical spacer between groups in units of one protein
-            row (default ``0.5``). Use ``0`` for no gap, ``1`` for a full row, etc.
+        row_spacing (bool or float): Vertical white gaps between protein groups.
+            ``True`` (default) uses a half-cell gap; ``False``/``0`` = none; a
+            float scales that default (``0.5`` = half, ``2`` = double). Same
+            scale semantics as ``column_spacing``.
+        column_spacing (bool or float): Horizontal white gaps between sample leaf
+            blocks (runs that share the same full ``classes`` combination).
+            ``True`` (default) uses the same half-cell thickness as
+            ``row_spacing=True``; ``False``/``0`` = none; a float scales that
+            default (``0.5`` = half, ``2`` = double).
+        header_spacing (float): Vertical GridSpec space between header strips and
+            the heatmap (default ``0.06``). Also spaces stacked header rows.
         group_bar_pad (float): Horizontal gap (in heatmap column units) between the
             right edge of the heatmap and the colored group bars (default 0.25).
         sample_label_col (str, optional): ``.obs`` / ``.summary`` column for bottom
@@ -1032,7 +1156,28 @@ def plot_grouped_heatmap(
             )
             ```
 
-        Spacing, fonts, display scale, and colorbar height:
+        Row and column spacing (``row_spacing`` between protein groups;
+        ``column_spacing`` between sample leaf blocks; ``header_spacing``
+        between header strips and the heatmap):
+            ```python
+            fig = scplt.plot_grouped_heatmap(
+                pdata_norm,
+                protein_groups={
+                    "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+                    "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+                    "Stress": ["HSP90AA1", "UBE4B"],
+                },
+                classes=["cellline", "condition"],
+                sort_by={"condition": ["sc", "kd"], "cellline": ["AS", "BE"]},
+                row_spacing=0.75,
+                column_spacing=0.5,
+                header_spacing=0.08,
+            )
+            ```
+
+        ![Plot grouped heatmap spacing](../../assets/plots/plot_grouped_heatmap_spacing.png)
+
+        Fonts, display scale, and colorbar height:
             ```python
             fig = scplt.plot_grouped_heatmap(
                 pdata_norm,
@@ -1042,7 +1187,6 @@ def plot_grouped_heatmap(
                 },
                 classes=["cellline", "condition"],
                 sample_label_col="Sample",
-                gap_rows=0.5,
                 group_bar_pad=0.15,
                 display_scale="zscore",
                 text_size=10,
@@ -1159,9 +1303,18 @@ def plot_grouped_heatmap(
         values, is_missing, None, cmap_resolved, symmetric=symmetric
     )
     rgba_disp, tick_pos, tick_lab, group_yrange = _rasterize_with_gaps(
-        rgba, row_groups, labels, gap_rows
+        rgba, row_groups, labels, row_spacing
+    )
+    rgba_disp, xtick_pos, xtick_lab, col_map = _rasterize_with_column_gaps(
+        rgba_disp,
+        samples,
+        adata.obs,
+        classes,
+        column_spacing,
+        sample_labels,
     )
     n_disp = rgba_disp.shape[0]
+    n_disp_cols = rgba_disp.shape[1]
 
     n_header = len(classes)
     header_h = 0.35
@@ -1171,32 +1324,50 @@ def plot_grouped_heatmap(
     else:
         fig_w, fig_h = figsize
 
+    if float(header_spacing) < 0:
+        raise ValueError(f"header_spacing must be >= 0, got {header_spacing!r}")
+
     fig = plt.figure(figsize=(fig_w, fig_h))
     gs = fig.add_gridspec(
         nrows=n_header + 1,
         ncols=1,
         height_ratios=[header_h] * n_header + [main_h],
-        hspace=0.06,
+        hspace=float(header_spacing),
     )
     header_axes = [fig.add_subplot(gs[i, 0]) for i in range(n_header)]
     ax_main = fig.add_subplot(gs[n_header, 0])
 
     legend_specs = _render_header_rows(
-        fig, header_axes, adata.obs, samples, classes, header_colors, text_size=text_size
+        fig,
+        header_axes,
+        adata.obs,
+        samples,
+        classes,
+        header_colors,
+        text_size=text_size,
+        col_map=col_map,
     )
 
-    ax_main.imshow(rgba_disp, aspect="auto", zorder=2)
-    ax_main.set_xticks(range(n_samples))
-    ax_main.set_xticklabels(sample_labels, fontsize=text_size - 1, rotation=90)
+    ax_main.imshow(rgba_disp, aspect="auto", interpolation="nearest", zorder=2)
+    ax_main.set_xticks(xtick_pos)
+    ax_main.set_xticklabels(xtick_lab, fontsize=text_size - 1, rotation=90)
     ax_main.set_yticks(tick_pos)
     ax_main.set_yticklabels(tick_lab, fontsize=text_size - 2)
     for spine in ax_main.spines.values():
         spine.set_visible(False)
     ax_main.tick_params(left=False, bottom=False)
 
-    bar_x0 = n_samples - 0.5 + float(group_bar_pad)
-    bar_x1 = bar_x0 + 0.4
-    text_x = bar_x1 + 0.55
+    # group_bar_pad / bar width are in sample-column units; scale when columns are expanded
+    x_unit = float(_COL_PX) if n_disp_cols != len(samples) else 1.0
+    bar_pad = float(group_bar_pad) * x_unit
+    bar_w = 0.4 * x_unit
+    bar_x0 = n_disp_cols - 0.5 + bar_pad
+    bar_x1 = bar_x0 + bar_w
+    text_x = bar_x1 + 0.55 * x_unit
+    ax_main.set_xlim(-0.5, text_x + 0.8 * x_unit)
+    # Keep header strips aligned with the heatmap matrix (not the group bars/labels)
+    for ax_h in header_axes:
+        ax_h.set_xlim(ax_main.get_xlim())
     for g, (r0, r1) in group_yrange.items():
         ax_main.add_patch(
             Rectangle(
@@ -1282,6 +1453,8 @@ def plot_clustered_heatmap(
     text_size: int = 8,
     cbar_scale: float = 1.0,
     legend_width: float | None = None,
+    column_spacing: bool | float = True,
+    header_spacing: float = _DEFAULT_HEADER_SPACING,
     dendrogram_linewidth: float | None = None,
     auto_log2: bool = True,
     gene_col: str = "Genes",
@@ -1350,6 +1523,12 @@ def plot_clustered_heatmap(
         legend_width (float, optional): Figure-fraction left margin for colorbar +
             legends. ``None`` (default) auto-sizes from legend text; pass a float
             to override. Ignored when ``separate_legend=True``.
+        column_spacing (bool or float): Horizontal white gaps between sample leaf
+            blocks (same full ``classes`` combination). ``True`` (default) uses a
+            half-cell gap; ``False``/``0`` = none; float scales the default. Same
+            semantics as ``plot_grouped_heatmap``.
+        header_spacing (float): Vertical GridSpec space between header strips and
+            the heatmap (default ``0.06``). Same semantics as ``plot_grouped_heatmap``.
         dendrogram_linewidth (float, optional): Line width for the hierarchical
             cluster tree. ``None`` (default) keeps matplotlib's default.
         auto_log2 (bool): Same in-memory log2 policy as ``plot_grouped_heatmap``.
@@ -1413,6 +1592,30 @@ def plot_clustered_heatmap(
             ```
 
         ![Plot clustered heatmap (DE hits)](../../assets/plots/plot_clustered_heatmap_de.png)
+
+        Column and header spacing (``column_spacing`` between sample leaf blocks;
+        ``header_spacing`` between header strips and the heatmap):
+            ```python
+            fig = scplt.plot_clustered_heatmap(
+                pdata_norm,
+                classes=["cellline", "condition"],
+                proteins=[
+                    "CDK1", "CDK2", "PCNA",
+                    "GAPDH", "TUBB", "ACTB",
+                    "HSP90AA1", "ENO1", "PGK1",
+                ],
+                protein_groups={
+                    "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+                    "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+                },
+                sort_by={"condition": ["sc", "kd"], "cellline": ["AS", "BE"]},
+                column_spacing=0.5,
+                header_spacing=0.08,
+                show_unassigned=True,
+            )
+            ```
+
+        ![Plot clustered heatmap spacing](../../assets/plots/plot_clustered_heatmap_spacing.png)
 
         Only upregulated features, or black row labels on the full contrast key:
             ```python
@@ -1653,13 +1856,16 @@ def plot_clustered_heatmap(
     else:
         fig_w, fig_h = figsize
 
+    if float(header_spacing) < 0:
+        raise ValueError(f"header_spacing must be >= 0, got {header_spacing!r}")
+
     fig = plt.figure(figsize=(fig_w, fig_h))
     gs = fig.add_gridspec(
         nrows=n_header + 1,
         ncols=3,
         height_ratios=[header_h] * n_header + [main_h],
         width_ratios=[1.3, 0.18, 10],
-        hspace=0.02,
+        hspace=float(header_spacing),
         wspace=0.02,
     )
 
@@ -1673,10 +1879,6 @@ def plot_clustered_heatmap(
     ax_dendro = fig.add_subplot(gs[n_header, 0])
     ax_strip = fig.add_subplot(gs[n_header, 1])
     ax_main = fig.add_subplot(gs[n_header, 2])
-
-    legend_specs = _render_header_rows(
-        fig, header_axes, adata.obs, samples, classes, header_colors, text_size=text_size
-    )
 
     dn = dendrogram(
         Z,
@@ -1706,11 +1908,29 @@ def plot_clustered_heatmap(
     rgba, norm = _composite_heatmap_rgba(
         values_disp, is_missing_disp, None, cmap_resolved, symmetric=symmetric
     )
-    ax_main.imshow(rgba, aspect="auto", zorder=2)
+    rgba, xtick_pos, xtick_lab, col_map = _rasterize_with_column_gaps(
+        rgba,
+        samples,
+        adata.obs,
+        classes,
+        column_spacing,
+        sample_labels,
+    )
+    legend_specs = _render_header_rows(
+        fig,
+        header_axes,
+        adata.obs,
+        samples,
+        classes,
+        header_colors,
+        text_size=text_size,
+        col_map=col_map,
+    )
+    ax_main.imshow(rgba, aspect="auto", interpolation="nearest", zorder=2)
 
     labels = _display_labels(adata, valid_features, gene_col=gene_col)
-    ax_main.set_xticks(range(n_samples))
-    ax_main.set_xticklabels(sample_labels, fontsize=text_size - 1, rotation=90)
+    ax_main.set_xticks(xtick_pos)
+    ax_main.set_xticklabels(xtick_lab, fontsize=text_size - 1, rotation=90)
     ax_main.set_yticks(range(n_rows))
     ax_main.set_yticklabels(labels, fontsize=text_size - 2)
     ax_main.yaxis.tick_right()
@@ -1747,11 +1967,19 @@ def plot_clustered_heatmap(
             cmap=strip_cmap,
             vmin=-0.5,
             vmax=max(len(group_names) - 0.5, 0.5),
+            interpolation="nearest",
         )
     else:
         strip_codes = np.zeros((n_rows, 1))
         strip_cmap = ListedColormap([UNASSIGNED_COLOUR])
-        ax_strip.imshow(strip_codes, aspect="auto", cmap=strip_cmap, vmin=0, vmax=1)
+        ax_strip.imshow(
+            strip_codes,
+            aspect="auto",
+            cmap=strip_cmap,
+            vmin=0,
+            vmax=1,
+            interpolation="nearest",
+        )
     ax_strip.set_xticks([])
     ax_strip.set_yticks([])
     for spine in ax_strip.spines.values():

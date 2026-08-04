@@ -25,7 +25,8 @@ Also writes abundance-colored PCA/UMAP examples:
 ``plot_umap_abundance_log10.png``.
 Also writes ``plot_pca_mapping.png`` (bulk tuple-key mapping) and PCA-GSEA figures
 ``plot_pca_gsea_pathway_vectors.png``, ``plot_pca_gsea_bubble.png``, ``plot_pca_gsea_heatmap.png``.
-Also writes ``plot_grouped_heatmap.png``, ``plot_clustered_heatmap.png``, and
+Also writes ``plot_grouped_heatmap.png``, ``plot_grouped_heatmap_spacing.png``,
+``plot_clustered_heatmap.png``, ``plot_clustered_heatmap_spacing.png``, and
 ``plot_clustered_heatmap_de.png`` (DE hits via ``stats_key`` after volcano).
 Also writes ``plot_abundance_boxgrid_bar.png``, ``plot_abundance_boxgrid_line.png``,
 ``plot_abundance_boxgrid_violin.png``, ``plot_abundance_boxgrid_custom.png``,
@@ -831,6 +832,21 @@ def main(*, skip_umap: bool = False) -> None:
     fig_hm.savefig(OUT / "plot_grouped_heatmap.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
 
+    fig_hm_sp = scplt.plot_grouped_heatmap(
+        pdata_norm,
+        protein_groups=hm_groups,
+        classes=classes_2,
+        sort_by=hm_sort,
+        layer="X",
+        row_spacing=0.75,
+        column_spacing=0.5,
+        header_spacing=0.08,
+        figsize=(7, 5),
+        text_size=8,
+    )
+    fig_hm_sp.savefig(OUT / "plot_grouped_heatmap_spacing.png", dpi=DPI, bbox_inches="tight")
+    plt.close("all")
+
     clustered_proteins = [
         "CDK1", "CDK2", "PCNA",
         "GAPDH", "TUBB", "ACTB",
@@ -850,6 +866,24 @@ def main(*, skip_umap: bool = False) -> None:
         text_size=8,
     )
     fig_ch.savefig(OUT / "plot_clustered_heatmap.png", dpi=DPI, bbox_inches="tight")
+    plt.close("all")
+
+    fig_ch_sp = scplt.plot_clustered_heatmap(
+        pdata_norm,
+        classes=classes_2,
+        proteins=clustered_proteins,
+        protein_groups={
+            "Cell cycle": ["CDK1", "CDK2", "PCNA"],
+            "Housekeeping": ["GAPDH", "TUBB", "ACTB"],
+        },
+        sort_by=hm_sort,
+        column_spacing=0.5,
+        header_spacing=0.08,
+        show_unassigned=True,
+        figsize=(7, 5),
+        text_size=8,
+    )
+    fig_ch_sp.savefig(OUT / "plot_clustered_heatmap_spacing.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
 
     # ── volcano.py ───────────────────────────────────────────────────────────
