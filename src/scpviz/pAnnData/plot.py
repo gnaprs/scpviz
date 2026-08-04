@@ -1136,7 +1136,9 @@ class PlotMixin:
         row_spacing=True,
         column_spacing=True,
         header_spacing=0.06,
+        header_height=0.35,
         group_bar_pad=0.25,
+        group_bar_width=0.4,
         sample_label_col=None,
         figsize=None,
         text_size=8,
@@ -1175,8 +1177,12 @@ class PlotMixin:
                 default.
             header_spacing (float): Space between header strips and the heatmap
                 (default ``0.06``).
+            header_height (float): Relative GridSpec height for each header strip
+                (default ``0.35``); larger = thicker bands vs the heatmap body.
             group_bar_pad (float): Horizontal gap between heatmap and group bars
                 (default 0.25).
+            group_bar_width (float): Width of colored group bars in sample-column
+                units (default ``0.4``).
             sample_label_col (str, optional): ``.obs`` / ``.summary`` column for
                 bottom tick labels (e.g. ``"replicate"``). Default uses ``obs_names``.
             figsize (tuple, optional): Figure size; auto if None.
@@ -1268,7 +1274,9 @@ class PlotMixin:
             row_spacing=row_spacing,
             column_spacing=column_spacing,
             header_spacing=header_spacing,
+            header_height=header_height,
             group_bar_pad=group_bar_pad,
+            group_bar_width=group_bar_width,
             sample_label_col=sample_label_col,
             figsize=figsize,
             text_size=text_size,
@@ -1307,6 +1315,7 @@ class PlotMixin:
         legend_width=None,
         column_spacing=True,
         header_spacing=0.06,
+        header_height=0.35,
         dendrogram_linewidth=None,
         auto_log2=True,
         gene_col="Genes",
@@ -1365,6 +1374,8 @@ class PlotMixin:
                 ``plot_grouped_heatmap``.
             header_spacing (float): Space between header strips and the heatmap
                 (default ``0.06``).
+            header_height (float): Relative GridSpec height for each header strip
+                (default ``0.35``). Same semantics as ``plot_grouped_heatmap``.
             dendrogram_linewidth (float, optional): Line width for the cluster
                 tree. ``None`` keeps matplotlib's default.
             auto_log2 (bool): In-memory log2 when layer looks linear.
@@ -1441,6 +1452,7 @@ class PlotMixin:
             legend_width=legend_width,
             column_spacing=column_spacing,
             header_spacing=header_spacing,
+            header_height=header_height,
             dendrogram_linewidth=dendrogram_linewidth,
             auto_log2=auto_log2,
             gene_col=gene_col,

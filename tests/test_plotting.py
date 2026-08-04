@@ -3373,3 +3373,38 @@ def test_heatmap_column_spacing(pdata):
     )
     assert fig_c is not None
     plt.close(fig_c)
+
+
+def test_heatmap_header_height_and_group_bar_width(pdata):
+    genes = list(pdata.prot.var["Genes"].astype(str).unique()[:4])
+    groups = {"G1": genes[:2], "G2": genes[2:]}
+    classes = ["treatment"]
+
+    with pytest.raises(ValueError, match="header_height"):
+        scplt.plot_grouped_heatmap(
+            pdata, protein_groups=groups, classes=classes, header_height=0
+        )
+    with pytest.raises(ValueError, match="group_bar_width"):
+        scplt.plot_grouped_heatmap(
+            pdata, protein_groups=groups, classes=classes, group_bar_width=-0.1
+        )
+
+    fig = scplt.plot_grouped_heatmap(
+        pdata,
+        protein_groups=groups,
+        classes=classes,
+        header_height=0.6,
+        group_bar_width=0.8,
+        column_spacing=False,
+    )
+    # Main axes is the last axes that has an image and Rectangle patches for groups
+    main = [ax for ax in fig.axes if ax.images and ax.patches][-1]
+    bar_widths = [p.get_width() for p in main.patches]
+    assert bar_widths and all(np.isclose(w, 0.8) for w in bar_widths)
+    plt.close(fig)
+
+    fig_c = scplt.plot_clustered_heatmap(
+        pdata, classes=classes, proteins=genes, header_height=0.55
+    )
+    assert fig_c is not None
+    plt.close(fig_c)

@@ -384,6 +384,10 @@ _COL_PX = 10  # content-column pixel width when column_spacing > 0 (match _ROW_P
 _GROUP_GAP_PX = int(round(0.5 * _ROW_PX))  # 5
 # Shared GridSpec spacing between header strips and the heatmap body
 _DEFAULT_HEADER_SPACING = 0.06
+# Relative GridSpec height for each header strip (vs main heatmap ratio)
+_DEFAULT_HEADER_HEIGHT = 0.35
+# Grouped-heatmap side bar width in sample-column units (like group_bar_pad)
+_DEFAULT_GROUP_BAR_WIDTH = 0.4
 
 
 def _resolve_spacing_scale(spacing: bool | float, name: str) -> float:
@@ -1016,7 +1020,9 @@ def plot_grouped_heatmap(
     row_spacing: bool | float = True,
     column_spacing: bool | float = True,
     header_spacing: float = _DEFAULT_HEADER_SPACING,
+    header_height: float = _DEFAULT_HEADER_HEIGHT,
     group_bar_pad: float = 0.25,
+    group_bar_width: float = _DEFAULT_GROUP_BAR_WIDTH,
     sample_label_col: str | None = None,
     figsize: tuple[float, float] | None = None,
     text_size: int = 8,
@@ -1072,8 +1078,14 @@ def plot_grouped_heatmap(
             default (``0.5`` = half, ``2`` = double).
         header_spacing (float): Vertical GridSpec space between header strips and
             the heatmap (default ``0.06``). Also spaces stacked header rows.
+        header_height (float): Relative GridSpec height for each header strip
+            (default ``0.35``). Larger values make thicker bands relative to the
+            heatmap body (same units as the auto ``main`` height ratio).
         group_bar_pad (float): Horizontal gap (in heatmap column units) between the
             right edge of the heatmap and the colored group bars (default 0.25).
+        group_bar_width (float): Width of the colored group bars in sample-column
+            units (default ``0.4``). Scaled with column expansion like
+            ``group_bar_pad``.
         sample_label_col (str, optional): ``.obs`` / ``.summary`` column for bottom
             tick labels (e.g. ``"replicate"``). Default ``None`` uses sample index
             names (``obs_names``).
@@ -1317,7 +1329,12 @@ def plot_grouped_heatmap(
     n_disp_cols = rgba_disp.shape[1]
 
     n_header = len(classes)
-    header_h = 0.35
+    header_h = float(header_height)
+    if header_h <= 0:
+        raise ValueError(f"header_height must be > 0, got {header_height!r}")
+    bar_w_user = float(group_bar_width)
+    if bar_w_user <= 0:
+        raise ValueError(f"group_bar_width must be > 0, got {group_bar_width!r}")
     main_h = max(8, max(n_disp, 1) * 0.024 * _ROW_PX)
     if figsize is None:
         fig_w, fig_h = 11.5, header_h * n_header + main_h * 0.42 + 1.5
@@ -1360,7 +1377,7 @@ def plot_grouped_heatmap(
     # group_bar_pad / bar width are in sample-column units; scale when columns are expanded
     x_unit = float(_COL_PX) if n_disp_cols != len(samples) else 1.0
     bar_pad = float(group_bar_pad) * x_unit
-    bar_w = 0.4 * x_unit
+    bar_w = bar_w_user * x_unit
     bar_x0 = n_disp_cols - 0.5 + bar_pad
     bar_x1 = bar_x0 + bar_w
     text_x = bar_x1 + 0.55 * x_unit
@@ -1455,6 +1472,7 @@ def plot_clustered_heatmap(
     legend_width: float | None = None,
     column_spacing: bool | float = True,
     header_spacing: float = _DEFAULT_HEADER_SPACING,
+    header_height: float = _DEFAULT_HEADER_HEIGHT,
     dendrogram_linewidth: float | None = None,
     auto_log2: bool = True,
     gene_col: str = "Genes",
@@ -1529,6 +1547,8 @@ def plot_clustered_heatmap(
             semantics as ``plot_grouped_heatmap``.
         header_spacing (float): Vertical GridSpec space between header strips and
             the heatmap (default ``0.06``). Same semantics as ``plot_grouped_heatmap``.
+        header_height (float): Relative GridSpec height for each header strip
+            (default ``0.35``). Same semantics as ``plot_grouped_heatmap``.
         dendrogram_linewidth (float, optional): Line width for the hierarchical
             cluster tree. ``None`` (default) keeps matplotlib's default.
         auto_log2 (bool): Same in-memory log2 policy as ``plot_grouped_heatmap``.
@@ -1849,7 +1869,9 @@ def plot_clustered_heatmap(
     n_header = len(classes)
     n_rows = len(valid_features)
     n_samples = len(samples)
-    header_h = 0.35
+    header_h = float(header_height)
+    if header_h <= 0:
+        raise ValueError(f"header_height must be > 0, got {header_height!r}")
     main_h = max(8, n_rows * 0.24)
     if figsize is None:
         fig_w, fig_h = 11.0, header_h * n_header + main_h * 0.42 + 1.5
