@@ -533,10 +533,10 @@ For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a
     ```python
     mapping_keys = ["cellline", "condition"]
     mapping = {
-        ("AS", "kd"): {"color": "white", "edge_color": "black"},
-        ("AS", "sc"): {"color": "white", "edge_color": "steelblue"},
-        ("BE", "kd"): {"color": "lightgrey", "edge_color": "black"},
-        ("BE", "sc"): {"color": "lightgrey", "edge_color": "steelblue"},
+        ("AS", "kd"): {"color": "#F4A261", "edge_color": "#C0392B"},
+        ("AS", "sc"): {"color": "#F4A261", "edge_color": "#4A4A4A"},
+        ("BE", "kd"): {"color": "#D0D0D0", "edge_color": "#C0392B"},
+        ("BE", "sc"): {"color": "#D0D0D0", "edge_color": "#4A4A4A"},
     }
 
     fig, ax = plt.subplots(figsize=(4, 4))
@@ -561,7 +561,7 @@ For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a
         ax, pdata_sc, color="Gapdh", cmap="plasma",
         mapping_keys=mapping_keys, mapping=mapping, force=True,
     )
-    scplt.shift_legend(ax)
+    scplt.shift_legend(ax, anchor_pos=(1.15, 1.0))
     plt.show()
     ```
 

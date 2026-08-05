@@ -1581,6 +1581,35 @@ def test_resolve_plot_colors_invalid(dummy_adata, bad_input):
     with pytest.raises(ValueError):
         scplt.resolve_plot_colors(dummy_adata, classes=bad_input, cmap="default")
 
+def test_hollow_edge_legend_handles():
+    from scpviz.plotting.dimreduc import _hollow_edge_legend_handles
+    import matplotlib.lines as mlines
+    import matplotlib.patches as mpatches
+
+    filled = [mpatches.Patch(color="steelblue", label="A"), mpatches.Patch(color="tomato", label="B")]
+    hollow = _hollow_edge_legend_handles(filled)
+    assert hollow is not None and len(hollow) == 2
+    for h in hollow:
+        assert isinstance(h, mlines.Line2D)
+        assert h.get_markerfacecolor() in ("none", "None")
+    assert hollow[0].get_label() == "A"
+    assert hollow[1].get_label() == "B"
+
+def test_plot_pca_edge_color_legend_is_hollow(pdata):
+    import matplotlib.lines as mlines
+
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="treatment", edge_color="cellline", force=True)
+    edge_handles = []
+    for artist in ax.get_children():
+        if isinstance(artist, matplotlib.legend.Legend) and artist.get_title().get_text() == "Cellline":
+            edge_handles = artist.legend_handles
+            break
+    assert edge_handles, "expected a Cellline edge-color legend"
+    for h in edge_handles:
+        assert isinstance(h, mlines.Line2D)
+        assert h.get_markerfacecolor() in ("none", "None")
+
 def test_resolve_colorbar_norm_invalid_literal():
     from scpviz.plotting.dimreduc import _resolve_colorbar_norm
 

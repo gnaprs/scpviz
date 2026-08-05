@@ -331,10 +331,10 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
             ```python
             mapping_keys = ["cellline", "condition"]
             mapping = {
-                ("AS", "kd"): {"color": "white", "edge_color": "black"},
-                ("AS", "sc"): {"color": "white", "edge_color": "steelblue"},
-                ("BE", "kd"): {"color": "lightgrey", "edge_color": "black"},
-                ("BE", "sc"): {"color": "lightgrey", "edge_color": "steelblue"},
+                ("AS", "kd"): {"color": "#F4A261", "edge_color": "#C0392B"},
+                ("AS", "sc"): {"color": "#F4A261", "edge_color": "#4A4A4A"},
+                ("BE", "kd"): {"color": "#D0D0D0", "edge_color": "#C0392B"},
+                ("BE", "sc"): {"color": "#D0D0D0", "edge_color": "#4A4A4A"},
             }
             plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, force=True)
             ```
@@ -353,6 +353,7 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
                 ax, pdata_sc, color="Gapdh", cmap="plasma",
                 mapping_keys=mapping_keys, mapping=mapping, force=True,
             )
+            scplt.shift_legend(ax, anchor_pos=(1.15, 1.0))
             ```
 
         ![Plot PCA mapping abundance (single-cell)](../../assets/plots/plot_pca_mapping_abundance_sc.png)
@@ -701,9 +702,9 @@ def resolve_marker_shapes(
         mlines.Line2D(
             [], [], linestyle="none",
             marker=shape_map[c],
-            color="black",  # neutral legend handle
-            markerfacecolor="black",
-            markeredgecolor="black",
+            color="grey",  # matches default scatter face when color= is unset
+            markerfacecolor="grey",
+            markeredgecolor="grey",
             markersize=7,
             label=str(c),
         )
@@ -711,6 +712,35 @@ def resolve_marker_shapes(
     ]
 
     return markers, shape_legend, shape_map
+
+
+def _hollow_edge_legend_handles(legend_elements: list[Any] | None) -> list[Any] | None:
+    """Convert filled categorical color legend handles to hollow (edge-only) markers."""
+    if not legend_elements:
+        return legend_elements
+    out: list[Any] = []
+    for h in legend_elements:
+        label = h.get_label()
+        if isinstance(h, mpatches.Patch):
+            ec = h.get_facecolor()
+        elif isinstance(h, mlines.Line2D):
+            ec = h.get_markeredgecolor() or h.get_color()
+        else:
+            out.append(h)
+            continue
+        out.append(
+            mlines.Line2D(
+                [], [],
+                linestyle="none",
+                marker="o",
+                markerfacecolor="none",
+                markeredgecolor=ec,
+                markersize=7,
+                label=label,
+            )
+        )
+    return out
+
 
 def _resolve_embedding_style_mapping(
     adata: ad.AnnData,
@@ -959,14 +989,15 @@ def _resolve_embedding_style_mapping(
             uniq.setdefault((ek, ec), None)
         edge_legend = [
             mlines.Line2D(
-                [], [], linestyle="none", marker="o", color=ec, markerfacecolor="white",
-                markeredgecolor=ec, markersize=7, label=ek,
+                [], [], linestyle="none", marker="o",
+                markerfacecolor="none", markeredgecolor=ec, markersize=7, label=ek,
             )
             for (ek, ec) in sorted(uniq.keys(), key=lambda t: t[0])
         ]
 
     # One legend for mapping when face colors are literal: same keys as edge styling.
-    combined_mapping_legend: list[mpatches.Patch] | None = None
+    # Use circles (matching scatter points) rather than rectangular patches.
+    combined_mapping_legend: list[mlines.Line2D] | None = None
     if not global_abundance and face_legend is not None:
         key_to_i: dict[tuple, int] = {}
         for i in range(n_obs):
@@ -981,15 +1012,18 @@ def _resolve_embedding_style_mapping(
             lab = ", ".join(str(x) for x in key)
             if isinstance(ec, str) and ec.lower() == "none":
                 combined_mapping_legend.append(
-                    mpatches.Patch(facecolor=fc, edgecolor="none", linewidth=0, label=lab)
+                    mlines.Line2D(
+                        [], [], linestyle="none", marker="o",
+                        markerfacecolor=fc, markeredgecolor=fc, markersize=7, label=lab,
+                    )
                 )
             else:
                 combined_mapping_legend.append(
-                    mpatches.Patch(
-                        facecolor=fc,
-                        edgecolor=ec,
-                        linewidth=edge_lw,
-                        label=lab,
+                    mlines.Line2D(
+                        [], [], linestyle="none", marker="o",
+                        markerfacecolor=fc, markeredgecolor=ec,
+                        markeredgewidth=max(float(edge_lw), 1.0),
+                        markersize=7, label=lab,
                     )
                 )
         face_legend = None
@@ -1007,8 +1041,8 @@ def _resolve_embedding_style_mapping(
                 shape_map[lab] = styles_plot[i].get("marker", "o")
         shape_legend = [
             mlines.Line2D(
-                [], [], linestyle="none", marker=shape_map[c], color="black",
-                markerfacecolor="black", markeredgecolor="black", markersize=7,
+                [], [], linestyle="none", marker=shape_map[c], color="grey",
+                markerfacecolor="grey", markeredgecolor="grey", markersize=7,
                 label=", ".join(str(x) for x in c),
             )
             for c in sorted(shape_map.keys(), key=str)
@@ -1292,6 +1326,7 @@ def _plot_embedding_scatter(
                     "edge_color does not support continuous (abundance) coloring. "
                     "Use `color=` for abundance-based coloring instead."
                 )
+            edge_legend = _hollow_edge_legend_handles(edge_legend)
 
         markers_all, shape_legend, _ = resolve_marker_shapes(
             adata, marker_shape, shape_cmap=shape_cmap
@@ -1935,6 +1970,7 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
                 umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
                 force=True,
             )
+            scplt.shift_legend(ax, anchor_pos=(1.15, 1.0))
             ```
 
         ![Plot UMAP mapping abundance](../../assets/plots/plot_umap_mapping_abundance.png)
