@@ -542,3 +542,67 @@ def test_diann_plot_clustered_heatmap_mixin(pdata_diann):
     )
     assert fig is not None
     plt.close(fig)
+
+
+def test_pd_plot_clustermap(pdata_pd_sample_column):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_pd_sample_column
+    classes = [c for c in ("treatment", "cellline") if c in pdata.prot.obs.columns]
+    namelist = list(pdata.prot.var_names[:30].astype(str))
+    fig = scplt.plot_clustermap(
+        pdata, classes=classes, namelist=namelist, figsize=(7, 6)
+    )
+    assert fig is not None
+    assert "prot_X_clustermap" in pdata.stats
+    plt.close(fig)
+
+
+def test_pd_plot_clustermap_mixin(pdata_pd_sample_column):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_pd_sample_column
+    classes = [c for c in ("cellline",) if c in pdata.prot.obs.columns] or [
+        pdata.prot.obs.columns[0]
+    ]
+    namelist = list(pdata.prot.var_names[:20].astype(str))
+    fig = pdata.plot_clustermap(
+        classes=classes, namelist=namelist, show_row_labels=True, figsize=(6, 5)
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_diann_plot_clustermap(pdata_diann):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_diann
+    classes = [c for c in ("gradient", "region") if c in pdata.prot.obs.columns]
+    if not classes:
+        classes = [pdata.prot.obs.columns[0]]
+    namelist = list(pdata.prot.var_names[:30].astype(str))
+    fig = scplt.plot_clustermap(
+        pdata, classes=classes[:2], namelist=namelist, figsize=(7, 6)
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_diann_plot_clustermap_separate_legend(pdata_diann):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_diann
+    classes = [c for c in ("gradient",) if c in pdata.prot.obs.columns] or [
+        pdata.prot.obs.columns[0]
+    ]
+    namelist = list(pdata.prot.var_names[:15].astype(str))
+    out = scplt.plot_clustermap(
+        pdata,
+        classes=classes,
+        namelist=namelist,
+        separate_legend=True,
+        figsize=(5, 4),
+    )
+    assert isinstance(out, tuple) and len(out) == 2
+    plt.close(out[0])
+    plt.close(out[1])

@@ -1913,64 +1913,97 @@ def test_plot_pca_scree_with_real_pdata(pdata):
 # Tests for scplt.plot_clustermap
 
 def test_plot_clustermap_runs_basic(pdata):
-    """Smoke test: basic clustermap runs on protein data without annotations."""
-    result = scplt.plot_clustermap(
-        None, pdata, on="prot", log2=True, xticklabels=False, yticklabels=False
+    """Smoke test: overview clustermap with row + column dendrograms."""
+    import matplotlib.figure
+
+    fig = scplt.plot_clustermap(
+        pdata, classes=["cellline"], show_row_labels=False
     )
-    assert isinstance(result, sns.matrix.ClusterGrid)
-    assert hasattr(result, "data2d")
-    assert not result.data2d.empty
+    assert isinstance(fig, matplotlib.figure.Figure)
+    assert len(fig.axes) >= 3
+    plt.close(fig)
+
 
 def test_plot_clustermap_with_classes(pdata):
-    """Smoke test: runs with sample annotations using classes."""
-    result = scplt.plot_clustermap(
-        None,
+    """Smoke test: multi-class headers; clustering stored in pdata.stats."""
+    import matplotlib.figure
+
+    fig = scplt.plot_clustermap(
         pdata,
-        on="prot",
         classes=["cellline", "treatment"],
-        log2=True,
-        xticklabels=False,
-        yticklabels=False,
+        show_row_labels=False,
     )
-    assert isinstance(result, sns.matrix.ClusterGrid)
-    # Check that clustering results are stored in pdata.stats
+    assert isinstance(fig, matplotlib.figure.Figure)
     cluster_key = "prot_X_clustermap"
     assert cluster_key in pdata.stats
     stats = pdata.stats[cluster_key]
     assert "row_order" in stats
     assert "col_order" in stats
+    assert stats["col_linkage"] is not None
+    assert stats["row_linkage"] is not None
+    plt.close(fig)
 
-def test_plot_clustermap_with_force_and_impute(pdata):
-    """Test that force=True triggers imputation without errors."""
-    result = scplt.plot_clustermap(
-        None,
+
+def test_plot_clustermap_separate_legend(pdata):
+    """separate_legend returns (fig, legend_fig)."""
+    import matplotlib.figure
+
+    out = scplt.plot_clustermap(
         pdata,
-        on="prot",
-        force=True,
-        impute="global_min",
-        xticklabels=False,
-        yticklabels=False,
+        classes=["cellline"],
+        separate_legend=True,
+        figsize=(5, 4),
     )
-    assert isinstance(result, sns.matrix.ClusterGrid)
-    cluster_key = "prot_X_clustermap"
-    assert cluster_key in pdata.stats
+    assert isinstance(out, tuple) and len(out) == 2
+    fig, legend_fig = out
+    assert isinstance(fig, matplotlib.figure.Figure)
+    assert isinstance(legend_fig, matplotlib.figure.Figure)
+    plt.close(fig)
+    plt.close(legend_fig)
+
 
 def test_plot_clustermap_with_namelist(pdata):
     """Run with a restricted namelist (subset of proteins)."""
+    import matplotlib.figure
+
     some_proteins = pdata.prot.var_names[:5].tolist()
-    result = scplt.plot_clustermap(
-        None, pdata, on="prot", namelist=some_proteins, xticklabels=False, yticklabels=False
+    fig = scplt.plot_clustermap(
+        pdata,
+        classes=["cellline"],
+        namelist=some_proteins,
+        show_row_labels=True,
     )
-    assert isinstance(result, sns.matrix.ClusterGrid)
+    assert isinstance(fig, matplotlib.figure.Figure)
     cluster_key = "prot_X_clustermap"
     assert cluster_key in pdata.stats
     assert pdata.stats[cluster_key]["namelist_used"] != "all_proteins"
+    assert len(pdata.stats[cluster_key]["row_order"]) == 5
+    plt.close(fig)
+
 
 def test_plot_clustermap_invalid_on_raises(pdata):
     """Invalid `on` argument should raise ValueError."""
     import pytest
-    with pytest.raises(ValueError, match="must be 'prot' or 'pep'"):
-        scplt.plot_clustermap(None, pdata, on="invalid")
+
+    with pytest.raises(ValueError, match="Invalid input: on must be"):
+        scplt.plot_clustermap(pdata, classes=["cellline"], on="invalid")
+
+
+def test_impute_row_min_fills_with_protein_min():
+    """Clustering impute uses per-row minimum, not median."""
+    from scpviz.plotting.clustering import _impute_row_min
+
+    mat = np.array(
+        [
+            [1.0, np.nan, 3.0],
+            [2.0, 4.0, np.nan],
+        ],
+        dtype=float,
+    )
+    imputed, keep = _impute_row_min(mat)
+    assert keep.tolist() == [True, True]
+    assert imputed[0, 1] == 1.0  # row min of [1, 3]
+    assert imputed[1, 2] == 2.0  # row min of [2, 4]
 
 
 class TestPlotPairwiseCorrelation:
@@ -2733,7 +2766,7 @@ def test_plot_grouped_heatmap_header_count(pdata):
 
 
 def test_plot_grouped_heatmap_sort_by_order(pdata):
-    from scpviz.plotting.heatmap import _compute_sample_order
+    from scpviz.plotting.clustering import _compute_sample_order
 
     classes = ["treatment", "cellline"]
     sort_by = {"treatment": ["sc", "kd"]}
@@ -2885,7 +2918,7 @@ def test_plot_clustered_heatmap_mixed_de_collection_raises(pdata):
 
 
 def test_plot_clustered_heatmap_same_sample_order_as_grouped(pdata):
-    from scpviz.plotting.heatmap import _compute_sample_order
+    from scpviz.plotting.clustering import _compute_sample_order
 
     classes = ["treatment", "cellline"]
     sort_by = {"treatment": ["kd", "sc"]}
@@ -2904,7 +2937,7 @@ def test_plot_clustered_heatmap_metric_branches(pdata, monkeypatch):
     genes = pdata.prot.var["Genes"].dropna().astype(str).unique()[:4].tolist()
     called = {"corr": 0}
 
-    import scpviz.plotting.heatmap as hm
+    import scpviz.plotting.clustering as hm
 
     real = hm.correlation_linkage
 
@@ -3090,7 +3123,7 @@ def test_heatmap_display_scale_branches(pdata, capsys):
         captured.setdefault("leaves", []).append(list(dn["leaves"]))
         return dn
 
-    import scpviz.plotting.heatmap as hm
+    import scpviz.plotting.clustering as hm
 
     original = hm.dendrogram if hasattr(hm, "dendrogram") else None
     # dendrogram is imported inside the function; patch scipy symbol used there
@@ -3127,7 +3160,7 @@ def test_plot_grouped_heatmap_fractional_row_spacing():
     rgba[:, :, 3] = 1.0
     row_groups = ["A", "A", "B", "B"]
     labels = ["a1", "a2", "b1", "b2"]
-    from scpviz.plotting.heatmap import _GROUP_GAP_PX, _ROW_PX, _rasterize_with_gaps
+    from scpviz.plotting.clustering import _GROUP_GAP_PX, _ROW_PX, _rasterize_with_gaps
 
     disp0, *_ = _rasterize_with_gaps(rgba, row_groups, labels, row_spacing=False)
     disp_true, ticks, tick_labs, yr = _rasterize_with_gaps(
@@ -3236,7 +3269,7 @@ def test_heatmap_cbar_scale(pdata):
 
 
 def test_heatmap_legend_width(pdata):
-    from scpviz.plotting.heatmap import (
+    from scpviz.plotting.clustering import (
         _LEGEND_WIDTH_MAX,
         _LEGEND_WIDTH_MIN,
         _estimate_legend_width_frac,
@@ -3290,7 +3323,7 @@ def test_heatmap_legend_width(pdata):
 
 
 def test_heatmap_header_colors_flat_and_nested(pdata):
-    from scpviz.plotting.heatmap import _normalize_header_colors
+    from scpviz.plotting.clustering import _normalize_header_colors
 
     flat = {"Agg+": "#C64D4A", "Agg-": "#BFBFBF"}
     assert _normalize_header_colors(flat, ["sample"]) == {"sample": flat}
@@ -3340,7 +3373,7 @@ def test_plot_clustered_heatmap_dendrogram_linewidth(pdata):
 
 
 def test_heatmap_column_spacing(pdata):
-    from scpviz.plotting.heatmap import _GROUP_GAP_PX, _rasterize_with_column_gaps
+    from scpviz.plotting.clustering import _GROUP_GAP_PX, _rasterize_with_column_gaps
 
     genes = list(pdata.prot.var["Genes"].astype(str).unique()[:4])
     groups = {"G1": genes[:2], "G2": genes[2:]}

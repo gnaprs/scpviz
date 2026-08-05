@@ -724,7 +724,7 @@ plt.show()
 
     ![Plot clustermap](../assets/plots/plot_clustermap.png)
 
-    Legacy seaborn clustered heatmap with annotation bars.
+    Overview heatmap with row + column dendrograms (sample order from the col tree).
 
 </div>
 
@@ -934,33 +934,37 @@ fig = scplt.plot_clustered_heatmap(
 
 [API reference ↗](../reference/plotting.md#src.scpviz.plotting.plot_clustermap)
 
-[`plot_clustermap`](#clustermap-code) returns a seaborn `ClusterGrid` object (`g`), not a figure — call `g.savefig(...)` if saving. Prefer [`plot_clustered_heatmap`](#clustered-heatmap-code) for new publication figures.
+[`plot_clustermap`](#clustermap-code) is the overview plot: hierarchical clustering on **both** proteins and samples, with sample order from the column dendrogram. Header strips still annotate `classes`. Prefer [`plot_clustered_heatmap`](#clustered-heatmap-code) for curated / DE protein lists with metadata-ordered samples, or [`plot_grouped_heatmap`](#grouped-heatmap-code) for curated group blocks.
+
+Same polished options as the other heatmaps (`display_scale`, `header_height`, `header_spacing`, `separate_legend`, …). No `column_spacing` (dendrogram order does not keep class blocks contiguous). Defaults to all features; pass `namelist` (genes or accessions) to subset.
 
 ```python
-import matplotlib.pyplot as plt
 from scpviz import plotting as scplt
 
-fig, ax = plt.subplots(figsize=(1, 1))
-g = scplt.plot_clustermap(
-    ax, pdata_norm, on="prot",
+fig = scplt.plot_clustermap(
+    pdata_norm,
     classes=["cellline", "condition"],
-    force=True, impute="row_min",
-    z_score=0, center=0,
-    linewidth=0, figsize=(10, 6),
+    figsize=(8, 10),
+    text_size=7,
 )
-plt.show()
 ```
 
-Custom annotation colors via a LUT dict:
+![Plot clustermap](../assets/plots/plot_clustermap.png)
+
+Subset + custom header colours + separate legend:
 
 ```python
-import seaborn as sns
-
-lut = {
-    "cellline": {"AS": "#e41a1c", "BE": "#377eb8"},
-    "condition": {"kd": "#4daf4a", "sc": "#984ea3"},
-}
-scplt.plot_clustermap(ax, pdata, classes=["cellline", "condition"], lut=lut, force=True)
+fig, legend_fig = scplt.plot_clustermap(
+    pdata_norm,
+    classes=["cellline", "condition"],
+    namelist=["CDK1", "CDK2", "PCNA", "GAPDH", "ACTB"],
+    header_colors={
+        "cellline": {"AS": "#4C72B0", "BE": "#DD8452"},
+        "condition": {"sc": "#55A868", "kd": "#C44E52"},
+    },
+    show_row_labels=True,
+    separate_legend=True,
+)
 ```
 
 ---

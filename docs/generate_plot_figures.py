@@ -26,8 +26,9 @@ Also writes abundance-colored PCA/UMAP examples:
 Also writes ``plot_pca_mapping.png`` (bulk tuple-key mapping) and PCA-GSEA figures
 ``plot_pca_gsea_pathway_vectors.png``, ``plot_pca_gsea_bubble.png``, ``plot_pca_gsea_heatmap.png``.
 Also writes ``plot_grouped_heatmap.png``, ``plot_grouped_heatmap_spacing.png``,
-``plot_clustered_heatmap.png``, ``plot_clustered_heatmap_spacing.png``, and
-``plot_clustered_heatmap_de.png`` (DE hits via ``stats_key`` after volcano).
+``plot_clustered_heatmap.png``, ``plot_clustered_heatmap_spacing.png``,
+``plot_clustered_heatmap_de.png`` (DE hits via ``stats_key`` after volcano), and
+``plot_clustermap.png`` (overview row + column dendrograms).
 Also writes ``plot_abundance_boxgrid_bar.png``, ``plot_abundance_boxgrid_line.png``,
 ``plot_abundance_boxgrid_violin.png``, ``plot_abundance_boxgrid_custom.png``,
 ``plot_abundance_boxgrid_significance.png``, and ``plot_abundance_boxgrid_significance_multi.png``
@@ -786,7 +787,7 @@ def main(*, skip_umap: bool = False) -> None:
                 f"{_umap_data_root()}, no {ASSETS_DOC / 'report_sc.parquet'}, or load failed."
             )
 
-    # ── correlation.py ───────────────────────────────────────────────────────
+    # ── clustering.py ────────────────────────────────────────────────────────
     pw_layer = _ensure_pairwise_zscore_layer(pdata_norm)
     fig, ax = scplt.plot_pairwise_correlation(
         pdata_norm,
@@ -799,20 +800,21 @@ def main(*, skip_umap: bool = False) -> None:
     plt.savefig(OUT / "plot_pairwise_correlation.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
 
-    _, ax_cm = plt.subplots(figsize=(1, 1))
-    g_cm = scplt.plot_clustermap(
-        ax_cm,
+    # Overview clustermap: row + column dendrograms (sample order from col tree).
+    # Subset for a readable docs figure; omit namelist to plot all features.
+    fig_cm = scplt.plot_clustermap(
         pdata_norm,
-        on="prot",
         classes=classes_2,
-        force=True,
-        impute="row_min",
-        z_score=0,
-        center=0,
-        linewidth=0,
-        figsize=(10, 6),
+        namelist=list(pdata_norm.prot.var_names[:80]),
+        layer="X",
+        display_scale="zscore",
+        figsize=(8, 10),
+        text_size=7,
+        show_row_labels=False,
+        header_spacing=0.06,
+        header_height=0.35,
     )
-    g_cm.savefig(OUT / "plot_clustermap.png", dpi=DPI, bbox_inches="tight")
+    fig_cm.savefig(OUT / "plot_clustermap.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
 
     # Publication heatmaps (grouped blocks + clustered rows)
