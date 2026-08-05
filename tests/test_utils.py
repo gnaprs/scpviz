@@ -532,12 +532,12 @@ def test_get_upset_query_returns_dataframe(monkeypatch):
     monkeypatch.setattr(utils, "get_uniprot_fields",
                         lambda ids, verbose=False: pd.DataFrame({"Accession": ids}))
     result = utils.get_upset_query(
-        pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True
+        pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True, verbose=False
     )
     assert isinstance(result, pd.DataFrame)
     assert set(result["Accession"]) == {"P12345", "Q67890"}
 
-def test_get_upset_query_handles_empty(monkeypatch):
+def test_get_upset_query_handles_empty(monkeypatch, capsys):
     """Handle case where no proteins are found."""
     # Mock return structure of upsetplot.query
     dummy_query_result = type("DummyQuery", (), {"data": {"id": np.array([])}})()
@@ -550,6 +550,9 @@ def test_get_upset_query_handles_empty(monkeypatch):
     result = utils.get_upset_query(
         pd.DataFrame(), present=["X"], absent=["Y"], fetch_uniprot=True
     )
+    captured = capsys.readouterr()
+    assert "Getting UpSet query" in captured.out
+    assert "No features matched" in captured.out
 
     assert isinstance(result, pd.DataFrame)
     assert result.empty
@@ -568,14 +571,18 @@ def test_get_upset_query_passes_verbose_flag(monkeypatch):
         return pd.DataFrame({"Accession": ids})
     monkeypatch.setattr(utils, "get_uniprot_fields", mock_get_uniprot_fields)
 
-    # Run
+    # Default verbose=True is forwarded to UniProt
     utils.get_upset_query(
         pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True
     )
-
-    # Assertions
-    assert called["verbose"] is False
+    assert called["verbose"] is True
     assert called["ids"] == ["A1"]
+
+    # Explicit verbose=False is also forwarded
+    utils.get_upset_query(
+        pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True, verbose=False
+    )
+    assert called["verbose"] is False
 
 def test_get_upset_query_skips_uniprot_when_fetch_false(monkeypatch, pdata):
     """fetch_uniprot=False should not call get_uniprot_fields."""
@@ -599,12 +606,35 @@ def test_get_upset_query_skips_uniprot_when_fetch_false(monkeypatch, pdata):
         absent=["B"],
         fetch_uniprot=False,
         pdata=pdata,
+        verbose=False,
     )
 
     assert not called["uniprot"]
     assert list(result.columns) == ["accession", "gene_primary"]
     assert result["accession"].tolist() == accessions
     assert result["gene_primary"].notna().all()
+
+def test_get_upset_query_fetch_false_verbose_messages(monkeypatch, pdata, capsys):
+    """fetch_uniprot=False prints header, branch info, and result lines."""
+    accessions = pdata.prot.var_names[:2].tolist()
+    dummy_query_result = type("DummyQuery", (), {
+        "data": {"id": np.array(accessions)}
+    })()
+    monkeypatch.setattr(utils.upsetplot, "query", lambda c, present, absent: dummy_query_result)
+
+    result = utils.get_upset_query(
+        pd.DataFrame(),
+        present=["A"],
+        absent=["B"],
+        fetch_uniprot=False,
+        pdata=pdata,
+        verbose=True,
+    )
+    captured = capsys.readouterr()
+    assert "Getting UpSet query" in captured.out
+    assert "Building mark_df" in captured.out
+    assert "Built query DataFrame" in captured.out
+    assert len(result) == 2
 
 def test_get_upset_query_fetch_false_warns_missing_genes(monkeypatch, pdata):
     """fetch_uniprot=False should warn when some gene names are missing."""
@@ -625,6 +655,7 @@ def test_get_upset_query_fetch_false_warns_missing_genes(monkeypatch, pdata):
             absent=["B"],
             fetch_uniprot=False,
             pdata=pdata,
+            verbose=False,
         )
 
     assert "missing gene names" in str(w[-1].message).lower()
@@ -642,6 +673,7 @@ def test_get_upset_query_fetch_false_requires_pdata(monkeypatch):
             present=["A"],
             absent=["B"],
             fetch_uniprot=False,
+            verbose=False,
         )
 
 # test de_reporting helpers

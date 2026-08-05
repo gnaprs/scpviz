@@ -430,6 +430,7 @@ def get_upset_query(
     fetch_uniprot: bool,
     pdata: pAnnData | None = None,
     on: str = "protein",
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """
     Query features from UpSet contents given inclusion and exclusion criteria.
@@ -454,6 +455,9 @@ def get_upset_query(
             names can be read from ``.var``. Ignored when ``fetch_uniprot=True``.
         on (str): Data level for gene lookup when ``fetch_uniprot=False``.
             Options are ``"protein"`` (default) or ``"peptide"``.
+        verbose (bool): If True (default), print a progress header and branch
+            messages. Passed through to `get_uniprot_fields` when
+            ``fetch_uniprot=True``.
 
     Returns:
         prot_query_df (pandas.DataFrame): Features matching the query. When
@@ -495,17 +499,31 @@ def get_upset_query(
         .tolist()
     )
 
+    if verbose:
+        print(
+            f"{format_log_prefix('user')} Getting UpSet query "
+            f"[{len(prot_query)} features]: present={present}, absent={absent}"
+        )
+
     if not prot_query:
+        if verbose:
+            print(f"{format_log_prefix('warn')} No features matched the UpSet query.")
         return pd.DataFrame()
 
     if fetch_uniprot:
-        return _u.get_uniprot_fields(prot_query, verbose=False)
+        return _u.get_uniprot_fields(prot_query, verbose=verbose)
 
     if pdata is None:
         raise ValueError(
             "pdata is required when fetch_uniprot=False so gene names can be "
             "read from .var. Pass pdata=pdata, or set fetch_uniprot=True to "
             "query UniProt instead."
+        )
+
+    if verbose:
+        print(
+            f"{format_log_prefix('info_only', indent=2)} Building mark_df from "
+            f".{on}.var (no UniProt query)."
         )
 
     adata = _u.get_adata(pdata, on)
@@ -518,6 +536,11 @@ def get_upset_query(
             f"(tried: {', '.join(_GENE_VAR_PRECEDENCE)}). Returning accessions only.",
             stacklevel=2,
         )
+        if verbose:
+            print(
+                f"{format_log_prefix('result_only', indent=2)} Built query "
+                f"DataFrame: {len(prot_query)} features (accessions only)."
+            )
         return result
 
     genes = pd.Series(
@@ -545,6 +568,12 @@ def get_upset_query(
             f"{format_log_prefix('warn')} {len(not_in_var)}/{len(prot_query)} "
             f"feature(s) from the UpSet query are not in .{on}.var_names.",
             stacklevel=2,
+        )
+
+    if verbose:
+        print(
+            f"{format_log_prefix('result_only', indent=2)} Built query DataFrame: "
+            f"{len(prot_query)} features (gene names from .{on}.var['{gene_var_col}'])."
         )
 
     return result
