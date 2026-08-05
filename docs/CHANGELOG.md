@@ -3,6 +3,136 @@
 ## scpviz
 
 
+### 1.1.2 <small>August 05, 2026</small> { id="1.1.2" }
+
+
+#### Added
+
+
+##### (PAnnData)
+
+
+- Add donor-blocked mixed_de with volcano and docs (ebdc7b3…)
+
+- Add donor-blocked mixed_de (0d36377…)
+
+
+
+##### (Plotting)
+
+
+- Add pc_pad and cbar_scale to PCA-GSEA bubble layout (e03f6ad…)
+
+- Add grouped and clustered publication heatmaps (278e235…)
+
+- Auto-size heatmap legend_width and document heatmaps (a33ebd0…)
+
+- For heatmap plots add flexible handling for header_colors and expose dendrogram line width (7bbb13c…)
+
+- Unify heatmap row/column spacing and document scale examples (86fdc18…)
+
+- Expose header_height and group_bar_width for grouped and clustered heatmaps (42c3d8b…)
+
+- Add grouped and clustered publication heatmaps (27bd2ae…)
+
+
+
+##### (Utils)
+
+
+- Add peptide ProtParam properties via BiophysicalMixin (9add2be…)
+
+
+
+
+#### Build System
+
+
+##### (V1.1.2)
+
+
+- Bump version to 1.1.2 (00853ac…)
+
+
+
+
+#### Documentation
+
+
+##### (PAnnData)
+
+
+- Add biophysical API page and fix hidden/PlotMixin refs (2c37304…)
+
+
+
+##### (Plotting)
+
+
+- Wire mapping and PCA-GSEA examples to generated figures (de32e86…)
+
+
+
+
+#### Fixed
+
+
+##### (PAnnData)
+
+
+- Fix _resolve_de_key failing on legacy dict key, fix cell-level LMM failing to converge and default to auto to fall back on pseudobulk (e067645…)
+
+- Bug fix for mixed_de having mixedlm non-convergence on near-zero (sensitive to BLAS/OS ubuntu py3.11) (31b5d84…)
+
+
+
+##### (Plotting)
+
+
+- Pack overlapping significance brackets in abundance boxgrid (7e06ba8…)
+
+- Scale PCA-GSEA bubbles to axes and clear size legend (6b4edb6…)
+
+- Accept scalar keys for single-column mapping (501a389…)
+
+
+
+
+#### Other
+
+
+
+#### Style
+
+
+##### (Filtering)
+
+
+- Fix typo in docstring (889f32e…)
+
+
+
+
+#### Tests
+
+
+##### (PAnnData)
+
+
+- Add PD and DIA-NN real-data smoke coverage for recent APIs (dae6e89…)
+
+
+
+##### (Plotting)
+
+
+- Update tests for grouped and clustered publication heatmaps (f33fbe9…)
+
+
+
+
+
+
 ### 1.1.1 <small>July 09, 2026</small> { id="1.1.1" }
 
 
@@ -23,6 +153,8 @@
 
 - Update changelogs [skip ci] (fa8db5c…)
 
+- Update changelogs [skip ci] (fbc23eb…)
+
 
 
 
@@ -31,6 +163,8 @@
 
 ##### (PAnnData)
 
+
+- Treat zero as missing in quant metrics and refresh summary on X changes #48 (9e71e21…)
 
 - Treat zero as missing in quant metrics and refresh summary on X changes #48 (d6ad025…)
 
@@ -42,6 +176,8 @@
 
 ##### (Docs)
 
+
+- Fix formatting errors on docstrings (d79ef4f…)
 
 - Fix formatting errors on docstrings (711842e…)
 
