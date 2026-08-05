@@ -12,6 +12,78 @@ This page introduces the core design of `pAnnData` and shows how to import data 
     - Tracking of filtering, normalization, and analysis history
     - Compatible with all scpviz modules (plotting, enrichment, filtering, etc.)
 
+<!-- ```mermaid
+flowchart TB
+    subgraph sources["Data sources"]
+        PD["Proteome Discoverer\n(prot_file, pep_file)"]
+        DIA["DIA-NN\n(report_file)"]
+    end
+
+    subgraph import["Import (scpviz.pAnnData.io)"]
+        import_data["import_data(source_type, ...)"]
+        parse["Parse matrices, obs, var,\npeptide→protein mapping"]
+        build_rs["_build_rs_matrix()\n(protein × peptide)"]
+        create["_create_pAnnData_from_parts()"]
+    end
+
+    subgraph container["pAnnData container"]
+        pdata["pAnnData"]
+        prot["prot: AnnData\n(samples × proteins)\n.X, .layers, .obs, .var, .obsm"]
+        pep["pep: AnnData\n(samples × peptides)\n.X, .layers, .obs, .var, .obsm"]
+        rs["rs: sparse matrix\n(proteins × peptides)"]
+        summary["summary: TrackedDataFrame\n(merged sample-level metrics)"]
+    end
+
+    subgraph ops["Downstream operations (on .prot / .pep)"]
+        filter["FilterMixin\nfilter_sample, filter_prot*, filter_rs"]
+        edit["EditingMixin\nset_X, layers, export"]
+        analysis["AnalysisMixin\nnormalize, impute, de, rank"]
+        dimred["PCA, neighbor, UMAP, Leiden\n(via scanpy on .prot or .pep)"]
+        enrich["EnrichmentMixin\nenrichment_*"]
+        id_maps["IdentifierMixin\ngene↔accession, peptide↔protein"]
+    end
+
+    subgraph scanpy_integration["Scanpy integration"]
+        direct["Use scanpy directly on\npdata.prot or pdata.pep"]
+        sc_pp["sc.pp.neighbors\nsc.tl.pca\nsc.tl.umap\nsc.tl.leiden"]
+        harmony["sc.external.pp.harmony_integrate"]
+    end
+
+    PD --> import_data
+    DIA --> import_data
+    import_data --> parse
+    parse --> build_rs
+    parse --> create
+    build_rs --> create
+    create --> pdata
+
+    pdata --> prot
+    pdata --> pep
+    pdata --> rs
+    prot --> summary
+    pep --> summary
+    pdata --> summary
+
+    pdata --> filter
+    pdata --> edit
+    pdata --> analysis
+    pdata --> dimred
+    filter --> prot
+    filter --> pep
+    edit --> prot
+    edit --> pep
+    analysis --> prot
+    analysis --> pep
+    dimred --> prot
+    dimred --> pep
+
+    prot --> direct
+    pep --> direct
+    direct --> sc_pp
+    direct --> harmony
+    dimred -.->|"uses"| sc_pp
+``` -->
+
 ```mermaid
 flowchart LR
     subgraph pAnnData["`pAnnData`"]
