@@ -51,7 +51,7 @@ SUPPORTED_PROPERTIES: frozenset[str] = frozenset(
     SCALAR_PROPERTIES
     | TUPLE_PROPERTIES.keys()
     | DICT_OR_LIST_PROPERTIES.keys()
-    | {"charge_at_pH"}
+    | {"charge_at_pH", "length"}
 )
 
 
@@ -195,7 +195,7 @@ def _validate_properties(properties: Sequence[str]) -> list[str]:
 def _property_columns(properties: Sequence[str], *, charge_at_pH: float | None) -> list[str]:
     cols: list[str] = []
     for prop in properties:
-        if prop in SCALAR_PROPERTIES:
+        if prop in SCALAR_PROPERTIES or prop == "length":
             cols.append(prop)
         elif prop in TUPLE_PROPERTIES:
             cols.extend(TUPLE_PROPERTIES[prop])
@@ -221,12 +221,20 @@ def _compute_one(
     protein_scale_edge: float = 1.0,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
+    # Local metric (not a Biopython ProtParam method).
+    if "length" in properties:
+        out["length"] = len(sequence)
+
+    biopython_props = [p for p in properties if p != "length"]
+    if not biopython_props:
+        return out
+
     try:
         analysis = ProteinAnalysis(sequence, monoisotopic=monoisotopic)
     except Exception:
         return out
 
-    for prop in properties:
+    for prop in biopython_props:
         try:
             if prop in SCALAR_PROPERTIES:
                 out[prop] = getattr(analysis, prop)()
@@ -267,16 +275,18 @@ def compute_peptide_properties(
     protein_scale_edge: float = 1.0,
 ) -> pd.DataFrame:
     """
-    Compute Biopython ProtParam metrics for one or more amino-acid sequences.
+    Compute peptide biophysical properties for one or more amino-acid sequences.
 
+    Supports local metrics (e.g. ``length``) and Biopython ProtParam metrics.
     Does not require a ``pAnnData`` object. Raw Proteome Discoverer strings are
     cleaned automatically; DIA-NN ``Stripped.Sequence`` values can be passed directly.
 
     Args:
         sequences (str, list of str, or pandas.Series): Peptide sequence(s). Non-standard
             input yields ``pd.NA`` for that row.
-        properties (list of str): ProtParam method names (see ``SUPPORTED_PROPERTIES``).
-            Default: ``gravy``, ``molecular_weight``, ``isoelectric_point``.
+        properties (list of str): Metric names to compute (local and/or Biopython; see
+            Supported properties below). Default: ``gravy``, ``molecular_weight``,
+            ``isoelectric_point``.
         monoisotopic (bool): Use monoisotopic mass for ``molecular_weight``.
         charge_at_pH (float, optional): Required when ``"charge_at_pH"`` is in ``properties``.
         protein_scale (dict, optional): Amino-acid scale dict; required when
@@ -311,14 +321,49 @@ def compute_peptide_properties(
             # 0 -1.392         1495.663              6.502
             ```
 
-        Request additional ProtParam metrics:
+        Mix local and Biopython metrics:
             ```python
             cleaned = scutils.strip_peptide_sequence("[R].MQHNLEQQIQAR.[N]")
             scutils.compute_peptide_properties(
                 cleaned,
-                properties=["gravy", "aromaticity", "instability_index"],
+                properties=["length", "gravy", "aromaticity"],
             )
             ```
+
+    !!! note "Supported ``properties``"
+        Pass any mix of the names below in ``properties``.
+
+        **Local (scpviz, not Biopython):**
+
+        - ``length`` → ``length`` — amino-acid count of the cleaned sequence
+          (``len(sequence)``)
+
+        **Biopython** (``Bio.SeqUtils.ProtParam.ProteinAnalysis`` method names). See
+        [Bio.SeqUtils.ProtParam](https://biopython.org/docs/latest/api/Bio.SeqUtils.ProtParam.html):
+
+        Scalar (one column each):
+
+        - ``gravy`` → ``gravy``
+        - ``molecular_weight`` → ``molecular_weight``
+        - ``aromaticity`` → ``aromaticity``
+        - ``instability_index`` → ``instability_index``
+        - ``isoelectric_point`` → ``isoelectric_point``
+        - ``charge_at_pH`` → ``charge_at_pH_<pH>`` (requires ``charge_at_pH`` kwarg)
+
+        Tuple-valued (split into multiple columns):
+
+        - ``secondary_structure_fraction`` → ``ss_helix``, ``ss_turn``, ``ss_sheet``
+        - ``molar_extinction_coefficient`` → ``extinction_reduced``, ``extinction_oxidized``
+
+        Dict- or list-valued (object columns):
+
+        - ``count_amino_acids`` → ``aa_counts`` (dict)
+        - ``get_amino_acids_percent`` → ``aa_percent`` (dict)
+        - ``flexibility`` → ``flexibility`` (list)
+        - ``protein_scale`` → ``protein_scale`` (list; requires ``protein_scale``,
+          ``protein_scale_window``, and ``protein_scale_edge`` kwargs)
+
+        Default ``properties``: ``gravy``, ``molecular_weight``, ``isoelectric_point``.
 
     Note:
         Biopython accepts only standard amino-acid letters. Modifications are ignored
@@ -426,16 +471,18 @@ def get_peptide_properties(
     protein_scale_edge: float = 1.0,
 ) -> pd.DataFrame:
     """
-    Compute Biopython ProtParam metrics for peptides in a ``pAnnData`` object.
+    Compute peptide biophysical properties for peptides in a ``pAnnData`` object.
 
+    Supports local metrics (e.g. ``length``) and Biopython ProtParam metrics.
     By default annotates ``pdata.pep.var`` (``return_copy=False``) and returns a
     DataFrame. Scalar metrics are stored as columns; dict/list metrics (e.g.
     ``aa_counts``, ``flexibility``) are stored as object columns.
 
     Args:
         pdata (pAnnData): Object with ``.pep`` (and ``.rs`` when ``accessions`` is set).
-        properties (list of str): ProtParam metrics to compute. Default: ``gravy``,
-            ``molecular_weight``, ``isoelectric_point``.
+        properties (list of str): Metric names to compute (local and/or Biopython; see
+            Supported properties below). Default: ``gravy``, ``molecular_weight``,
+            ``isoelectric_point``.
         accessions (list of str, optional): Protein accessions or gene names. When
             ``None``, all peptides are considered (requires ``force=True``).
         sequence_from (str, optional): ``.pep.var`` column for sequence resolution,
@@ -485,6 +532,15 @@ def get_peptide_properties(
             df = scutils.get_peptide_properties(pdata, accessions=["HSPA4"])
             ```
 
+        Mix local and Biopython metrics:
+            ```python
+            df = scutils.get_peptide_properties(
+                pdata,
+                properties=["length", "gravy", "molecular_weight"],
+                accessions=protein_list,
+            )
+            ```
+
         Return a DataFrame without annotating ``.pep.var``:
             ```python
             df = scutils.get_peptide_properties(
@@ -502,10 +558,16 @@ def get_peptide_properties(
             df = pdata.get_peptide_properties(accessions=protein_list)
             ```
 
-    !!! note "Supported properties"
-        Property names are ``Bio.SeqUtils.ProtParam.ProteinAnalysis`` method names.
-        See the Biopython documentation for definitions and interpretation:
-        [Bio.SeqUtils.ProtParam](https://biopython.org/docs/latest/api/Bio.SeqUtils.ProtParam.html)
+    !!! note "Supported ``properties``"
+        Pass any mix of the names below in ``properties``.
+
+        **Local (scpviz, not Biopython):**
+
+        - ``length`` → ``length`` — amino-acid count of the cleaned sequence
+          (``len(sequence)``)
+
+        **Biopython** (``Bio.SeqUtils.ProtParam.ProteinAnalysis`` method names). See
+        [Bio.SeqUtils.ProtParam](https://biopython.org/docs/latest/api/Bio.SeqUtils.ProtParam.html):
 
         Scalar (one ``.pep.var`` / DataFrame column each):
 
@@ -514,23 +576,20 @@ def get_peptide_properties(
         - ``aromaticity`` → ``aromaticity``
         - ``instability_index`` → ``instability_index``
         - ``isoelectric_point`` → ``isoelectric_point``
+        - ``charge_at_pH`` → ``charge_at_pH_<pH>`` (requires ``charge_at_pH`` kwarg)
 
         Tuple-valued (split into multiple columns):
 
         - ``secondary_structure_fraction`` → ``ss_helix``, ``ss_turn``, ``ss_sheet``
         - ``molar_extinction_coefficient`` → ``extinction_reduced``, ``extinction_oxidized``
 
-        Dict- or list-valued (stored as object columns):
+        Dict- or list-valued (object columns):
 
         - ``count_amino_acids`` → ``aa_counts`` (dict)
         - ``get_amino_acids_percent`` → ``aa_percent`` (dict)
         - ``flexibility`` → ``flexibility`` (list)
         - ``protein_scale`` → ``protein_scale`` (list; requires ``protein_scale``,
-          ``protein_scale_window``, and ``protein_scale_edge``)
-
-        Requires ``charge_at_pH`` argument:
-
-        - ``charge_at_pH`` → ``charge_at_pH_<pH>`` (e.g. ``charge_at_pH_7.4``)
+          ``protein_scale_window``, and ``protein_scale_edge`` kwargs)
 
         Default ``properties``: ``gravy``, ``molecular_weight``, ``isoelectric_point``.
 

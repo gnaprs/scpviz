@@ -953,6 +953,14 @@ def test_compute_peptide_properties_defaults():
     assert list(df.columns) == ["gravy", "molecular_weight", "isoelectric_point"]
     assert df.iloc[0]["gravy"] == pytest.approx(-1.3917, rel=1e-3)
 
+
+def test_compute_peptide_properties_length():
+    seq = "MQHNLEQQIQAR"
+    df = utils.compute_peptide_properties(seq, properties=["length", "gravy"])
+    assert list(df.columns) == ["length", "gravy"]
+    assert df.iloc[0]["length"] == len(seq)
+    assert df.iloc[0]["gravy"] == pytest.approx(-1.3917, rel=1e-3)
+
 def test_resolve_peptide_sequence_pd(pdata):
     """Proteome Discoverer: parse Annotated Sequence notation from .pep.var."""
     pep_id = pdata.pep.var_names[0]
@@ -1027,6 +1035,19 @@ def test_get_peptide_properties_count_amino_acids_dict(pdata):
     counts = df.iloc[0]["aa_counts"]
     assert isinstance(counts, dict)
     assert sum(counts.values()) == len(df.iloc[0]["peptide_sequence"])
+
+
+def test_get_peptide_properties_length(pdata):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    df = utils.get_peptide_properties(
+        pdata,
+        properties=["length", "gravy"],
+        accessions=[acc],
+        return_copy=True,
+    )
+    assert "length" in df.columns
+    assert (df["length"] == df["peptide_sequence"].str.len()).all()
+    assert df["gravy"].notna().any()
 
 def test_get_datetime_format():
     from scpviz.setup import get_datetime
