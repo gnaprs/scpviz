@@ -139,7 +139,7 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
         def format_enrichments(stats):
             functional = stats.get("functional", {})
             ppi_keys = stats.get("ppi", {})
-            de_keys = {k for k in stats if "vs" in k and not k.endswith(("_up", "_down"))}
+            de_keys = {k for k in stats if "vs" in k and not k.endswith(("_up", "_down", "_both"))}
 
             enriched_de = {
                 meta.get("input_key", k)

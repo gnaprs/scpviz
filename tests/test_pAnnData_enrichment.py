@@ -159,6 +159,7 @@ def test_user_supplied_functional(mock_post, pdata):
     assert isinstance(meta, dict)
     assert "result" in meta
     assert isinstance(meta["result"], pd.DataFrame)
+    assert any("STRING functional enrichment" in entry and "TestUserSearch" in entry for entry in pdata._history)
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
 @pytest.mark.filterwarnings("ignore::UserWarning")
@@ -173,13 +174,51 @@ def test_de_based_functional(mock_post, pdata_with_de):
     mock_string_responses(mock_post, mock_mapping_response, mock_enrichment_response, total_pairs=6)
     inject_mock_de_genes(pdata_with_de, resolved_key, up_gene="P55072", down_gene="NPLOC4")
 
-    enrichment_functional(pdata_with_de, from_de=True, de_key=resolved_key, store_key="TestDE")
+    prev_history = len(pdata_with_de._history)
+    out = enrichment_functional(pdata_with_de, from_de=True, de_key=resolved_key, store_key="TestDE")
 
-    for suffix in ["up", "down"]:
+    assert isinstance(out, dict)
+    assert set(out) == {"up", "down", "both"}
+    for suffix in ["up", "down", "both"]:
         pretty_key = f"{_pretty_vs_key(resolved_key)}_{suffix}"
         assert pretty_key in pdata_with_de.stats["functional"]
         assert "result" in pdata_with_de.stats["functional"][pretty_key]
         assert isinstance(pdata_with_de.stats["functional"][pretty_key]["result"], pd.DataFrame)
+        assert isinstance(out[suffix], pd.DataFrame)
+    both_ids = pdata_with_de.stats["functional"][f"{_pretty_vs_key(resolved_key)}_both"]["string_ids"]
+    up_ids = pdata_with_de.stats["functional"][f"{_pretty_vs_key(resolved_key)}_up"]["string_ids"]
+    down_ids = pdata_with_de.stats["functional"][f"{_pretty_vs_key(resolved_key)}_down"]["string_ids"]
+    assert set(up_ids).issubset(set(both_ids))
+    assert set(down_ids).issubset(set(both_ids))
+    assert len(pdata_with_de._history) == prev_history + 1
+    assert "STRING functional enrichment" in pdata_with_de._history[-1]
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+@pytest.mark.filterwarnings("ignore::UserWarning")
+@patch("scpviz.enrichment.requests.post")
+def test_de_based_functional_direction_subset(mock_post, pdata_with_de):
+    stored = "[{'cellline': 'BE', 'treatment': 'kd'}] vs [{'cellline': 'BE', 'treatment': 'sc'}]"
+    mock_string_responses(mock_post, mock_mapping_response, mock_enrichment_response)
+    inject_mock_de_genes(pdata_with_de, stored, up_gene="P55072", down_gene="NPLOC4")
+
+    out = enrichment_functional(pdata_with_de, from_de=True, de_key=stored, direction="up")
+    pretty = _pretty_vs_key(stored)
+    assert set(out) == {"up"}
+    assert f"{pretty}_up" in pdata_with_de.stats["functional"]
+    assert f"{pretty}_down" not in pdata_with_de.stats["functional"]
+    assert f"{pretty}_both" not in pdata_with_de.stats["functional"]
+
+    out_both = enrichment_functional(pdata_with_de, from_de=True, de_key=stored, direction=("both",))
+    assert set(out_both) == {"both"}
+    assert f"{pretty}_both" in pdata_with_de.stats["functional"]
+
+
+def test_enrichment_functional_invalid_direction(pdata_with_de):
+    stored = "[{'cellline': 'BE', 'treatment': 'kd'}] vs [{'cellline': 'BE', 'treatment': 'sc'}]"
+    with pytest.raises(ValueError, match="subset of"):
+        pdata_with_de.enrichment_functional(from_de=True, de_key=stored, direction="sideways")
+    with pytest.raises(ValueError, match="subset of"):
+        pdata_with_de.enrichment_functional(from_de=True, de_key=stored, direction=())
 
 
 def _plant_ranked_de(pdata, stored, n_up=5, n_down=4):
@@ -223,6 +262,7 @@ def test_enrichment_functional_default_sends_all_de_genes(monkeypatch, pdata_wit
     pdata_with_de.enrichment_functional(from_de=True, de_key=stored)
     assert set(seen[0]) == set(up_ids)
     assert set(seen[1]) == set(down_ids)
+    assert set(seen[2]) == set(up_ids) | set(down_ids)
 
 
 def test_enrichment_functional_top_n_ranks_by_score(monkeypatch, pdata_with_de):
@@ -245,7 +285,9 @@ def test_enrichment_functional_top_n_ranks_by_score(monkeypatch, pdata_with_de):
     mock_post.return_value.json.return_value = mock_enrichment_response
     monkeypatch.setattr("scpviz.enrichment.requests.post", mock_post)
 
-    pdata_with_de.enrichment_functional(from_de=True, de_key=stored, top_n=2)
+    pdata_with_de.enrichment_functional(
+        from_de=True, de_key=stored, top_n=2, direction=("up", "down")
+    )
     assert set(seen[0]) == {up_ids[-1], up_ids[-2]}
     assert set(seen[1]) == {down_ids[-1], down_ids[-2]}
 
@@ -279,10 +321,19 @@ def test_resolve_de_key_finds_pretty_match():
     # Legacy stored keys (dict repr) still match pretty user lookups
     keys = {
         "[{'cellline': 'AS', 'treatment': 'kd'}] vs [{'cellline': 'AS', 'treatment': 'sc'}]_up": "...",
-        "[{'cellline': 'AS', 'treatment': 'kd'}] vs [{'cellline': 'AS', 'treatment': 'sc'}]_down": "..."
+        "[{'cellline': 'AS', 'treatment': 'kd'}] vs [{'cellline': 'AS', 'treatment': 'sc'}]_down": "...",
+        "[{'cellline': 'AS', 'treatment': 'kd'}] vs [{'cellline': 'AS', 'treatment': 'sc'}]_both": "...",
     }
     resolved = _resolve_de_key(keys, "AS_kd vs AS_sc_up")
     assert resolved in keys
+    assert _resolve_de_key(keys, "AS_kd vs AS_sc_both") in keys
+
+def test_resolve_de_key_pretty_lookup_against_dict_repr():
+    """de() stores dict-repr; pretty and dict-repr lookups both resolve."""
+    stored = "[{'cellline': 'BE', 'treatment': 'kd'}] vs [{'cellline': 'BE', 'treatment': 'sc'}]"
+    keys = {stored: "..."}
+    assert _resolve_de_key(keys, stored) == stored
+    assert _resolve_de_key(keys, "BE_kd vs BE_sc") == stored
 
 def test_resolve_de_key_pretty_stored_keys_still_match():
     """Older value-join stored keys still resolve from dict-repr user input."""
@@ -583,6 +634,16 @@ def test_plot_enrichment_svg_direction_error(mock_get, pdata):
         pdata.plot_enrichment_svg("A_vs_B")
 
 @patch("scpviz.enrichment.requests.get")
+@patch("scpviz.enrichment.requests.get")
+def test_plot_enrichment_svg_both_direction(mock_get, pdata, tmp_path):
+    pdata.stats["functional"] = {"A vs B_both": {"string_ids": ["S1"], "species": "9606"}}
+    resp = Mock(status_code=200, content=b"<svg></svg>")
+    resp.raise_for_status = Mock()
+    mock_get.return_value = resp
+    tmpfile = tmp_path / "both.svg"
+    pdata.plot_enrichment_svg("A vs B", direction="both", save_as=str(tmpfile))
+    assert tmpfile.exists()
+
 def test_plot_enrichment_svg_fetch_and_save(mock_get, pdata, tmp_path):
     pdata.stats["functional"] = {"UserSearch1": {"string_ids": ["S1"], "species": "9606"}}
 

@@ -11,6 +11,9 @@ import os
 from scpviz.utils import format_log_prefix, get_uniprot_fields
 import scpviz.utils as utils
 
+_DE_DIRECTIONS = ("up", "down", "both")
+_DE_DIRECTION_SUFFIXES = tuple(f"_{d}" for d in _DE_DIRECTIONS)
+
 class EnrichmentMixin:
     """
     Provides methods for STRING-based functional and protein–protein interaction (PPI) enrichment.
@@ -327,6 +330,7 @@ class EnrichmentMixin:
         store_key=None,
         species=None,
         background=None,
+        direction=("up", "down", "both"),
         debug=False,
         **kwargs
     ):
@@ -353,13 +357,18 @@ class EnrichmentMixin:
 
                 - If `"all_quantified"`, uses non-significant proteins from DE or all other quantified proteins.
                 - If a list, must contain valid gene names or accessions.
+            direction (str or iterable of str): DE directions to query when `from_de=True`.
+                Each value must be `"up"`, `"down"`, or `"both"`. Default runs all three.
+                `"both"` is the union of the up and down gene lists (truncated to `top_n`
+                per tail only when `top_n` is set). Ignored when `from_de=False`.
             debug (bool): If True, prints API request info and diagnostic messages.
             **kwargs: Additional keyword arguments passed to the STRING enrichment API.
 
         Returns:
             dict or pd.DataFrame:
 
-                - If `from_de=True`, returns a dictionary of enrichment DataFrames for "up" and "down" gene sets.
+                - If `from_de=True`, returns a dictionary of enrichment DataFrames keyed by
+                  each completed direction (`"up"`, `"down"`, `"both"`).
                 - If `genes` is provided, returns a single enrichment DataFrame.
 
         Example:
@@ -406,6 +415,20 @@ class EnrichmentMixin:
             self.stats["functional"] = {}
 
         if genes is None and from_de:
+            if isinstance(direction, str):
+                requested = (direction,)
+            else:
+                try:
+                    requested = tuple(direction)
+                except TypeError as exc:
+                    raise ValueError(
+                        "`direction` must be one of {'up', 'down', 'both'} or an iterable of those."
+                    ) from exc
+            invalid = [d for d in requested if d not in _DE_DIRECTIONS]
+            if invalid or not requested:
+                raise ValueError("`direction` must be a non-empty subset of {'up', 'down', 'both'}.")
+            directions = tuple(d for d in _DE_DIRECTIONS if d in requested)
+
             resolved_key = _resolve_de_key(self.stats, de_key)
             de_df = self.stats[resolved_key]
             print(f"{format_log_prefix('user')} Running STRING enrichment [DE-based: {resolved_key}]")
@@ -434,6 +457,21 @@ class EnrichmentMixin:
 
             up_accs, up_unresolved = self.resolve_to_accessions(up_genes)
             down_accs, down_unresolved = self.resolve_to_accessions(down_genes)
+            accs_by_label = {
+                "up": up_accs,
+                "down": down_accs,
+                "both": list(dict.fromkeys(up_accs + down_accs)),
+            }
+            unresolved_by_label = {
+                "up": up_unresolved,
+                "down": down_unresolved,
+                "both": list(dict.fromkeys(up_unresolved + down_unresolved)),
+            }
+            titles = {
+                "up": "Up-regulated proteins",
+                "down": "Down-regulated proteins",
+                "both": "Up- and down-regulated proteins",
+            }
 
             background_accs = None
             background_string_ids = None
@@ -450,18 +488,20 @@ class EnrichmentMixin:
                 print(f"{format_log_prefix('warn')} Ignoring `store_key` for DE-based enrichment. Using auto-generated pretty keys.")
 
             results = {}
-            for label, accs in zip(["up", "down"], [up_accs, down_accs]):
-                print(f"\n🔹 {label.capitalize()}-regulated proteins")
+            pretty_base = _pretty_vs_key(resolved_key)
+            for label in directions:
+                accs = accs_by_label[label]
+                print(f"\n🔹 {titles[label]}")
                 t0 = time.time()
 
                 if not accs:
-                    print(f"{format_log_prefix('warn')} No {label}-regulated proteins to analyze.")
+                    print(f"{format_log_prefix('warn')} No proteins to analyze for direction='{label}'.")
                     continue
 
                 mapping_df = self.get_string_mappings(accs, debug=debug)
                 mapping_df = mapping_df[mapping_df["string_identifier"].notna()]
                 if mapping_df.empty:
-                    print(f"{format_log_prefix('warn')} No valid STRING mappings found for {label}-regulated proteins.")
+                    print(f"{format_log_prefix('warn')} No valid STRING mappings found for direction='{label}'.")
                     continue
 
                 string_ids = mapping_df["string_identifier"].tolist()
@@ -476,16 +516,11 @@ class EnrichmentMixin:
 
                 print(f"   🔸 Proteins: {len(accs)} → STRING IDs: {len(string_ids)}")
                 print(f"   🔸 Species: {species_id} | Background: {'None' if background_string_ids is None else 'custom'}")
-                if label == "up":
-                    if up_unresolved:
-                        print(f"{format_log_prefix('warn',2)} Some accessions unresolved for {label}-regulated proteins: {', '.join(up_unresolved)}")
-                else:
-                    if down_unresolved:
-                        print(f"{format_log_prefix('warn',2)} Some accessions unresolved for {label}-regulated proteins: {', '.join(down_unresolved)}")
+                unresolved = unresolved_by_label[label]
+                if unresolved:
+                    print(f"{format_log_prefix('warn',2)} Some accessions unresolved for direction='{label}': {', '.join(unresolved)}")
 
                 enrichment_df = query_functional_enrichment(string_ids, species_id, background_string_ids, debug=debug)
-                enrich_key = f"{resolved_key}_{label}"
-                pretty_base = _pretty_vs_key(resolved_key)
                 pretty_key = f"{pretty_base}_{label}"
                 string_url = self.get_string_network_link(string_ids=string_ids, species=species_id)
 
@@ -504,6 +539,13 @@ class EnrichmentMixin:
                 print(f"   • View online  : {string_url}\n")
 
                 results[label] = enrichment_df
+
+            if results:
+                self._append_history(  # type: ignore[attr-defined], HistoryMixin
+                    f"prot: STRING functional enrichment [DE: {pretty_base}; "
+                    f"direction={','.join(results)}]. Stored in .stats['functional']."
+                )
+            return results
 
         elif genes is not None:
             t0 = time.time()
@@ -563,6 +605,10 @@ class EnrichmentMixin:
             print(f"   • Plot command : pdata.plot_enrichment_svg(\"{store_key}\")")
             print(f"   • View online  : {string_url}\n")
 
+            self._append_history(  # type: ignore[attr-defined], HistoryMixin
+                f"prot: STRING functional enrichment [user-supplied: {store_key}]. "
+                f"Stored in .stats['functional']['{store_key}']."
+            )
             return enrichment_df
 
         else:
@@ -823,7 +869,7 @@ class EnrichmentMixin:
 
         functional = self.stats.get("functional", {})
         ppi_keys = self.stats.get("ppi", {}).keys()
-        de_keys = {k for k in self.stats if "vs" in k and not k.endswith(("_up", "_down"))}
+        de_keys = {k for k in self.stats if "vs" in k and not k.endswith(_DE_DIRECTION_SUFFIXES)}
 
         # Collect enriched DE keys based on input_key metadata
         enriched_de = set()
@@ -895,8 +941,8 @@ class EnrichmentMixin:
         Args:
             key (str): Enrichment result key from `.stats["functional"]`. For DE-based comparisons, this 
                 includes both contrast and direction (e.g., `"GroupA_Treatment1_vs_Control_up"`).
-            direction (str, optional): Direction of DE result, either `"up"` or `"down"`. Use `None` for 
-                user-defined gene lists.
+            direction (str, optional): Direction of DE result: `"up"`, `"down"`, or `"both"`.
+                Use `None` for user-defined gene lists.
             category (str, optional): STRING enrichment category to filter by (e.g., `"Process"`, `"KEGG"`). See the table in the below note for options.
             save_as (str, optional): If provided, saves the retrieved SVG to the given file path.
 
@@ -950,8 +996,8 @@ class EnrichmentMixin:
 
         # Handle DE-type key
         if "vs" in key:
-            if direction not in {"up", "down"}:
-                raise ValueError("You must specify direction='up' or 'down' for DE-based enrichment keys.")
+            if direction not in _DE_DIRECTIONS:
+                raise ValueError("You must specify direction='up', 'down', or 'both' for DE-based enrichment keys.")
             lookup_key = _resolve_de_key(self.stats["functional"], f"{key}_{direction}")
         else:
             # Handle user-supplied key (e.g. "userSearch1")
@@ -1077,7 +1123,7 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
 
     This function matches a flexible, human-readable DE key against the internal keys
     stored in the DE results dictionary. It supports both raw and pretty-formatted keys,
-    and can handle suffixes like `_up` or `_down` for directional analysis.
+    and can handle suffixes like `_up`, `_down`, or `_both` for directional analysis.
 
     Args:
         stats_dict (dict): Dictionary of DE results (typically `pdata.stats["de_results"]`).
@@ -1095,8 +1141,8 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
 
     # Extract suffix
     suffix = ""
-    if user_key.endswith("_up") or user_key.endswith("_down"):
-        user_key, suffix = re.match(r"(.+)(_up|_down)", user_key).groups()
+    if user_key.endswith(_DE_DIRECTION_SUFFIXES):
+        user_key, suffix = re.match(r"(.+)(_up|_down|_both)", user_key).groups()
         print(f"[DEBUG] Split into base='{user_key}', suffix='{suffix}'") if debug else None
 
     # Build pretty key mapping
@@ -1105,7 +1151,7 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
         if "vs" not in full_key:
             continue
 
-        if full_key.endswith("_up") or full_key.endswith("_down"):
+        if full_key.endswith(_DE_DIRECTION_SUFFIXES):
             base = full_key.rsplit("_", 1)[0]
             full_suffix = "_" + full_key.rsplit("_", 1)[1]
         else:
@@ -1120,9 +1166,8 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
     full_user_key = user_key + suffix
     print(f"[DEBUG] Full user key for lookup: '{full_user_key}'")  if debug else None
 
-    # Also try pretty-formatting the *user* key so legacy dict-style keys
-    # (e.g. "[{'cellline': 'BE'}] vs …") resolve against modern stats keys
-    # like "BE_kd vs BE_sc".
+    # Pretty-format the *user* key so short lookups ("BE_kd vs BE_sc") resolve
+    # against dict-repr de() keys, and vice versa.
     pretty_user_key = _pretty_vs_key(user_key) + suffix
     print(f"[DEBUG] Pretty user key for lookup: '{pretty_user_key}'") if debug else None
 
