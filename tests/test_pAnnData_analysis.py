@@ -43,6 +43,10 @@ def test_impute_mean_groupwise(pdata_preprocessing):
     assert np.isclose(imputed[2, 0], 1.5) # BE_kd3 missing P1 → (1 + 2) / 2 = 1.5
     assert np.isclose(imputed[3, 1], 500.0) # AS_sc1 missing P2 → (400 + 600) / 2 = 500
 
+def test_impute_groupwise_missing_classes_column(pdata_preprocessing):
+    with pytest.raises(KeyError, match="not found in .obs"):
+        pdata_preprocessing.impute(classes="nope", method="mean")
+
 def test_impute_median_groupwise(pdata_preprocessing):
     pdata = pdata_preprocessing
     pdata.impute(classes=["cellline", "treatment"], method="median")

@@ -53,7 +53,7 @@ Quick view of what to work on. Full tables below.
 | M | [ ] | enh-5 | Fuzzy match for get_abundance matches |
 | M | [ ] | enh-6 | Move Found In and Significant In from var/obs? Too many columns — or express more concisely (e.g. .obsm/.varm) |
 | L | [ ] | enh-7 | Add modification print for diann import |
-| L | [ ] | enh-8 | When impute errors on wrong obs column, pretty-format the error message |
+| L | [x] | enh-8 | When impute errors on wrong obs column, pretty-format the error message |
 
 ---
 

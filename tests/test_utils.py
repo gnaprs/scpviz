@@ -287,6 +287,11 @@ def test_get_samplenames_multiple_columns(adata_example):
     ]
     assert result == expected
 
+@pytest.mark.parametrize("classes", ["nope", ["cellline", "nope"]])
+def test_get_samplenames_missing_column_raises_keyerror(adata_example, classes):
+    with pytest.raises(KeyError, match="not found in .obs"):
+        utils.get_samplenames(adata_example, classes)
+
 def test_get_samplenames_none_returns_none(adata_example):
     """Return None if classes=None."""
     result = utils.get_samplenames(adata_example, None)

@@ -107,6 +107,10 @@ def get_samplenames(
     Returns:
         sample_names (list of str): Sample names dervied from `.obs`.
 
+    Raises:
+        KeyError: If any requested `classes` column is not in `adata.obs`.
+        ValueError: If `classes` is not None, a string, or a list of strings.
+
     Example:
         Get sample names from a single metadata column:
             ```python
@@ -123,7 +127,15 @@ def get_samplenames(
     """
     if classes is None:
         return None
-    elif isinstance(classes, str):
+    cols = [classes] if isinstance(classes, str) else classes
+    if isinstance(cols, list):
+        missing = [c for c in cols if c not in adata.obs.columns]
+        if missing:
+            raise KeyError(
+                f"{format_log_prefix('error', indent=1)} classes column(s) {missing} not found in .obs. "
+                f"Available columns: {list(adata.obs.columns)}"
+            )
+    if isinstance(classes, str):
         return adata.obs[classes].values.tolist()
     elif isinstance(classes, list):
         return adata.obs[classes].apply(lambda row: ', '.join(row.values.astype(str)), axis=1).values.tolist()
