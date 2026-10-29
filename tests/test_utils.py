@@ -684,10 +684,13 @@ def test_get_upset_query_fetch_false_requires_pdata(monkeypatch):
 # test de_reporting helpers
 from scpviz.utils import de_reporting
 
-def test_format_de_group_label_unwraps_single_dict_list():
-    assert de_reporting.format_de_group_label([{"region": "Cortex"}]) == "Cortex"
+def test_format_de_group_label_default_is_dict_repr_list():
+    assert de_reporting.format_de_group_label({"region": "Cortex"}) == "[{'region': 'Cortex'}]"
     assert de_reporting.format_de_group_label(
-        {"cellline": "BE", "treatment": "kd"}
+        [{"cellline": "BE", "treatment": "kd"}]
+    ) == "[{'cellline': 'BE', 'treatment': 'kd'}]"
+    assert de_reporting.format_de_group_label(
+        {"cellline": "BE", "treatment": "kd"}, style="values"
     ) == "BE_kd"
     assert de_reporting.format_de_group_label(
         {"cellline": "BE", "treatment": "kd"}, style="slash"
@@ -696,7 +699,17 @@ def test_format_de_group_label_unwraps_single_dict_list():
 def test_format_de_comparison_label():
     assert de_reporting.format_de_comparison_label(
         {"region": "Cortex"}, {"region": "SNpc"}
+    ) == "[{'region': 'Cortex'}] vs [{'region': 'SNpc'}]"
+    assert de_reporting.format_de_comparison_label(
+        {"region": "Cortex"}, {"region": "SNpc"}, style="values"
     ) == "Cortex vs SNpc"
+
+def test_format_parsed_group_label_unwraps_dict_repr():
+    assert de_reporting.format_parsed_group_label("[{'region': 'Cortex'}]") == "Cortex"
+    assert de_reporting.format_parsed_group_label("Cortex") == "Cortex"
+    assert de_reporting.format_parsed_group_label(
+        "[{'cellline': 'BE', 'treatment': 'kd'}]"
+    ) == "BE/kd"
 
 def test_parse_contrast_label():
     assert de_reporting.parse_contrast_label("Cortex vs SNpc") == ("Cortex", "SNpc")
@@ -726,8 +739,8 @@ def test_de_adata_passes_on_valid_inputs(pdata, fold_change_mode, test):
     assert "p_value" in df.columns
     assert "adj_p_value" not in df.columns
     assert "log2fc" in df.columns
-    assert "BE_kd" in df.columns
-    assert "AS_sc" in df.columns
+    assert "[{'cellline': 'BE', 'treatment': 'kd'}]" in df.columns
+    assert "[{'cellline': 'AS', 'treatment': 'sc'}]" in df.columns
 
 def test_de_adata_raises_on_invalid_foldchange(pdata):
     with pytest.raises(ValueError, match="Unsupported fold_change_mode"):

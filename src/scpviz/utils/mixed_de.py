@@ -95,7 +95,8 @@ def resolve_values_sugar(
     """Infer group_col, contrast, and subset extensions from two-group values dicts.
 
     When ``contrast`` is omitted, ordering matches :meth:`de` ``values`` sugar:
-    label ``{group1} vs {group2}`` and log2fc = group1 - group2 on log scale.
+    dict-repr label ``[{group1}] vs [{group2}]`` and log2fc = group1 - group2
+    on log scale.
     """
     if not isinstance(values, list) or len(values) != 2:
         raise ValueError("`values` must be a list of exactly two group dictionaries.")
@@ -608,12 +609,10 @@ def format_group_sizes(
     """Observation counts per compared group (after ``subset`` and contrast filtering)."""
     col = meta[group_col].astype(str)
     if contrast_mode == "specified" and contrasts:
-        label = contrasts[0][2]
-        parts = [p.strip() for p in label.split(" vs ", 1)]
-        if len(parts) == 2:
-            n0 = int((col == parts[0]).sum())
-            n1 = int((col == parts[1]).sum())
-            return f"{n0} vs {n1} samples"
+        test, ref, _label = contrasts[0]
+        n0 = int((col == str(test)).sum())
+        n1 = int((col == str(ref)).sum())
+        return f"{n0} vs {n1} samples"
     if values is not None and contrast_mode == "specified":
         counts = []
         for val in values:
@@ -1154,20 +1153,30 @@ def build_stats_key(
     contrast_mode: ContrastMode,
     group_col: str,
 ) -> str:
+    """Build the ``pdata.stats`` key for a mixed_de run.
+
+    Specified contrasts use dict-repr labels
+    (``mixed: [{'region': 'Cortex'}] vs [{'region': 'SNpc'}] | donor=...``).
+    Pairwise / one_vs_rest collections keep the mode name
+    (``mixed: pairwise | group_col=... | donor=...``). A subset is appended as
+    ``filter: [{...}]``.
+    """
+    filter_tag = f"filter: {repr([dict(subset)])}" if subset else None
     if contrast_mode != "specified":
-        subset_tag = " | ".join(f"{k}={v}" for k, v in (subset or {}).items())
-        base = f"mixed: {contrast_mode} | group_col={group_col}"
-        return f"{base} | {subset_tag}" if subset_tag else base
-    subset_tag = " | ".join(f"{k}={v}" for k, v in (subset or {}).items())
+        parts = [f"mixed: {contrast_mode}", f"group_col={group_col}"]
+        if filter_tag:
+            parts.append(filter_tag)
+        parts.append(f"donor={donor_col}")
+        return " | ".join(parts)
     parts = [f"mixed: {contrast_label}"]
-    if subset_tag:
-        parts.append(subset_tag)
+    if filter_tag:
+        parts.append(filter_tag)
     parts.append(f"donor={donor_col}")
     return " | ".join(parts)
 
-def contrast_label_from_pair(test: str, ref: str) -> str:
-    """Return ``'{test} vs {ref}'`` label (log2fc = test − ref)."""
-    return f"{test} vs {ref}"
+def contrast_label_from_pair(test: str, ref: str, *, group_col: str) -> str:
+    """Return dict-repr ``'[{group_col: test}] vs [{group_col: ref}]'`` (log2fc = test − ref)."""
+    return format_de_comparison_label({group_col: test}, {group_col: ref})
 
 def list_contrasts_for_mode(
     levels: list[str],
@@ -1175,17 +1184,19 @@ def list_contrasts_for_mode(
     contrast_mode: ContrastMode,
     contrast: tuple[str, str] | None,
     focal_level: str | None,
+    group_col: str,
 ) -> list[tuple[str, str, str]]:
     """Return list of ``(test, ref, label)`` contrasts to run.
 
     Public ``contrast`` is ``(test, ref)`` — same order as ``values=[group1, group2]``
     and DESeq2-style numerator/denominator (log2fc = test − ref).
+    Labels use dict-repr (``[{'region': 'Cortex'}] vs [{'region': 'SNpc'}]``).
     """
     if contrast_mode == "specified":
         if contrast is None:
             raise ValueError("`contrast` is required when contrast_mode='specified'.")
         test, ref = contrast
-        return [(test, ref, contrast_label_from_pair(test, ref))]
+        return [(test, ref, contrast_label_from_pair(test, ref, group_col=group_col))]
 
     if contrast_mode == "one_vs_rest":
         if focal_level is None:
@@ -1195,14 +1206,16 @@ def list_contrasts_for_mode(
             if lv == focal_level:
                 continue
             # test=focal, ref=other
-            out.append((focal_level, lv, contrast_label_from_pair(focal_level, lv)))
+            out.append(
+                (focal_level, lv, contrast_label_from_pair(focal_level, lv, group_col=group_col))
+            )
         return out
 
     # pairwise: alphabetical earlier level as ref, later as test
     out = []
     for i, ref in enumerate(levels):
         for test in levels[i + 1 :]:
-            out.append((test, ref, contrast_label_from_pair(test, ref)))
+            out.append((test, ref, contrast_label_from_pair(test, ref, group_col=group_col)))
     return out
 
 def compile_volcano_dataframe(

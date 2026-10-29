@@ -164,13 +164,11 @@ def test_user_supplied_functional(mock_post, pdata):
 @pytest.mark.filterwarnings("ignore::UserWarning")
 @patch("scpviz.enrichment.requests.post")
 def test_de_based_functional(mock_post, pdata_with_de):
-    # Modern de() stats keys use value joins (BE_kd vs BE_sc); legacy dict-style
-    # keys still resolve via _pretty_vs_key / _resolve_de_key.
-    de_key = "BE_kd vs BE_sc"
-    resolved_key = _resolve_de_key(pdata_with_de.stats, de_key)
-    assert resolved_key == "BE_kd vs BE_sc"
-    legacy = "[{'cellline': 'BE', 'treatment': 'kd'}] vs [{'cellline': 'BE', 'treatment': 'sc'}]"
-    assert _resolve_de_key(pdata_with_de.stats, legacy) == resolved_key
+    # de() stores dict-repr keys; pretty lookups (BE_kd vs BE_sc) still resolve.
+    stored = "[{'cellline': 'BE', 'treatment': 'kd'}] vs [{'cellline': 'BE', 'treatment': 'sc'}]"
+    resolved_key = _resolve_de_key(pdata_with_de.stats, stored)
+    assert resolved_key == stored
+    assert _resolve_de_key(pdata_with_de.stats, "BE_kd vs BE_sc") == stored
 
     mock_string_responses(mock_post, mock_mapping_response, mock_enrichment_response, total_pairs=6)
     inject_mock_de_genes(pdata_with_de, resolved_key, up_gene="P55072", down_gene="NPLOC4")
@@ -286,8 +284,8 @@ def test_resolve_de_key_finds_pretty_match():
     resolved = _resolve_de_key(keys, "AS_kd vs AS_sc_up")
     assert resolved in keys
 
-def test_resolve_de_key_modern_stats_key():
-    """Current de() stores 'BE_kd vs BE_sc'; resolve both modern and legacy forms."""
+def test_resolve_de_key_pretty_stored_keys_still_match():
+    """Older value-join stored keys still resolve from dict-repr user input."""
     keys = {"BE_kd vs BE_sc": "..."}
     assert _resolve_de_key(keys, "BE_kd vs BE_sc") == "BE_kd vs BE_sc"
     legacy = "[{'cellline': 'BE', 'treatment': 'kd'}] vs [{'cellline': 'BE', 'treatment': 'sc'}]"

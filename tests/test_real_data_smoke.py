@@ -90,9 +90,13 @@ def test_pd_de_cellline_values(pdata_pd_sample_column):
         values=[{"cellline": "BE"}, {"cellline": "AS"}],
         fold_change_mode="mean",
     )
+    key = "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]"
     assert "log2fc" in df.columns
     assert "p_value" in df.columns
     assert np.isfinite(df["p_value"]).any()
+    assert key in pdata_pd_sample_column.stats
+    assert "[{'cellline': 'BE'}]" in df.columns
+    assert "[{'cellline': 'AS'}]" in df.columns
 
 
 def test_pd_de_correct_fdr(pdata_pd_sample_column):
@@ -104,6 +108,7 @@ def test_pd_de_correct_fdr(pdata_pd_sample_column):
     )
     assert "adj_p_value" in df.columns
     assert np.isfinite(df["adj_p_value"]).any()
+    assert "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in pdata_pd_sample_column.stats
 
 
 def test_pd_mixed_de_cellline_explicit_contrast(pdata_pd_sample_column):
@@ -116,6 +121,7 @@ def test_pd_mixed_de_cellline_explicit_contrast(pdata_pd_sample_column):
         store=False,
     )
     assert np.isfinite(df["p_value"]).any()
+    assert df["contrast"].iloc[0] == "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]"
 
 
 def test_pd_mixed_de_values_sugar_stores_stats_key(pdata_pd_sample_column):
@@ -127,9 +133,9 @@ def test_pd_mixed_de_values_sugar_stores_stats_key(pdata_pd_sample_column):
         **_MIXED_DE_KW,
     )
     keys = [k for k in pdata_pd_sample_column.stats if k.startswith("mixed:")]
-    assert any("BE vs AS" in k or "AS vs BE" in k for k in keys)
-    key = next(k for k in keys if "donor=treatment" in k)
-    assert "log2fc" in pdata_pd_sample_column.stats[key].columns
+    expected = "mixed: [{'cellline': 'BE'}] vs [{'cellline': 'AS'}] | donor=treatment"
+    assert expected in keys
+    assert "log2fc" in pdata_pd_sample_column.stats[expected].columns
 
 
 def test_pd_mixed_de_plot_volcano_stats_key(pdata_pd_sample_column):
@@ -260,6 +266,7 @@ def test_diann_de_gradient_legacy_values(pdata_diann):
         fold_change_mode="mean",
     )
     assert np.isfinite(df["p_value"]).any()
+    assert "[{'gradient': '30min'}] vs [{'gradient': '60min'}]" in pdata_diann.stats
 
 
 def test_diann_de_values_correct_fdr(pdata_diann):
@@ -271,6 +278,9 @@ def test_diann_de_values_correct_fdr(pdata_diann):
     )
     assert "adj_p_value" in df.columns
     assert np.isfinite(df["adj_p_value"]).any()
+    key = "[{'gradient': '30min'}] vs [{'gradient': '60min'}]"
+    assert key in pdata_diann.stats
+    assert "[{'gradient': '30min'}]" in df.columns
 
 
 def test_diann_mixed_de_gradient_replicate(pdata_diann):
@@ -293,9 +303,12 @@ def test_diann_mixed_de_values_sugar(pdata_diann):
         values=[{"gradient": "30min"}, {"gradient": "60min"}],
         donor_col="replicate",
         **_MIXED_DE_KW,
-        store=False,
+        store=True,
     )
-    assert df["contrast"].iloc[0] == "30min vs 60min"
+    assert df["contrast"].iloc[0] == "[{'gradient': '30min'}] vs [{'gradient': '60min'}]"
+    expected = "mixed: [{'gradient': '30min'}] vs [{'gradient': '60min'}] | donor=replicate"
+    assert expected in pdata_diann.stats
+    assert "log2fc" in pdata_diann.stats[expected].columns
 
 
 def test_diann_mixed_de_resolve_obs_meta_matches_obs(pdata_diann):

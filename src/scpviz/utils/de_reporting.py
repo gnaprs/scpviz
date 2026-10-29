@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from typing import Any, Literal
 
 import pandas as pd
@@ -24,13 +25,28 @@ def format_de_group_label(
     group: dict[str, Any] | list[Any] | Any,
     *,
     class_type: str | list[str] | None = None,
-    style: GroupLabelStyle = "values",
+    style: GroupLabelStyle = "repr",
 ) -> str:
-    """Format a single DE group for logs, stats keys, or volcano annotations."""
+    """Format a single DE group for logs, stats keys, or volcano annotations.
+
+    Args:
+        group: Group filter dict, ``[dict]`` list, or legacy value list.
+        class_type: Legacy class names, used only for ``values`` / ``slash`` /
+            ``underscore`` styles.
+        style: ``repr`` (default; dicts stored as ``[{'region': 'Cortex'}]``),
+            ``slash``, ``values``, or ``underscore``.
+
+    Returns:
+        Label string for a stats key, mean column, or plot annotation.
+    """
+    if style == "repr":
+        if isinstance(group, dict):
+            return repr([group])
+        if isinstance(group, list):
+            return repr(group)
+        return str(group)
     group = _normalize_group_def(group)
     if isinstance(group, dict):
-        if style == "repr":
-            return repr(group)
         sep = "/" if style == "slash" else "_"
         return sep.join(str(v) for v in group.values())
     if isinstance(group, list) and isinstance(class_type, list) and len(group) == len(class_type):
@@ -44,7 +60,7 @@ def format_de_comparison_label(
     group2: dict[str, Any] | list[Any] | Any,
     *,
     class_type: str | list[str] | None = None,
-    style: GroupLabelStyle = "values",
+    style: GroupLabelStyle = "repr",
 ) -> str:
     """Return ``'{group1} vs {group2}'`` contrast text for stats keys and logs."""
     g1 = format_de_group_label(group1, class_type=class_type, style=style)
@@ -61,6 +77,25 @@ def parse_contrast_label(text: str) -> tuple[str, str] | None:
     if not left or not right:
         return None
     return left, right
+
+
+def format_parsed_group_label(token: str, *, style: GroupLabelStyle = "slash") -> str:
+    """Pretty-print one side of a stored contrast label for volcano annotations.
+
+    Args:
+        token: One side of a ``'{group1} vs {group2}'`` label.
+        style: Display style after unwrapping dict-repr tokens.
+
+    Returns:
+        Slash/values label for dict-repr tokens, otherwise ``token`` unchanged.
+    """
+    try:
+        obj = ast.literal_eval(token)
+    except (ValueError, SyntaxError):
+        return token
+    if isinstance(obj, (dict, list)):
+        return format_de_group_label(obj, style=style)
+    return token
 
 
 def print_de_threshold_line(

@@ -474,10 +474,11 @@ class AnalysisMixin:
                 ``contrast_term``).
             values (list of dict, optional): Two-group sugar (simple path), same style
                 as :meth:`de`. Order is ``[group1, group2]`` → stats key
-                ``mixed: {group1} vs {group2} | ...`` and log2fc = group1 - group2.
+                ``mixed: [{group1}] vs [{group2}] | ...`` and log2fc = group1 - group2.
                 Equivalent to ``contrast=(group1, group2)`` i.e. ``(test, ref)``.
             subset (dict, optional): AND-combined observation filters, e.g.
-                ``{"cell_type": "Astrocyte"}``.
+                ``{"cell_type": "Astrocyte"}``. Stored as ``filter: [{...}]`` on the
+                auto stats key.
             fixed_covariates (list of str, optional): Additive covariates (simple path).
             reference_levels (dict, optional): Reference level per categorical column.
             random_effects (str): ``"intercept"`` (default) or ``"intercept_slope"``.
@@ -543,7 +544,7 @@ class AnalysisMixin:
                     donor_col="animal",
                 )
                 # Auto stats key (also printed at end of run):
-                stats_key = "mixed: Cortex vs SNpc | donor=animal"
+                stats_key = "mixed: [{'region': 'Cortex'}] vs [{'region': 'SNpc'}] | donor=animal"
                 # volcano_df is the same table as pdata.stats[stats_key]
 
                 import matplotlib.pyplot as plt
@@ -621,7 +622,7 @@ class AnalysisMixin:
 
             Volcano from stored results (``de_data`` alternative):
                 ```python
-                stats_key = "mixed: Agg+ vs Agg- | cell_type=Astrocyte | donor=donor"
+                stats_key = "mixed: [{'condition': 'Agg+'}] vs [{'condition': 'Agg-'}] | filter: [{'cell_type': 'Astrocyte'}] | donor=donor"
                 scplt.plot_volcano(ax, pdata, stats_key=stats_key, correct_fdr=True)
                 # equivalent: scplt.plot_volcano(ax, de_data=pdata.stats[stats_key], correct_fdr=True)
                 ```
@@ -759,6 +760,7 @@ class AnalysisMixin:
             contrast_mode=contrast_mode,
             contrast=contrast,
             focal_level=focal_level,
+            group_col=resolved_contrast_term,
         )
 
         n_features_tested = int(detect_mask.sum())

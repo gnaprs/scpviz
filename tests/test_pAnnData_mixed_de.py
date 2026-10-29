@@ -9,6 +9,11 @@ from scipy.stats import ttest_ind
 
 from scpviz import pAnnData
 from scpviz.utils import mixed_de as mixed_de_utils
+from scpviz.utils.de_reporting import format_de_comparison_label
+
+
+def _vs(group_col: str, test: str, ref: str) -> str:
+    return format_de_comparison_label({group_col: test}, {group_col: ref})
 
 # Synthetic fixtures
 
@@ -758,7 +763,7 @@ def test_mixed_de_values_sugar_control_first_recovers_negative_shift(
         min_detected_fraction=0.05,
         min_cells_detected=2,
     )
-    assert df["contrast"].iloc[0] == "control vs disease"
+    assert df["contrast"].iloc[0] == _vs("condition", "control", "disease")
     assert df.attrs["mixed_de"]["contrast"] == ("control", "disease")
     assert df.loc[hit, "de_method"] == "mixedlm"
     assert df.loc[hit, "log2fc"] == pytest.approx(-shift, abs=0.8)
@@ -776,25 +781,25 @@ def test_mixed_de_adversarial_alpha_labels_all_call_styles():
         (
             {"values": [{"group": "zsample"}, {"group": "asample"}]},
             shift,
-            "zsample vs asample",
+            _vs("group", "zsample", "asample"),
             ("zsample", "asample"),
         ),
         (
             {"values": [{"group": "asample"}, {"group": "zsample"}]},
             -shift,
-            "asample vs zsample",
+            _vs("group", "asample", "zsample"),
             ("asample", "zsample"),
         ),
         (
             {"group_col": "group", "contrast": ("zsample", "asample")},
             shift,
-            "zsample vs asample",
+            _vs("group", "zsample", "asample"),
             ("zsample", "asample"),
         ),
         (
             {"group_col": "group", "contrast": ("asample", "zsample")},
             -shift,
-            "asample vs zsample",
+            _vs("group", "asample", "zsample"),
             ("asample", "zsample"),
         ),
     ]
@@ -830,9 +835,9 @@ def test_mixed_de_adversarial_alpha_pairwise_mixedlm():
     )
     # sorted(levels) → asample, msample, zsample
     expected = {
-        "msample vs asample": shifts["msample"] - shifts["asample"],
-        "zsample vs asample": shifts["zsample"] - shifts["asample"],
-        "zsample vs msample": shifts["zsample"] - shifts["msample"],
+        _vs("group", "msample", "asample"): shifts["msample"] - shifts["asample"],
+        _vs("group", "zsample", "asample"): shifts["zsample"] - shifts["asample"],
+        _vs("group", "zsample", "msample"): shifts["zsample"] - shifts["msample"],
     }
     assert set(coll["contrasts"]) == set(expected)
     for label, exp_fc in expected.items():
@@ -860,8 +865,8 @@ def test_mixed_de_adversarial_alpha_one_vs_rest_mixedlm_focal_baseline():
         min_cells_detected=1,
     )
     expected = {
-        "asample vs msample": shifts["asample"] - shifts["msample"],
-        "asample vs zsample": shifts["asample"] - shifts["zsample"],
+        _vs("group", "asample", "msample"): shifts["asample"] - shifts["msample"],
+        _vs("group", "asample", "zsample"): shifts["asample"] - shifts["zsample"],
     }
     assert set(coll["contrasts"]) == set(expected)
     for label, exp_fc in expected.items():
@@ -885,8 +890,8 @@ def test_mixed_de_adversarial_alpha_one_vs_rest_mixedlm_focal_last():
         min_cells_detected=1,
     )
     expected = {
-        "zsample vs asample": shifts["zsample"] - shifts["asample"],
-        "zsample vs msample": shifts["zsample"] - shifts["msample"],
+        _vs("group", "zsample", "asample"): shifts["zsample"] - shifts["asample"],
+        _vs("group", "zsample", "msample"): shifts["zsample"] - shifts["msample"],
     }
     assert set(coll["contrasts"]) == set(expected)
     for label, exp_fc in expected.items():
@@ -996,9 +1001,9 @@ def test_mixed_de_pairwise_k3_hand_computed_fcs():
     )
     assert len(coll["contrasts"]) == 3
     expected = {
-        "B vs A": shifts["B"] - shifts["A"],
-        "C vs A": shifts["C"] - shifts["A"],
-        "C vs B": shifts["C"] - shifts["B"],
+        _vs("group", "B", "A"): shifts["B"] - shifts["A"],
+        _vs("group", "C", "A"): shifts["C"] - shifts["A"],
+        _vs("group", "C", "B"): shifts["C"] - shifts["B"],
     }
     for label, exp_fc in expected.items():
         assert label in coll["contrasts"]
@@ -1016,12 +1021,12 @@ def test_mixed_de_one_vs_rest():
         min_detected_fraction=0.05,
         min_cells_detected=2,
     )
-    assert "B vs A" in coll["contrasts"]
-    assert "B vs C" in coll["contrasts"]
-    assert coll["contrasts"]["B vs A"].loc["P0", "log2fc"] == pytest.approx(
+    assert _vs("group", "B", "A") in coll["contrasts"]
+    assert _vs("group", "B", "C") in coll["contrasts"]
+    assert coll["contrasts"][_vs("group", "B", "A")].loc["P0", "log2fc"] == pytest.approx(
         shifts["B"] - shifts["A"], abs=0.35
     )
-    assert coll["contrasts"]["B vs C"].loc["P0", "log2fc"] == pytest.approx(
+    assert coll["contrasts"][_vs("group", "B", "C")].loc["P0", "log2fc"] == pytest.approx(
         shifts["B"] - shifts["C"], abs=0.35
     )
 
@@ -1245,7 +1250,7 @@ def test_format_comparing_groups_helpers():
             values=[{"region": "Cortex"}, {"region": "SNpc"}],
             focal_level=None,
         )
-        == "Cortex vs SNpc"
+        == _vs("region", "Cortex", "SNpc")
     )
     assert mixed_de_utils.format_comparing_groups(
         contrast_mode="pairwise",
@@ -1272,7 +1277,7 @@ def test_mixed_de_values_sugar(pdata_nested, pdata_nested_meta):
         observation_level="pseudobulk",
         store=False,
     )
-    assert df_pb["contrast"].iloc[0] == "disease vs control"
+    assert df_pb["contrast"].iloc[0] == _vs("condition", "disease", "control")
     assert df_pb.loc[hit, "log2fc"] == pytest.approx(shift, abs=0.8)
 
     df_lmm = pdata_nested.mixed_de(
@@ -1299,7 +1304,7 @@ def test_mixed_de_values_sugar_stats_key_order():
         min_cells_detected=1,
     )
     keys = [k for k in pdata.stats if k.startswith("mixed:")]
-    assert any(k.startswith("mixed: Cortex vs SNpc |") for k in keys)
+    assert any(k.startswith(f"mixed: {_vs('region', 'Cortex', 'SNpc')} |") for k in keys)
 
 def test_mixed_de_stores_stats_key(pdata_nested, capsys):
     pdata_nested.mixed_de(
@@ -1311,6 +1316,10 @@ def test_mixed_de_stores_stats_key(pdata_nested, capsys):
     )
     keys = [k for k in pdata_nested.stats if k.startswith("mixed:")]
     assert len(keys) == 1
+    assert keys[0] == (
+        f"mixed: {_vs('condition', 'disease', 'control')} | "
+        "filter: [{'cell_type': 'Astrocyte'}] | donor=donor"
+    )
     assert "contrast" in pdata_nested.stats[keys[0]].columns
     out = capsys.readouterr().out
     assert "Mixed DE complete" in out
@@ -1437,7 +1446,7 @@ def test_mixed_de_values_matches_de_volcano_convention(pdata_nested, pdata_neste
         min_cells_detected=2,
     )
     # de()-compatible: label and sign
-    assert df_values["contrast"].iloc[0] == "disease vs control"
+    assert df_values["contrast"].iloc[0] == _vs("condition", "disease", "control")
     assert df_values.attrs["mixed_de"]["contrast"] == ("disease", "control")  # (test, ref)
     assert df_values.loc[hit, "log2fc"] == pytest.approx(shift, abs=0.8)
 
@@ -1452,7 +1461,7 @@ def test_mixed_de_values_matches_de_volcano_convention(pdata_nested, pdata_neste
         min_detected_fraction=0.05,
         min_cells_detected=2,
     )
-    assert df_contrast["contrast"].iloc[0] == "disease vs control"
+    assert df_contrast["contrast"].iloc[0] == _vs("condition", "disease", "control")
     assert df_contrast.loc[hit, "log2fc"] == pytest.approx(df_values.loc[hit, "log2fc"], abs=1e-6)
 
     fig, ax = plt.subplots()
@@ -1474,8 +1483,45 @@ def test_resolve_values_sugar_order_matches_de():
     )
     assert group_col == "region"
     assert contrast == ("Cortex", "SNpc")  # (test, ref)
-    assert mixed_de_utils.contrast_label_from_pair(*contrast) == "Cortex vs SNpc"
+    assert mixed_de_utils.contrast_label_from_pair(*contrast, group_col=group_col) == _vs(
+        "region", "Cortex", "SNpc"
+    )
     assert subset is None
+
+
+def test_build_stats_key_dict_repr_filter_and_collection():
+    label = mixed_de_utils.contrast_label_from_pair("Cortex", "SNpc", group_col="region")
+    assert label == "[{'region': 'Cortex'}] vs [{'region': 'SNpc'}]"
+    specified = mixed_de_utils.build_stats_key(
+        contrast_label=label,
+        subset={"cell_type": "Astrocyte"},
+        donor_col="animal",
+        contrast_mode="specified",
+        group_col="region",
+    )
+    assert specified == (
+        "mixed: [{'region': 'Cortex'}] vs [{'region': 'SNpc'}] | "
+        "filter: [{'cell_type': 'Astrocyte'}] | donor=animal"
+    )
+    collection = mixed_de_utils.build_stats_key(
+        contrast_label="",
+        subset={"cell_type": "Astrocyte"},
+        donor_col="animal",
+        contrast_mode="pairwise",
+        group_col="region",
+    )
+    assert collection == (
+        "mixed: pairwise | group_col=region | "
+        "filter: [{'cell_type': 'Astrocyte'}] | donor=animal"
+    )
+    no_subset = mixed_de_utils.build_stats_key(
+        contrast_label=label,
+        subset=None,
+        donor_col="animal",
+        contrast_mode="specified",
+        group_col="region",
+    )
+    assert no_subset == "mixed: [{'region': 'Cortex'}] vs [{'region': 'SNpc'}] | donor=animal"
 
 def test_resolve_values_sugar_warns_when_contrast_disagrees(capsys):
     group_col, contrast, _ = mixed_de_utils.resolve_values_sugar(
