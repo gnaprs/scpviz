@@ -73,7 +73,7 @@ Quick view of what to work on. Full tables below.
 | Priority | Status | ID | Description |
 |----------|--------|----|-------------|
 | L | [ ] | bug-1 | Clustermap bug when linkage |
-| M | [ ] | bug-2 | plot_abundnace_housekeeping throws error when no housekeeping gene is found |
+| M | [x] | bug-2 | plot_abundnace_housekeeping throws error when no housekeeping gene is found |
 | L | [ ] | bug-3 | Verify we sync rs and filter rs matrix for every filter operation (not only filter sample by condition?) |
 | H | [ ] | bug-4 | Parquet import: verify peptide-to-protein splicing (ProtA; ProtB). Maybe apply directlfq fix to import? |
 

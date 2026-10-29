@@ -292,6 +292,19 @@ def test_plot_abundance_housekeeping_invalid_type(pdata):
     with pytest.raises(ValueError, match="Invalid loading control"):
         scplt.plot_abundance_housekeeping(ax, pdata, classes="treatment", loading_control="invalid")
 
+def test_plot_abundance_housekeeping_no_genes_found(pdata, capsys):
+    pdata = pdata.copy()
+    pdata.prot.var["Genes"] = [f"GENE{i}" for i in range(pdata.prot.n_vars)]
+    fig, ax = plt.subplots()
+    scplt.plot_abundance_housekeeping(ax, pdata, classes="treatment", loading_control="nuclear")
+    assert ax.get_title() == "Nuclear"
+    assert ax.axison
+    assert "No 'nuclear' housekeeping proteins found" in capsys.readouterr().out
+    fig_out, axes_out = scplt.plot_abundance_housekeeping(None, pdata, classes="treatment", loading_control="all")
+    assert [a.get_title() for a in axes_out] == ["Whole Cell", "Nuclear", "Mitochondrial"]
+    assert all(a.axison for a in axes_out)
+    plt.close("all")
+
 def test_plot_abundance_housekeeping_no_classes(pdata):
     fig, ax = plt.subplots()
     scplt.plot_abundance_housekeeping(ax, pdata, loading_control="nuclear")
