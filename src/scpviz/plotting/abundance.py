@@ -2114,7 +2114,7 @@ def plot_raincloud(ax: "plt.Axes", pdata: pAnnData, classes: str | list[str] | N
     data_X = []
 
     for j, class_value in enumerate(classes_list):
-        rank_data = u.resolve_class_filter(adata, classes, class_value, debug=True)
+        rank_data = u.resolve_class_filter(adata, classes, class_value, debug=debug)
 
         plot_df = rank_data.to_df().transpose()
         plot_df['Average: '+class_value] = np.nanmean(rank_data.X.toarray(), axis=0)

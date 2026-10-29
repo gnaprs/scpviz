@@ -399,7 +399,7 @@ def get_upset_contents(
     upset_dict = {}
 
     for j, class_value in enumerate(classes_list):
-        data_filtered = _u.resolve_class_filter(adata, classes, class_value, debug=True)
+        data_filtered = _u.resolve_class_filter(adata, classes, class_value, debug=debug)
 
         # get proteins that are present in the filtered data (at least one value is not NaN, not 0)
         X = data_filtered.X.toarray()
