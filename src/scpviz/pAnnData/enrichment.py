@@ -374,11 +374,11 @@ class EnrichmentMixin:
         Example:
             Run differential expression, then perform STRING enrichment on all significant genes:
                 ```python
-                case1 = {'cellline': 'AS', 'treatment': 'sc'} # legacy style: class_type = ["group", "condition"]
-                case2 = {'cellline': 'BE', 'treatment': 'sc'} # legacy style: values = [["GroupA", "Treatment1"], ["GroupA", "Control"]]
-                pdata_nb.de(values = case_values) # or legacy style: pdata.de(classes=class_type, values=values)
+                case1 = {'cellline': 'AS', 'treatment': 'sc'}
+                case2 = {'cellline': 'BE', 'treatment': 'sc'}
+                pdata.de(values=[case1, case2])  # legacy style: pdata.de(classes=["cellline", "treatment"], values=[["AS", "sc"], ["BE", "sc"]])
                 pdata.list_enrichments()  # list available DE result keys
-                pdata.enrichment_functional(from_de=True, de_key="GroupA_Treatment1 vs GroupA_Control")
+                pdata.enrichment_functional(from_de=True, de_key="AS_sc vs BE_sc")
                 ```
 
             Perform enrichment on a custom list of genes:
