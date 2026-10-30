@@ -1014,15 +1014,16 @@ class EnrichmentMixin:
         species_id = meta["species"]
 
         url = "https://string-db.org/api/svg/enrichmentfigure"
+        # POST (not GET): all-DE-gene lists exceed STRING's URL length limit (HTTP 520)
         params = {
-            "identifiers": "%0d".join(string_ids),
+            "identifiers": "\r".join(string_ids),
             "species": species_id
         }
         if category:
             params["category"] = category
 
         print(f"{format_log_prefix('user')} Fetching STRING SVG for key '{lookup_key}' (n={len(string_ids)})...")
-        response = requests.get(url, params=params)
+        response = requests.post(url, data=params)
         response.raise_for_status()
 
         if save_as:

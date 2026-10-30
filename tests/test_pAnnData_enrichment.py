@@ -619,50 +619,51 @@ def test_list_enrichments_print(capsys, pdata):
 
 # ----------------------------------------------------------------------
 # plot_enrichment_svg coverage
-@patch("scpviz.enrichment.requests.get")
-def test_plot_enrichment_svg_missing_key(mock_get, pdata, tmp_path):
+@patch("scpviz.enrichment.requests.post")
+def test_plot_enrichment_svg_missing_key(mock_post, pdata, tmp_path):
     """Covers error branch for missing functional key."""
     pdata.stats["functional"] = {}
     with pytest.raises(ValueError, match="Could not find enrichment results for"):
         pdata.plot_enrichment_svg("Nonexistent")
 
-@patch("scpviz.enrichment.requests.get")
-def test_plot_enrichment_svg_direction_error(mock_get, pdata):
+@patch("scpviz.enrichment.requests.post")
+def test_plot_enrichment_svg_direction_error(mock_post, pdata):
     """Covers direction missing for DE key."""
     pdata.stats["functional"] = {"A_vs_B_up": {"string_ids": ["S1"], "species": "9606"}}
     with pytest.raises(ValueError, match="You must specify direction"):
         pdata.plot_enrichment_svg("A_vs_B")
 
-@patch("scpviz.enrichment.requests.get")
-@patch("scpviz.enrichment.requests.get")
-def test_plot_enrichment_svg_both_direction(mock_get, pdata, tmp_path):
+@patch("scpviz.enrichment.requests.post")
+def test_plot_enrichment_svg_both_direction(mock_post, pdata, tmp_path):
     pdata.stats["functional"] = {"A vs B_both": {"string_ids": ["S1"], "species": "9606"}}
     resp = Mock(status_code=200, content=b"<svg></svg>")
     resp.raise_for_status = Mock()
-    mock_get.return_value = resp
+    mock_post.return_value = resp
     tmpfile = tmp_path / "both.svg"
     pdata.plot_enrichment_svg("A vs B", direction="both", save_as=str(tmpfile))
     assert tmpfile.exists()
 
-def test_plot_enrichment_svg_fetch_and_save(mock_get, pdata, tmp_path):
+@patch("scpviz.enrichment.requests.post")
+def test_plot_enrichment_svg_fetch_and_save(mock_post, pdata, tmp_path):
     pdata.stats["functional"] = {"UserSearch1": {"string_ids": ["S1"], "species": "9606"}}
 
     resp = Mock(status_code=200, content=b"<svg></svg>")
     resp.raise_for_status = Mock()
-    mock_get.return_value = resp
+    mock_post.return_value = resp
 
     tmpfile = tmp_path / "test.svg"
     pdata.plot_enrichment_svg("UserSearch1", save_as=str(tmpfile))
     assert tmpfile.exists()
 
-@patch("scpviz.enrichment.requests.get")
+    assert mock_post.call_args.kwargs["data"]["identifiers"] == "S1"
+@patch("scpviz.enrichment.requests.post")
 @patch("IPython.display.SVG", side_effect=ExpatError("no element found: line 1, column 0"))
-def test_plot_enrichment_svg_no_image_expaterror(mock_svg, mock_get, pdata, capsys):
+def test_plot_enrichment_svg_no_image_expaterror(mock_svg, mock_post, pdata, capsys):
     pdata.stats["functional"] = {"UserSearch1": {"string_ids": ["S1"], "species": "9606"}}
 
     resp = Mock(status_code=200, content=b"")
     resp.raise_for_status = Mock()
-    mock_get.return_value = resp
+    mock_post.return_value = resp
 
     pdata.plot_enrichment_svg("UserSearch1")
 
