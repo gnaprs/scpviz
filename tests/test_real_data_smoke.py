@@ -660,3 +660,51 @@ def test_diann_update_string_mapping_overwrite(pdata_diann):
     pdata.update_string_mapping({acc: "9606.OLD"}, verbose=False)
     pdata.update_string_mapping({acc: "9606.NEW"}, overwrite=True, verbose=False)
     assert pdata.prot.var.at[acc, "STRING"] == "9606.NEW"
+
+
+# --- save / load / export_h5ad ----------------------------------------------------
+
+def test_pd_save_load_roundtrip(pdata_pd_sample_column, tmp_path):
+    pdata = pdata_pd_sample_column.copy()
+    pdata.normalize(method="median")
+    pdata.de(values=[{"cellline": "BE"}, {"cellline": "AS"}])
+    path = pdata.save(tmp_path / "pd")
+    loaded = pAnnData.load(path)
+    assert loaded.prot.shape == pdata.prot.shape and loaded.pep.shape == pdata.pep.shape
+    assert set(loaded.stats) == set(pdata.stats)
+    assert loaded.metadata["source"] == "proteomeDiscoverer"
+    assert loaded.validate(verbose=False)
+
+
+def test_pd_export_h5ad(pdata_pd_sample_column, tmp_path):
+    import anndata as ad
+
+    pdata = pdata_pd_sample_column.copy()
+    pdata.annotate_found(classes="cellline", on="protein", verbose=False)
+    pdata.update_identifier_maps({pdata.prot.var_names[0]: "NEWGENE"}, on="protein", direction="reverse",
+                                 overwrite=True, verbose=False)  # list-of-dicts metadata
+    for on in ("protein", "peptide"):
+        adata = ad.read_h5ad(pdata.export_h5ad(tmp_path / on, on=on))
+        assert adata.n_obs == pdata.prot.n_obs
+        assert "scpviz" in adata.uns
+
+
+def test_diann_save_load_roundtrip(pdata_diann, tmp_path):
+    pdata = pdata_diann.copy()
+    pdata.annotate_significant(classes=["amt"], fdr_threshold=0.05, on="protein", verbose=False)
+    pdata.pca(on="protein")
+    path = pdata.save(tmp_path / "diann")
+    loaded = pAnnData.load(path)
+    assert "X_pca" in loaded.prot.obsm
+    assert loaded.metadata["source"] == "diann"
+    assert loaded.validate(verbose=False)
+
+
+def test_diann_export_h5ad(pdata_diann, tmp_path):
+    import anndata as ad
+
+    pdata = pdata_diann.copy()
+    pdata.de(values=[{"gradient": "24min"}, {"gradient": "60min"}])
+    adata = ad.read_h5ad(pdata.export_h5ad(tmp_path / "diann_prot", on="protein"))
+    assert adata.shape == pdata.prot.shape
+    assert len(adata.uns["scpviz"]["stats"]) == len(pdata.stats)

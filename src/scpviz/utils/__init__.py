@@ -6,7 +6,7 @@ Import as:
 
     from scpviz import utils as scutils
 
-Submodules (for maintainers): ``formatting``, ``data``, ``class_filter``, ``id_maps``, ``stats``.
+Submodules (for maintainers): ``formatting``, ``data``, ``class_filter``, ``id_maps``, ``stats``, ``serialization`` (``.pdata`` save/load encoding; not star-imported).
 
 ## Text / formatting
 

@@ -627,8 +627,16 @@ def get_pep_prot_mapping(
         col = "Protein.Group"
     elif source == "maxquant":
         col = "Leading razor protein"
+    elif not source:
+        raise ValueError(
+            f"{format_log_prefix('error')} No import source recorded — cannot determine peptide-to-protein mapping. "
+            "Set pdata.metadata['source'] = 'diann' | 'proteomeDiscoverer' | 'maxquant'."
+        )
     else:
-        raise ValueError(f"Unknown data source '{source}' — cannot determine peptide-to-protein mapping.")
+        raise ValueError(
+            f"{format_log_prefix('error')} Unknown data source '{source}' — cannot determine peptide-to-protein mapping. "
+            "Set pdata.metadata['source'] = 'diann' | 'proteomeDiscoverer' | 'maxquant'."
+        )
 
     if return_series:
         return pdata.pep.var[col]

@@ -52,6 +52,7 @@ class BaseMixin:
         # Copy summary and stats
         new_obj._stats = copy.deepcopy(self._stats) # type: ignore[attr-defined]
         new_obj._history = copy.deepcopy(self._history) # type: ignore[attr-defined]
+        new_obj._metadata = copy.deepcopy(self.metadata) # type: ignore[attr-defined]
         new_obj._suppress_summary_log = True # type: ignore[attr-defined]
         new_obj.summary = self._summary.copy(deep=True) if self._summary is not None else None # go through setter to mark as stale, # type: ignore[attr-defined]
         del new_obj._suppress_summary_log # type: ignore[attr-defined]
