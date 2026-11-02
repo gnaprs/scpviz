@@ -400,6 +400,9 @@ class FilterMixin:
 
         # Determine filtering mode: group vs file or handle ambiguity/missing
         group_metrics = adata.uns.get(f"found_metrics_{on}")
+        if group_metrics is not None:
+            # .uns isn't subset by feature filters; align to current features
+            group_metrics = group_metrics.reindex(adata.var_names)
 
         mode = None
         all_file_cols = all(f"Found In: {g}" in var.columns for g in group)
@@ -760,6 +763,9 @@ class FilterMixin:
         # --- 3️⃣ Mode detection and ambiguity handling ---
         metrics_key = "significance_metrics_protein"
         metrics_df = adata.uns.get(metrics_key, pd.DataFrame())
+        if not metrics_df.empty and "Global" not in metrics_df.index:
+            # .uns isn't subset by feature filters; align to current features
+            metrics_df = metrics_df.reindex(adata.var_names)
 
         is_ambiguous, annotated_files, annotated_groups = _detect_ambiguous_input(group_list, var, metrics_df)
         if is_ambiguous:
@@ -2044,7 +2050,7 @@ class FilterMixin:
 
         # Prepare or retrieve existing numeric storage in .uns
         metrics_key = f"found_metrics_{on}"
-        metrics_df = adata.uns.get(metrics_key, pd.DataFrame(index=adata.var_names))
+        metrics_df = adata.uns.get(metrics_key, pd.DataFrame(index=adata.var_names)).reindex(adata.var_names)
 
         if classes is not None:
             classes_list = utils.get_classlist(adata, classes=classes)
@@ -2145,7 +2151,7 @@ class FilterMixin:
         
         # Group-level summary
         metrics_key = f"significance_metrics_{on}"
-        metrics_df = adata.uns.get(metrics_key, pd.DataFrame(index=adata.var_names))
+        metrics_df = adata.uns.get(metrics_key, pd.DataFrame(index=adata.var_names)).reindex(adata.var_names)
 
         if classes is not None:
             classes_list = utils.get_classlist(adata, classes=classes)

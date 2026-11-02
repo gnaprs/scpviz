@@ -174,6 +174,13 @@ def test_filter_prot_inplace_syncs_peptides(pdata, call):
     assert pdata.rs.shape == (pdata.prot.n_vars, pdata.pep.n_vars)
     assert (pdata.rs != expected.rs).nnz == 0
 
+def test_filter_prot_found_after_feature_filter(pdata):
+    """found_metrics in .uns stay usable after features are filtered (bug-11)."""
+    pdata.annotate_found(classes="cellline", on="protein")
+    filtered = pdata.filter_prot(condition="unique_peptides > 3")
+    out = filtered.filter_prot_found(group=["AS"], min_ratio=0.5)
+    assert out.prot.n_vars <= filtered.prot.n_vars
+
 def test_filter_prot_found_group_mode(pdata):
     grouping_column=["cellline", "treatment"]
     pdata.annotate_found(classes=grouping_column, on="protein")
