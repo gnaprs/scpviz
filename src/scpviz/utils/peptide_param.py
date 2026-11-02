@@ -411,6 +411,9 @@ def compute_peptide_properties(
     for col in columns:
         if col not in df.columns:
             df[col] = pd.NA
+        if col not in DICT_OR_LIST_PROPERTIES.values():
+            # pd.NA rows leave object dtype; coerce to float/int (NaN), which h5ad can write
+            df[col] = pd.to_numeric(df[col], errors="coerce")
     return df[columns]
 
 

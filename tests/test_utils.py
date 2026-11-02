@@ -979,6 +979,13 @@ def test_compute_peptide_properties_length():
     assert df.iloc[0]["length"] == len(seq)
     assert df.iloc[0]["gravy"] == pytest.approx(-1.3917, rel=1e-3)
 
+def test_compute_peptide_properties_numeric_dtype_with_invalid():
+    """Invalid sequences give NaN without making numeric columns object dtype (bug-7)."""
+    df = utils.compute_peptide_properties(["MQHNLEQQIQAR", "not-a-sequence"], properties=["length", "gravy"])
+    assert df["gravy"].dtype == "float64"
+    assert df["length"].dtype == "float64"
+    assert df.iloc[1].isna().all()
+
 def test_resolve_peptide_sequence_pd(pdata):
     """Proteome Discoverer: parse Annotated Sequence notation from .pep.var."""
     pep_id = pdata.pep.var_names[0]
