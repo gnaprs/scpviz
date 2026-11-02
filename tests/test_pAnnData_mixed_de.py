@@ -175,6 +175,7 @@ def _permute_condition_within_donor(pdata: pAnnData, *, seed: int = 0) -> None:
         shuffled = obs.loc[idx, "condition"].values.copy()
         rng.shuffle(shuffled)
         obs.loc[idx, "condition"] = shuffled
+    pdata.update_summary(recompute=False, verbose=False)
 
 def _naive_cell_level_pvalue(pdata, feature: str) -> float:
     obs = pdata.prot.obs
@@ -1130,6 +1131,7 @@ def test_mixed_de_contrast_level_absent_after_subset():
     obs = pdata.prot.obs.copy()
     obs.loc[obs["condition"] == "control", "condition"] = "disease"
     pdata.prot.obs = obs
+    pdata.update_summary(recompute=False, verbose=False)
     with pytest.raises(ValueError, match="Contrast level"):
         pdata.mixed_de(
             group_col="condition",

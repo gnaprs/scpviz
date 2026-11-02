@@ -3,6 +3,18 @@ import pandas as pd
 import re
 from scipy import sparse
 
+from scpviz import pAnnData
+
+def test_constructor_builds_summary():
+    """pAnnData(prot, pep, rs) builds .summary, so copy() works without update_summary() (bug-12)."""
+    rng = np.random.default_rng(0)
+    rs = sparse.csr_matrix(rng.integers(0, 2, (5, 8)))
+    pdata = pAnnData(rng.random((4, 5)), rng.random((4, 8)), rs)
+
+    assert pdata.summary.index.equals(pdata.prot.obs.index)
+    assert "protein_count" in pdata.summary.columns
+    pdata.copy()
+
 # ----------------------------------------------------------------------
 # unit tests for .summary staleness, manual edits, auto-sync behaviour:
 def test_summary_stale_flag_after_manual_edit(pdata):

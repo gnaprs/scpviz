@@ -76,6 +76,9 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
         self._metadata = {}
         self._summary_is_stale = False
 
+        if self._prot is not None or self._pep is not None:
+            self.update_summary(recompute=True, verbose=False)
+
     def __repr__(self):
         def format_summary(summary):
             if summary is None:
