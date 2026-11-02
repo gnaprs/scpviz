@@ -1571,6 +1571,7 @@ class AnalysisMixin:
             self.set_X(layer = layer, on = on) # type: ignore[attr-defined], EditingMixin
 
         sc.tl.leiden(adata, resolution)
+        self.update_summary(recompute=False, verbose=False) # type: ignore[attr-defined], SummaryMixin
 
         self._append_history(f'{on}: Leiden clustering fitted on {layer}, stored in obs["leiden"]') # type: ignore[attr-defined], HistoryMixin
         print(f"{format_log_prefix('result_only', indent=2)} Leiden clustering complete. Results stored in:")
@@ -1758,7 +1759,7 @@ class AnalysisMixin:
         var_pc1, var_pc2 = pca_data[2][:2]
         print(f"       • Variance explained by PC1/PC2: {var_pc1*100:.2f}% , {var_pc2*100:.2f}%") 
 
-    def harmony(self, key, on = 'protein'):
+    def harmony(self, key, on = 'protein', **kwargs):
         """
         Perform batch correction using Harmony integration.
 
@@ -1768,6 +1769,8 @@ class AnalysisMixin:
         Args:
             key (str): Column name in `.obs` representing the batch variable to correct.
             on (str): Whether to use "protein" or "peptide" data. Accepts "prot"/"protein" or "pep"/"peptide" (default: "protein").
+            **kwargs: Passed to `harmonypy.run_harmony` (e.g. `nclust`, `max_iter_harmony`, `theta`).
+                With few samples, set `nclust` explicitly; harmonypy's default can be 0 and fail.
 
         Returns:
             None
@@ -1787,9 +1790,6 @@ class AnalysisMixin:
             - Harmony requires prior PCA computation. If PCA is missing, it will be computed automatically.
             - The Harmony-corrected coordinates are stored in `.obsm["X_pca_harmony"]`.
             - Updates the processing history via `.history`.
-
-        Todo:
-            Add optional arguments for controlling Harmony parameters (e.g., `max_iter_harmony`, `theta`, `lambda`).
         """
 
         if not self._check_data(on): # type: ignore[attr-defined], ValidationMixin
@@ -1812,7 +1812,7 @@ class AnalysisMixin:
         if key not in adata.obs.columns:
             raise ValueError(f"Batch key '{key}' not found in adata.obs.")
 
-        sc.external.pp.harmony_integrate(adata, key)
+        sc.external.pp.harmony_integrate(adata, key, **kwargs)
 
         self._append_history(f'{on}: Harmony batch correction applied on key {key}, stored in obsm["X_pca_harmony"] and uns["umap"]') # type: ignore[attr-defined], HistoryMixin
         print(f"{format_log_prefix('result_only', indent=2)} Harmony batch correction complete. Results stored in:")

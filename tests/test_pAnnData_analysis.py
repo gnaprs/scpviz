@@ -700,6 +700,12 @@ def test_leiden_default_layer(pdata):
     if n_clusters == 1:
         print("⚠️ Single cluster detected (likely due to small sample size or Scanpy≥1.10).")
 
+def test_leiden_refreshes_summary(pdata):
+    """leiden() refreshes .summary with the new obs column (bug-6)."""
+    pdata.leiden(on="protein", layer="X", resolution=0.5)
+    assert "leiden" in pdata.summary.columns
+    assert not pdata._summary_is_stale
+
 from unittest.mock import patch
 
 def test_leiden_custom_layer(pdata):
@@ -822,7 +828,6 @@ def test_umap_on_peptide_data(pdata):
     assert "umap" in pdata.pep.uns
 
 # test harmony
-@pytest.mark.xfail(reason="Harmony fails on some Python/sklearn versions (n_clusters=0 bug)")
 def test_harmony_runs_with_valid_key(pdata):
     # Sanity check
     assert pdata.prot.obs["cellline"].nunique() >= 2, "Cellline column must have ≥2 unique categories"
@@ -831,7 +836,7 @@ def test_harmony_runs_with_valid_key(pdata):
         pdata.pca(on="protein")
 
     # Run harmony
-    pdata.harmony(key="cellline", on="protein")
+    pdata.harmony(key="cellline", on="protein", nclust=2)
 
     # Assertions
     assert "X_pca_harmony" in pdata.prot.obsm
@@ -842,7 +847,6 @@ def test_harmony_invalid_key_raises(pdata):
     with pytest.raises(ValueError, match="Batch key 'invalid' not found"):
         pdata.harmony(key="invalid", on="protein")
 
-@pytest.mark.xfail(reason="Harmony fails on some Python/sklearn versions (n_clusters=0 bug)")
 def test_harmony_triggers_pca_if_missing(pdata):
     # Remove PCA
     pdata.prot.uns.pop("pca", None)
@@ -853,7 +857,7 @@ def test_harmony_triggers_pca_if_missing(pdata):
     assert "X_pca" not in pdata.prot.obsm
 
     # Run harmony
-    pdata.harmony(key="cellline", on="protein")
+    pdata.harmony(key="cellline", on="protein", nclust=2)
 
     # Confirm PCA was re-run
     assert "pca" in pdata.prot.uns
