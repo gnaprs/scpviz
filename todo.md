@@ -78,7 +78,7 @@ Quick view of what to work on. Full tables below.
 |----------|--------|----|-------------|
 | L | [ ] | bug-1 | Clustermap bug when linkage |
 | M | [x] | bug-2 | plot_abundnace_housekeeping throws error when no housekeeping gene is found |
-| L | [ ] | bug-3 | Verify we sync rs and filter rs matrix for every filter operation (not only filter sample by condition?) |
+| L | [x] | bug-3 | Verify we sync rs and filter rs matrix for every filter operation (not only filter sample by condition?) |
 | H | [ ] | bug-4 | Parquet import: verify peptide-to-protein splicing (ProtA; ProtB). Maybe apply directlfq fix to import? |
 | M | [ ] | bug-5 | History logging inconsistencies (found during save/load testing): raw `self._history.append(...)` (no timestamp) instead of `_append_history` in `set_X` (`editing.py:72`), `annotate_found` / `annotate_significant` (`filtering.py:2084`, `:2182`), `cv` (`analysis.py:91`), `rank` (`:1033`), `impute` (`:1334`), and reference-feature `normalize` (`:2512`, `:2517`; also no `{on}:` prefix) instead of `_append_history`; mixed `prot:` / `protein:` / `{on}:` prefixes across methods; `copy()` appends a "Pushed summary values back to obs" entry (summary setter → `update_summary(sync_back=True)`), so every `return_copy=True` operation logs it |
 | M | [x] | bug-6 | `leiden()` (and possibly other `.obs` writers) adds `obs['leiden']` without refreshing `.summary` or marking it stale, so `.summary` is out of sync until the next `update_summary()`; `copy()` then also pushes it into `.pep.obs`. Fixed for `leiden()`; the `copy()` push is part of bug-5 |
@@ -88,6 +88,7 @@ Quick view of what to work on. Full tables below.
 | H | [x] | bug-10 | `filter_prot(..., return_copy=False)` with peptides crashes (`IndexError: boolean row index has incorrect length`): `pdata` is `self`, so `self.prot` is already filtered when passed as `original` to `_filter_sync_peptides_to_proteins` (`filtering.py:260`, `:886`), while `rs` isn't. Capture original var names before filtering. Check other in-place filters for the same pattern |
 | M | [x] | bug-11 | `uns['found_metrics_*']` / `uns['significance_metrics_*']` aren't subset when features are filtered: `annotate_found` → `filter_prot` → `filter_prot_found` fails (`operands could not be broadcast together with shapes (3013,) (4924,)`, `filtering.py:491`). Subset (or reindex) the metrics in the filter path, or reindex to `var_names` when reading them |
 | M | [x] | bug-12 | `pAnnData(prot=..., pep=..., rs=...)` leaves `.summary` as an empty DataFrame (`pAnnData.py:74`), so the first `copy()` (any `return_copy=True` filter, `de` with `pep_pairwise_median`) raises `Mismatch: .summary and .prot.obs have different sample indices`. Build the summary in `__init__` when `prot`/`pep` is given; workaround: `pdata.update_summary()` |
+| M | [ ] | bug-13 | `pAnnData.load()` crashes with `TypeError: string operation on non-string array` (`serialization._read_strings` via `read_value` → `_read_index(elem["columns"])`) when a saved DataFrame has empty columns (e.g. `.var` with no columns, as in a synthetic `AnnData` built with `var=pd.DataFrame(index=[...])`). Repro: build a tiny pdata, `save()`, `load()`. Likely an empty string array is written/read with a non-string dtype |
 
 
 
