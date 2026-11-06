@@ -159,7 +159,28 @@ def test_filter_prot_syncs_peptides(pdata):
     # Additional check: all retained peptides should have at least one link in the new RS
     new_pep_links = np.array(pdata_filt.rs.sum(axis=0)).ravel()
     assert np.all(new_pep_links > 0), "All peptides in RS should be linked to at least one protein"
-    
+
+@pytest.mark.parametrize("call", [
+    lambda p, rc: p.filter_prot(condition="unique_peptides > 3", return_copy=rc),
+    lambda p, rc: p.filter_prot_found(group=["cellline"], min_ratio=0.5, return_copy=rc),
+])
+def test_filter_prot_inplace_syncs_peptides(pdata, call):
+    """In-place protein filters sync .pep/.rs the same way as return_copy=True (bug-10)."""
+    expected = call(pdata, True)
+    assert call(pdata, False) is None
+
+    assert list(pdata.prot.var_names) == list(expected.prot.var_names)
+    assert list(pdata.pep.var_names) == list(expected.pep.var_names)
+    assert pdata.rs.shape == (pdata.prot.n_vars, pdata.pep.n_vars)
+    assert (pdata.rs != expected.rs).nnz == 0
+
+def test_filter_prot_found_after_feature_filter(pdata):
+    """found_metrics in .uns stay usable after features are filtered (bug-11)."""
+    pdata.annotate_found(classes="cellline", on="protein")
+    filtered = pdata.filter_prot(condition="unique_peptides > 3")
+    out = filtered.filter_prot_found(group=["AS"], min_ratio=0.5)
+    assert out.prot.n_vars <= filtered.prot.n_vars
+
 def test_filter_prot_found_group_mode(pdata):
     grouping_column=["cellline", "treatment"]
     pdata.annotate_found(classes=grouping_column, on="protein")
@@ -862,6 +883,16 @@ def test_filter_prot_significant_precedence_diann(pdata_diann):
     # Should still use per-sample annotations (i.e., not create "Significant In: Global")
     assert any("Significant In: Global" in c for c in pdata_diann.prot.var.columns)
     assert pdata_filt is not None
+
+def test_filter_prot_significant_skips_none_layer_key(pdata_diann, monkeypatch):
+    """anndata >= 0.13 stores .X as layers[None]; q-value detection must skip it."""
+    adata = pdata_diann.prot
+    named_keys = [k for k in adata.layers.keys() if isinstance(k, str)]
+    monkeypatch.setattr(adata.layers, "keys", lambda: [None, *named_keys])
+    out = pdata_diann.filter_prot_significant(fdr_threshold=0.05, return_copy=True, verbose=False)
+    assert out is not None
+    assert out.prot.shape[1] <= pdata_diann.prot.shape[1]
+
 
 def test_filter_prot_significant_missing_qval_and_global(pdata):
     """Ensure ValueError raised when neither per-sample qvals nor global q-values exist."""

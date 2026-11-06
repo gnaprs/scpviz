@@ -427,16 +427,18 @@ ax = scplt.plot_volcano(ax, pdata_norm, values=comparison_values)
 
 <div class="result" markdown>
 
-```text title="output" hl_lines="7"
+```text title="output" hl_lines="9"
+     ⚠️ [WARN] Layer 'X' appears to contain non-log intensities (median=1.70e+06). Statistical tests assume approximately normal distributions — consider log_transform() before DE analysis.
 🧭 [USER] Running differential expression [protein]
    🔸 Comparing groups: [{'cellline': 'BE', 'condition': 'kd'}] vs [{'cellline': 'BE', 'condition': 'sc'}]
    🔸 Group sizes: 3 vs 2 samples
-   🔸 Method: ttest | Fold Change: mean | Layer: X
+   🔸 Layer: X (non-log)
+   🔸 Method: ttest | Fold Change: mean
    🔸 P-value threshold: 0.05 | Log2FC threshold: 1
      ✅ DE complete. Results stored in:
        • .stats["[{'cellline': 'BE', 'condition': 'kd'}] vs [{'cellline': 'BE', 'condition': 'sc'}]"]
        • Columns: log2fc, p_value, significance, etc.
-       • Upregulated: 279 | Downregulated: 258 | Not significant: 9856
+       • Upregulated: 279 | Downregulated: 258 | Not significant: 9856 | Not comparable: 0
 ```
 
 </div>
@@ -510,31 +512,52 @@ pdata_norm.enrichment_functional(from_de=True, de_key="BE_kd vs BE_sc")
 
 <div class="result" markdown>
 
-```text title="output" hl_lines="23"
+```text title="output" hl_lines="29"
 🧭 [USER] Running STRING enrichment [DE-based: [{'cellline': 'BE', 'condition': 'kd'}] vs [{'cellline': 'BE', 'condition': 'sc'}]]
 
 🔹 Up-regulated proteins
-     ℹ️ Found 0 cached STRING IDs. 150 need lookup.
-          ℹ️ Cached 149 STRING IDs from UniProt API xref_string.
-          ⚠️ No STRING mappings returned from STRING API.
-   🔸 Proteins: 150 → STRING IDs: 149
+     ℹ️ Found 0 cached STRING IDs. 279 need lookup.
+     🌐 [API] UniProt mapped: 277 / 279
+     🌐 [API] STRING mapped: 0 / 2 (missing after UniProt)
+          ℹ️ Cached 277 STRING ID mappings.
+          ⚠️ 2 identifier(s) still unmapped: Q14568, P01859
+          Tip: look these up on STRING, then `pdata.update_string_mapping({'ACCESSION': '9606.ENSP...'})`.
+   🔸 Proteins: 279 → STRING IDs: 277
    🔸 Species: 9606 | Background: None
-     ✅ [OK] Enrichment complete (3.92s)
+     ✅ [OK] Enrichment complete (7.43s)
    • Access result: pdata.stats['functional']["BE_kd vs BE_sc_up"]["result"]
    • Plot command : pdata.plot_enrichment_svg("BE_kd vs BE_sc", direction="up")
-   • View online  : https://string-db.org/cgi/network?identifiers=9606.ENSP00000351310%0d9606....ENSP00000265018&caller_identity=scpviz&species=9606&show_query_node_labels=1
+   • View online  : https://string-db.org/cgi/network?identifiers=9606.ENSP00000221462%0d9606....ENSP00000356489&caller_identity=scpviz&species=9606&show_query_node_labels=1
 
 
 🔹 Down-regulated proteins
-     ℹ️ Found 0 cached STRING IDs. 150 need lookup.
-          ℹ️ Cached 149 STRING IDs from UniProt API xref_string.
-          ⚠️ No STRING mappings returned from STRING API.
-   🔸 Proteins: 150 → STRING IDs: 149
+     ℹ️ Found 0 cached STRING IDs. 258 need lookup.
+     🌐 [API] UniProt mapped: 256 / 258
+     🌐 [API] STRING mapped: 0 / 2 (missing after UniProt)
+          ℹ️ Cached 256 STRING ID mappings.
+          ⚠️ 2 identifier(s) still unmapped: P01893, Q58FF8
+          Tip: look these up on STRING, then `pdata.update_string_mapping({'ACCESSION': '9606.ENSP...'})`.
+   🔸 Proteins: 258 → STRING IDs: 256
    🔸 Species: 9606 | Background: None
-     ✅ [OK] Enrichment complete (2.35s)
+     ✅ [OK] Enrichment complete (3.52s)
    • Access result: pdata.stats['functional']["BE_kd vs BE_sc_down"]["result"]
    • Plot command : pdata.plot_enrichment_svg("BE_kd vs BE_sc", direction="down")
-   • View online  : https://string-db.org/cgi/network?identifiers=9606.ENSP00000368678%0d9606.....ENSP00000263512%0d9606.ENSP00000382767%0d9606&caller_identity=scpviz&species=9606&show_query_node_labels=1
+   • View online  : https://string-db.org/cgi/network?identifiers=9606.ENSP00000483552%0d9606....ENSP00000257177&caller_identity=scpviz&species=9606&show_query_node_labels=1
+
+
+🔹 Up- and down-regulated proteins
+     ℹ️ Found 533 cached STRING IDs. 4 need lookup.
+     🌐 [API] UniProt mapped: 0 / 4
+     🌐 [API] STRING mapped: 0 / 4 (missing after UniProt)
+          ℹ️ Cached 0 STRING ID mappings.
+          ⚠️ 4 identifier(s) still unmapped: Q14568, P01859, P01893, Q58FF8
+          Tip: look these up on STRING, then `pdata.update_string_mapping({'ACCESSION': '9606.ENSP...'})`.
+   🔸 Proteins: 537 → STRING IDs: 533
+   🔸 Species: 9606 | Background: None
+     ✅ [OK] Enrichment complete (1.96s)
+   • Access result: pdata.stats['functional']["BE_kd vs BE_sc_both"]["result"]
+   • Plot command : pdata.plot_enrichment_svg("BE_kd vs BE_sc", direction="both")
+   • View online  : https://string-db.org/cgi/network?identifiers=9606.ENSP00000221462%0d9606....ENSP00000257177&caller_identity=scpviz&species=9606&show_query_node_labels=1
 ```
 
 </div>

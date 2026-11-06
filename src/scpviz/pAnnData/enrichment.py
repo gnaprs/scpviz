@@ -1,3 +1,4 @@
+import datetime
 import requests
 import pandas as pd
 import numpy as np
@@ -9,6 +10,9 @@ import os
 
 from scpviz.utils import format_log_prefix, get_uniprot_fields
 import scpviz.utils as utils
+
+_DE_DIRECTIONS = ("up", "down", "both")
+_DE_DIRECTION_SUFFIXES = tuple(f"_{d}" for d in _DE_DIRECTIONS)
 
 class EnrichmentMixin:
     """
@@ -27,6 +31,7 @@ class EnrichmentMixin:
         list_enrichments: Lists available enrichment results and DE comparisons.
         plot_enrichment_svg: Displays a STRING enrichment SVG inline or saves it to file.
         get_string_mappings: Maps UniProt accessions to STRING IDs using the STRING API.
+        update_string_mapping: Add or overwrite cached STRING IDs on `.prot.var`.
         resolve_to_accessions: Resolves gene names or mixed inputs to accessions using internal mappings.
         get_string_network_link: Generates a direct STRING network URL for visualization.
     """
@@ -38,11 +43,13 @@ class EnrichmentMixin:
         2) For any still-missing rows, query STRING get_string_ids, batched by organism_id.
 
         This method retrieves corresponding STRING identifiers for a list of UniProt accessions
-        and stores the result in `self.prot.var["STRING_id"]` for downstream use.
+        and stores the result in `self.prot.var["STRING"]` for downstream use.
 
         Args:
             identifiers (list of str): List of UniProt accession IDs to map.
-            batch_size (int): Number of accessions to include in each API query (default is 300).
+            overwrite (bool): If True, re-query even when a STRING ID is already cached.
+            cache_col (str): `.prot.var` column used as the STRING ID cache (default: `"STRING"`).
+            batch_size (int): Number of accessions to include in each API query (default is 100).
             debug (bool): If True, prints progress and response info.
 
         Returns:
@@ -50,6 +57,8 @@ class EnrichmentMixin:
 
         Note:
             This is a helper method used primarily by `enrichment_functional()` and `enrichment_ppi()`.
+            Identifiers still unmapped after UniProt and STRING are printed so they can be looked
+            up manually and added with `update_string_mapping()`.
         """
 
         identifiers = [str(x).strip() for x in identifiers if x is not None and str(x).strip()]
@@ -123,6 +132,25 @@ class EnrichmentMixin:
         elif missing:
             print(f"{format_log_prefix('warn_only',3)} No STRING mappings returned from STRING API.")
 
+        leftover = []
+        for acc in identifiers:
+            sid = found_ids.get(
+                acc,
+                prot_var.at[acc, cache_col] if acc in prot_var.index else pd.NA,
+            )
+            if not (pd.notna(sid) and str(sid).strip()):
+                leftover.append(acc)
+        if leftover:
+            preview_n = 20
+            preview = ", ".join(leftover[:preview_n])
+            extra = f" ... (+{len(leftover) - preview_n} more)" if len(leftover) > preview_n else ""
+            print(
+                f"{format_log_prefix('warn_only', 3)} {len(leftover)} identifier(s) still unmapped: {preview}{extra}"
+            )
+            print(
+                f"{format_log_prefix('blank', 3)}Tip: look these up on STRING, then "
+                f"`pdata.update_string_mapping({{'ACCESSION': '9606.ENSP...'}})`."
+            )
 
         # ------------------------------------
         # Build and MERGE UniProt results into out_df
@@ -144,6 +172,119 @@ class EnrichmentMixin:
 
         return out_df
 
+
+    def update_string_mapping(
+        self, mapping, overwrite=False, verbose=True, taxon=None, cache_col="STRING"
+    ):
+        """
+        Update cached STRING IDs on `.prot.var` with user-supplied mappings.
+
+        Use this after `get_string_mappings()` reports identifiers that UniProt and STRING
+        could not resolve. New or empty cache entries are filled even when `overwrite=False`;
+        existing STRING IDs are left unchanged unless `overwrite=True`.
+
+        Args:
+            mapping (dict): Dictionary of `{accession: STRING_id}` mappings to add.
+            overwrite (bool): If True, replace existing cached STRING IDs. Default False.
+            verbose (bool): If True, print a summary of added, overwritten, and skipped keys.
+            taxon (int, str, or dict, optional): NCBI taxonomy ID to write to
+                `.prot.var["ncbi_taxon_id"]` for keys that are added or overwritten.
+                A scalar applies to all updated accessions; a dict maps accession → taxon.
+            cache_col (str): `.prot.var` column used as the STRING ID cache (default: `"STRING"`).
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If `mapping` is not a dictionary.
+
+        Example:
+            Add STRING IDs for accessions that were not mapped automatically:
+                ```python
+                pdata.update_string_mapping({
+                    "P12345": "9606.ENSP00000229277",
+                    "Q9Y2X3": "9606.ENSP00000312345",
+                })
+                ```
+
+            Overwrite an existing cached STRING ID and set taxon:
+                ```python
+                pdata.update_string_mapping(
+                    {"P12345": "9606.ENSP00000229277"},
+                    taxon=9606,
+                    overwrite=True,
+                )
+                ```
+        """
+        if not isinstance(mapping, dict):
+            raise ValueError("`mapping` must be a dict of {accession: STRING_id}.")
+
+        prot_var = self.prot.var
+        if cache_col not in prot_var.columns:
+            prot_var[cache_col] = pd.NA
+        if "ncbi_taxon_id" not in prot_var.columns:
+            prot_var["ncbi_taxon_id"] = pd.NA
+
+        added, updated, skipped = 0, 0, 0
+        unknown = []
+
+        for acc, sid in mapping.items():
+            acc = str(acc).strip()
+            sid_ok = pd.notna(sid) and str(sid).strip()
+            if acc not in prot_var.index:
+                unknown.append(acc)
+                skipped += 1
+                continue
+            if not sid_ok:
+                skipped += 1
+                continue
+
+            existing = prot_var.at[acc, cache_col]
+            has_existing = pd.notna(existing) and str(existing).strip()
+            if has_existing and not overwrite:
+                skipped += 1
+                continue
+
+            prot_var.at[acc, cache_col] = str(sid).strip()
+            if has_existing:
+                updated += 1
+            else:
+                added += 1
+
+            tax_val = taxon.get(acc) if isinstance(taxon, dict) else taxon
+            if tax_val is not None:
+                tax_val = utils.scalarize_taxon(tax_val)
+                if tax_val is not pd.NA and pd.notna(tax_val):
+                    prot_var.at[acc, "ncbi_taxon_id"] = str(tax_val)
+
+        message = (
+            f"prot: STRING mapping update: {added} added, {updated} overwritten, {skipped} skipped."
+        )
+        if verbose:
+            print(f"{format_log_prefix('update')} STRING mapping: {added} added, {updated} overwritten, {skipped} skipped.")
+            if unknown:
+                preview_n = 20
+                preview = ", ".join(unknown[:preview_n])
+                extra = f" ... (+{len(unknown) - preview_n} more)" if len(unknown) > preview_n else ""
+                print(
+                    f"{format_log_prefix('warn')} Accessions not in .prot.var (skipped): {preview}{extra}"
+                )
+        self._append_history(message)  # type: ignore[attr-defined], HistoryMixin
+
+        record = {
+            "cache_col": cache_col,
+            "input_mapping": dict(mapping),
+            "overwrite": overwrite,
+            "taxon": taxon if not isinstance(taxon, dict) else dict(taxon),
+            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            "summary": {
+                "added": added,
+                "updated": updated,
+                "skipped": skipped,
+                "unknown": list(unknown),
+            },
+        }
+        self.metadata.setdefault("string_map_history", []).append(record)
 
     def resolve_to_accessions(self, mixed_list):
         """
@@ -182,13 +323,14 @@ class EnrichmentMixin:
         self,
         genes=None,
         from_de=True,
-        top_n=150,
+        top_n=None,
         score_col="significance_score",
         gene_col="Genes",
         de_key="de_results",
         store_key=None,
         species=None,
         background=None,
+        direction=("up", "down", "both"),
         debug=False,
         **kwargs
     ):
@@ -203,7 +345,9 @@ class EnrichmentMixin:
         Args:
             genes (list of str, optional): List of gene symbols to analyze. Ignored if `from_de=True`.
             from_de (bool): If True (default), selects genes from stored differential expression results.
-            top_n (int): Number of top-ranked genes to use when `from_de=True` (default is 150).
+            top_n (int, optional): If set, keep this many top-ranked genes per tail when
+                `from_de=True`, ranked by `score_col`. Default `None` uses all significant
+                DE genes (upregulated and downregulated).
             score_col (str): Column name in the DE table to rank genes by (default is `"significance_score"`).
             gene_col (str): Column name in `.prot.var` or DE results that contains gene names.
             de_key (str): Key to retrieve stored DE results from `.stats["de_results"]`.
@@ -213,23 +357,28 @@ class EnrichmentMixin:
 
                 - If `"all_quantified"`, uses non-significant proteins from DE or all other quantified proteins.
                 - If a list, must contain valid gene names or accessions.
+            direction (str or iterable of str): DE directions to query when `from_de=True`.
+                Each value must be `"up"`, `"down"`, or `"both"`. Default runs all three.
+                `"both"` is the union of the up and down gene lists (truncated to `top_n`
+                per tail only when `top_n` is set). Ignored when `from_de=False`.
             debug (bool): If True, prints API request info and diagnostic messages.
             **kwargs: Additional keyword arguments passed to the STRING enrichment API.
 
         Returns:
             dict or pd.DataFrame:
 
-                - If `from_de=True`, returns a dictionary of enrichment DataFrames for "up" and "down" gene sets.
+                - If `from_de=True`, returns a dictionary of enrichment DataFrames keyed by
+                  each completed direction (`"up"`, `"down"`, `"both"`).
                 - If `genes` is provided, returns a single enrichment DataFrame.
 
         Example:
-            Run differential expression, then perform STRING enrichment on top-ranked genes:
+            Run differential expression, then perform STRING enrichment on all significant genes:
                 ```python
-                case1 = {'cellline': 'AS', 'treatment': 'sc'} # legacy style: class_type = ["group", "condition"]
-                case2 = {'cellline': 'BE', 'treatment': 'sc'} # legacy style: values = [["GroupA", "Treatment1"], ["GroupA", "Control"]]
-                pdata_nb.de(values = case_values) # or legacy style: pdata.de(classes=class_type, values=values)
+                case1 = {'cellline': 'AS', 'treatment': 'sc'}
+                case2 = {'cellline': 'BE', 'treatment': 'sc'}
+                pdata.de(values=[case1, case2])  # legacy style: pdata.de(classes=["cellline", "treatment"], values=[["AS", "sc"], ["BE", "sc"]])
                 pdata.list_enrichments()  # list available DE result keys
-                pdata.enrichment_functional(from_de=True, de_key="GroupA_Treatment1 vs GroupA_Control")
+                pdata.enrichment_functional(from_de=True, de_key="AS_sc vs BE_sc")
                 ```
 
             Perform enrichment on a custom list of genes:
@@ -266,16 +415,63 @@ class EnrichmentMixin:
             self.stats["functional"] = {}
 
         if genes is None and from_de:
+            if isinstance(direction, str):
+                requested = (direction,)
+            else:
+                try:
+                    requested = tuple(direction)
+                except TypeError as exc:
+                    raise ValueError(
+                        "`direction` must be one of {'up', 'down', 'both'} or an iterable of those."
+                    ) from exc
+            invalid = [d for d in requested if d not in _DE_DIRECTIONS]
+            if invalid or not requested:
+                raise ValueError("`direction` must be a non-empty subset of {'up', 'down', 'both'}.")
+            directions = tuple(d for d in _DE_DIRECTIONS if d in requested)
+
             resolved_key = _resolve_de_key(self.stats, de_key)
             de_df = self.stats[resolved_key]
-            sig_df = de_df[de_df["significance"] != "not significant"].copy()
             print(f"{format_log_prefix('user')} Running STRING enrichment [DE-based: {resolved_key}]")
 
-            up_genes = sig_df[sig_df[score_col] > 0][gene_col].dropna().head(top_n).tolist()
-            down_genes = sig_df[sig_df[score_col] < 0][gene_col].dropna().head(top_n).tolist()
+            sig_up = de_df[de_df["significance"] == "upregulated"].copy()
+            sig_down = de_df[de_df["significance"] == "downregulated"].copy()
+            sig_up = sig_up[sig_up[gene_col].notna()]
+            sig_down = sig_down[sig_down[gene_col].notna()]
+
+            if top_n is not None:
+                try:
+                    n_keep = int(top_n)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("`top_n` must be a positive integer or None.") from exc
+                if n_keep <= 0:
+                    raise ValueError("`top_n` must be a positive integer or None.")
+                print(
+                    f"{format_log_prefix('info_only', 2)} Truncating to top {n_keep} genes per tail "
+                    f"(by {score_col}; {len(sig_up)} up, {len(sig_down)} down before truncation)."
+                )
+                sig_up = sig_up.sort_values(score_col, ascending=False).head(n_keep)
+                sig_down = sig_down.sort_values(score_col, ascending=True).head(n_keep)
+
+            up_genes = sig_up[gene_col].tolist()
+            down_genes = sig_down[gene_col].tolist()
 
             up_accs, up_unresolved = self.resolve_to_accessions(up_genes)
             down_accs, down_unresolved = self.resolve_to_accessions(down_genes)
+            accs_by_label = {
+                "up": up_accs,
+                "down": down_accs,
+                "both": list(dict.fromkeys(up_accs + down_accs)),
+            }
+            unresolved_by_label = {
+                "up": up_unresolved,
+                "down": down_unresolved,
+                "both": list(dict.fromkeys(up_unresolved + down_unresolved)),
+            }
+            titles = {
+                "up": "Up-regulated proteins",
+                "down": "Down-regulated proteins",
+                "both": "Up- and down-regulated proteins",
+            }
 
             background_accs = None
             background_string_ids = None
@@ -292,18 +488,20 @@ class EnrichmentMixin:
                 print(f"{format_log_prefix('warn')} Ignoring `store_key` for DE-based enrichment. Using auto-generated pretty keys.")
 
             results = {}
-            for label, accs in zip(["up", "down"], [up_accs, down_accs]):
-                print(f"\n🔹 {label.capitalize()}-regulated proteins")
+            pretty_base = _pretty_vs_key(resolved_key)
+            for label in directions:
+                accs = accs_by_label[label]
+                print(f"\n🔹 {titles[label]}")
                 t0 = time.time()
 
                 if not accs:
-                    print(f"{format_log_prefix('warn')} No {label}-regulated proteins to analyze.")
+                    print(f"{format_log_prefix('warn')} No proteins to analyze for direction='{label}'.")
                     continue
 
                 mapping_df = self.get_string_mappings(accs, debug=debug)
                 mapping_df = mapping_df[mapping_df["string_identifier"].notna()]
                 if mapping_df.empty:
-                    print(f"{format_log_prefix('warn')} No valid STRING mappings found for {label}-regulated proteins.")
+                    print(f"{format_log_prefix('warn')} No valid STRING mappings found for direction='{label}'.")
                     continue
 
                 string_ids = mapping_df["string_identifier"].tolist()
@@ -318,16 +516,11 @@ class EnrichmentMixin:
 
                 print(f"   🔸 Proteins: {len(accs)} → STRING IDs: {len(string_ids)}")
                 print(f"   🔸 Species: {species_id} | Background: {'None' if background_string_ids is None else 'custom'}")
-                if label == "up":
-                    if up_unresolved:
-                        print(f"{format_log_prefix('warn',2)} Some accessions unresolved for {label}-regulated proteins: {', '.join(up_unresolved)}")
-                else:
-                    if down_unresolved:
-                        print(f"{format_log_prefix('warn',2)} Some accessions unresolved for {label}-regulated proteins: {', '.join(down_unresolved)}")
+                unresolved = unresolved_by_label[label]
+                if unresolved:
+                    print(f"{format_log_prefix('warn',2)} Some accessions unresolved for direction='{label}': {', '.join(unresolved)}")
 
                 enrichment_df = query_functional_enrichment(string_ids, species_id, background_string_ids, debug=debug)
-                enrich_key = f"{resolved_key}_{label}"
-                pretty_base = _pretty_vs_key(resolved_key)
                 pretty_key = f"{pretty_base}_{label}"
                 string_url = self.get_string_network_link(string_ids=string_ids, species=species_id)
 
@@ -346,6 +539,13 @@ class EnrichmentMixin:
                 print(f"   • View online  : {string_url}\n")
 
                 results[label] = enrichment_df
+
+            if results:
+                self._append_history(  # type: ignore[attr-defined], HistoryMixin
+                    f"prot: STRING functional enrichment [DE: {pretty_base}; "
+                    f"direction={','.join(results)}]. Stored in .stats['functional']."
+                )
+            return results
 
         elif genes is not None:
             t0 = time.time()
@@ -405,6 +605,10 @@ class EnrichmentMixin:
             print(f"   • Plot command : pdata.plot_enrichment_svg(\"{store_key}\")")
             print(f"   • View online  : {string_url}\n")
 
+            self._append_history(  # type: ignore[attr-defined], HistoryMixin
+                f"prot: STRING functional enrichment [user-supplied: {store_key}]. "
+                f"Stored in .stats['functional']['{store_key}']."
+            )
             return enrichment_df
 
         else:
@@ -665,7 +869,7 @@ class EnrichmentMixin:
 
         functional = self.stats.get("functional", {})
         ppi_keys = self.stats.get("ppi", {}).keys()
-        de_keys = {k for k in self.stats if "vs" in k and not k.endswith(("_up", "_down"))}
+        de_keys = {k for k in self.stats if "vs" in k and not k.endswith(_DE_DIRECTION_SUFFIXES)}
 
         # Collect enriched DE keys based on input_key metadata
         enriched_de = set()
@@ -737,8 +941,8 @@ class EnrichmentMixin:
         Args:
             key (str): Enrichment result key from `.stats["functional"]`. For DE-based comparisons, this 
                 includes both contrast and direction (e.g., `"GroupA_Treatment1_vs_Control_up"`).
-            direction (str, optional): Direction of DE result, either `"up"` or `"down"`. Use `None` for 
-                user-defined gene lists.
+            direction (str, optional): Direction of DE result: `"up"`, `"down"`, or `"both"`.
+                Use `None` for user-defined gene lists.
             category (str, optional): STRING enrichment category to filter by (e.g., `"Process"`, `"KEGG"`). See the table in the below note for options.
             save_as (str, optional): If provided, saves the retrieved SVG to the given file path.
 
@@ -792,8 +996,8 @@ class EnrichmentMixin:
 
         # Handle DE-type key
         if "vs" in key:
-            if direction not in {"up", "down"}:
-                raise ValueError("You must specify direction='up' or 'down' for DE-based enrichment keys.")
+            if direction not in _DE_DIRECTIONS:
+                raise ValueError("You must specify direction='up', 'down', or 'both' for DE-based enrichment keys.")
             lookup_key = _resolve_de_key(self.stats["functional"], f"{key}_{direction}")
         else:
             # Handle user-supplied key (e.g. "userSearch1")
@@ -810,15 +1014,16 @@ class EnrichmentMixin:
         species_id = meta["species"]
 
         url = "https://string-db.org/api/svg/enrichmentfigure"
+        # POST (not GET): all-DE-gene lists exceed STRING's URL length limit (HTTP 520)
         params = {
-            "identifiers": "%0d".join(string_ids),
+            "identifiers": "\r".join(string_ids),
             "species": species_id
         }
         if category:
             params["category"] = category
 
         print(f"{format_log_prefix('user')} Fetching STRING SVG for key '{lookup_key}' (n={len(string_ids)})...")
-        response = requests.get(url, params=params)
+        response = requests.post(url, data=params)
         response.raise_for_status()
 
         if save_as:
@@ -919,7 +1124,7 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
 
     This function matches a flexible, human-readable DE key against the internal keys
     stored in the DE results dictionary. It supports both raw and pretty-formatted keys,
-    and can handle suffixes like `_up` or `_down` for directional analysis.
+    and can handle suffixes like `_up`, `_down`, or `_both` for directional analysis.
 
     Args:
         stats_dict (dict): Dictionary of DE results (typically `pdata.stats["de_results"]`).
@@ -937,8 +1142,8 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
 
     # Extract suffix
     suffix = ""
-    if user_key.endswith("_up") or user_key.endswith("_down"):
-        user_key, suffix = re.match(r"(.+)(_up|_down)", user_key).groups()
+    if user_key.endswith(_DE_DIRECTION_SUFFIXES):
+        user_key, suffix = re.match(r"(.+)(_up|_down|_both)", user_key).groups()
         print(f"[DEBUG] Split into base='{user_key}', suffix='{suffix}'") if debug else None
 
     # Build pretty key mapping
@@ -947,7 +1152,7 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
         if "vs" not in full_key:
             continue
 
-        if full_key.endswith("_up") or full_key.endswith("_down"):
+        if full_key.endswith(_DE_DIRECTION_SUFFIXES):
             base = full_key.rsplit("_", 1)[0]
             full_suffix = "_" + full_key.rsplit("_", 1)[1]
         else:
@@ -962,9 +1167,8 @@ def _resolve_de_key(stats_dict, user_key, debug=False):
     full_user_key = user_key + suffix
     print(f"[DEBUG] Full user key for lookup: '{full_user_key}'")  if debug else None
 
-    # Also try pretty-formatting the *user* key so legacy dict-style keys
-    # (e.g. "[{'cellline': 'BE'}] vs …") resolve against modern stats keys
-    # like "BE_kd vs BE_sc".
+    # Pretty-format the *user* key so short lookups ("BE_kd vs BE_sc") resolve
+    # against dict-repr de() keys, and vice versa.
     pretty_user_key = _pretty_vs_key(user_key) + suffix
     print(f"[DEBUG] Pretty user key for lookup: '{pretty_user_key}'") if debug else None
 

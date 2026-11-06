@@ -90,9 +90,13 @@ def test_pd_de_cellline_values(pdata_pd_sample_column):
         values=[{"cellline": "BE"}, {"cellline": "AS"}],
         fold_change_mode="mean",
     )
+    key = "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]"
     assert "log2fc" in df.columns
     assert "p_value" in df.columns
     assert np.isfinite(df["p_value"]).any()
+    assert key in pdata_pd_sample_column.stats
+    assert "[{'cellline': 'BE'}]" in df.columns
+    assert "[{'cellline': 'AS'}]" in df.columns
 
 
 def test_pd_de_correct_fdr(pdata_pd_sample_column):
@@ -104,6 +108,7 @@ def test_pd_de_correct_fdr(pdata_pd_sample_column):
     )
     assert "adj_p_value" in df.columns
     assert np.isfinite(df["adj_p_value"]).any()
+    assert "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in pdata_pd_sample_column.stats
 
 
 def test_pd_mixed_de_cellline_explicit_contrast(pdata_pd_sample_column):
@@ -116,6 +121,7 @@ def test_pd_mixed_de_cellline_explicit_contrast(pdata_pd_sample_column):
         store=False,
     )
     assert np.isfinite(df["p_value"]).any()
+    assert df["contrast"].iloc[0] == "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]"
 
 
 def test_pd_mixed_de_values_sugar_stores_stats_key(pdata_pd_sample_column):
@@ -127,9 +133,9 @@ def test_pd_mixed_de_values_sugar_stores_stats_key(pdata_pd_sample_column):
         **_MIXED_DE_KW,
     )
     keys = [k for k in pdata_pd_sample_column.stats if k.startswith("mixed:")]
-    assert any("BE vs AS" in k or "AS vs BE" in k for k in keys)
-    key = next(k for k in keys if "donor=treatment" in k)
-    assert "log2fc" in pdata_pd_sample_column.stats[key].columns
+    expected = "mixed: [{'cellline': 'BE'}] vs [{'cellline': 'AS'}] | donor=treatment"
+    assert expected in keys
+    assert "log2fc" in pdata_pd_sample_column.stats[expected].columns
 
 
 def test_pd_mixed_de_plot_volcano_stats_key(pdata_pd_sample_column):
@@ -260,6 +266,7 @@ def test_diann_de_gradient_legacy_values(pdata_diann):
         fold_change_mode="mean",
     )
     assert np.isfinite(df["p_value"]).any()
+    assert "[{'gradient': '30min'}] vs [{'gradient': '60min'}]" in pdata_diann.stats
 
 
 def test_diann_de_values_correct_fdr(pdata_diann):
@@ -271,6 +278,9 @@ def test_diann_de_values_correct_fdr(pdata_diann):
     )
     assert "adj_p_value" in df.columns
     assert np.isfinite(df["adj_p_value"]).any()
+    key = "[{'gradient': '30min'}] vs [{'gradient': '60min'}]"
+    assert key in pdata_diann.stats
+    assert "[{'gradient': '30min'}]" in df.columns
 
 
 def test_diann_mixed_de_gradient_replicate(pdata_diann):
@@ -293,9 +303,12 @@ def test_diann_mixed_de_values_sugar(pdata_diann):
         values=[{"gradient": "30min"}, {"gradient": "60min"}],
         donor_col="replicate",
         **_MIXED_DE_KW,
-        store=False,
+        store=True,
     )
-    assert df["contrast"].iloc[0] == "30min vs 60min"
+    assert df["contrast"].iloc[0] == "[{'gradient': '30min'}] vs [{'gradient': '60min'}]"
+    expected = "mixed: [{'gradient': '30min'}] vs [{'gradient': '60min'}] | donor=replicate"
+    assert expected in pdata_diann.stats
+    assert "log2fc" in pdata_diann.stats[expected].columns
 
 
 def test_diann_mixed_de_resolve_obs_meta_matches_obs(pdata_diann):
@@ -542,3 +555,156 @@ def test_diann_plot_clustered_heatmap_mixin(pdata_diann):
     )
     assert fig is not None
     plt.close(fig)
+
+
+def test_pd_plot_clustermap(pdata_pd_sample_column):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_pd_sample_column
+    classes = [c for c in ("treatment", "cellline") if c in pdata.prot.obs.columns]
+    namelist = list(pdata.prot.var_names[:30].astype(str))
+    fig = scplt.plot_clustermap(
+        pdata, classes=classes, namelist=namelist, figsize=(7, 6)
+    )
+    assert fig is not None
+    assert "prot_X_clustermap" in pdata.stats
+    plt.close(fig)
+
+
+def test_pd_plot_clustermap_mixin(pdata_pd_sample_column):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_pd_sample_column
+    classes = [c for c in ("cellline",) if c in pdata.prot.obs.columns] or [
+        pdata.prot.obs.columns[0]
+    ]
+    namelist = list(pdata.prot.var_names[:20].astype(str))
+    fig = pdata.plot_clustermap(
+        classes=classes, namelist=namelist, show_row_labels=True, figsize=(6, 5)
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_diann_plot_clustermap(pdata_diann):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_diann
+    classes = [c for c in ("gradient", "region") if c in pdata.prot.obs.columns]
+    if not classes:
+        classes = [pdata.prot.obs.columns[0]]
+    namelist = list(pdata.prot.var_names[:30].astype(str))
+    fig = scplt.plot_clustermap(
+        pdata, classes=classes[:2], namelist=namelist, figsize=(7, 6)
+    )
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_diann_plot_clustermap_separate_legend(pdata_diann):
+    import matplotlib.pyplot as plt
+
+    pdata = pdata_diann
+    classes = [c for c in ("gradient",) if c in pdata.prot.obs.columns] or [
+        pdata.prot.obs.columns[0]
+    ]
+    namelist = list(pdata.prot.var_names[:15].astype(str))
+    out = scplt.plot_clustermap(
+        pdata,
+        classes=classes,
+        namelist=namelist,
+        separate_legend=True,
+        figsize=(5, 4),
+    )
+    assert isinstance(out, tuple) and len(out) == 2
+    plt.close(out[0])
+    plt.close(out[1])
+
+
+# ---------------------------------------------------------------------------
+# STRING mapping cache
+# ---------------------------------------------------------------------------
+
+
+def test_pd_update_string_mapping_add(pdata_pd_sample_column):
+    """PD: write a STRING ID onto `.prot.var`."""
+    pdata = pdata_pd_sample_column.copy()
+    acc = str(pdata.prot.var_names[0])
+    pdata.update_string_mapping({acc: "9606.ENSP00000000001"}, verbose=False)
+    assert pdata.prot.var.at[acc, "STRING"] == "9606.ENSP00000000001"
+    assert pdata.metadata.get("string_map_history")
+
+
+def test_pd_update_string_mapping_skip_existing(pdata_pd_sample_column):
+    """PD: overwrite=False leaves an existing STRING ID unchanged."""
+    pdata = pdata_pd_sample_column.copy()
+    acc = str(pdata.prot.var_names[0])
+    pdata.update_string_mapping({acc: "9606.OLD"}, verbose=False)
+    pdata.update_string_mapping({acc: "9606.NEW"}, overwrite=False, verbose=False)
+    assert pdata.prot.var.at[acc, "STRING"] == "9606.OLD"
+
+
+def test_diann_update_string_mapping_with_taxon(pdata_diann):
+    """DIA-NN: write STRING ID and taxon together."""
+    pdata = pdata_diann.copy()
+    acc = str(pdata.prot.var_names[0])
+    pdata.update_string_mapping({acc: "9606.ENSP1"}, taxon=9606, verbose=False)
+    assert pdata.prot.var.at[acc, "STRING"] == "9606.ENSP1"
+    assert str(pdata.prot.var.at[acc, "ncbi_taxon_id"]) == "9606"
+
+
+def test_diann_update_string_mapping_overwrite(pdata_diann):
+    """DIA-NN: overwrite=True replaces a cached STRING ID."""
+    pdata = pdata_diann.copy()
+    acc = str(pdata.prot.var_names[0])
+    pdata.update_string_mapping({acc: "9606.OLD"}, verbose=False)
+    pdata.update_string_mapping({acc: "9606.NEW"}, overwrite=True, verbose=False)
+    assert pdata.prot.var.at[acc, "STRING"] == "9606.NEW"
+
+
+# --- save / load / export_h5ad ----------------------------------------------------
+
+def test_pd_save_load_roundtrip(pdata_pd_sample_column, tmp_path):
+    pdata = pdata_pd_sample_column.copy()
+    pdata.normalize(method="median")
+    pdata.de(values=[{"cellline": "BE"}, {"cellline": "AS"}])
+    path = pdata.save(tmp_path / "pd")
+    loaded = pAnnData.load(path)
+    assert loaded.prot.shape == pdata.prot.shape and loaded.pep.shape == pdata.pep.shape
+    assert set(loaded.stats) == set(pdata.stats)
+    assert loaded.metadata["source"] == "proteomeDiscoverer"
+    assert loaded.validate(verbose=False)
+
+
+def test_pd_export_h5ad(pdata_pd_sample_column, tmp_path):
+    import anndata as ad
+
+    pdata = pdata_pd_sample_column.copy()
+    pdata.annotate_found(classes="cellline", on="protein", verbose=False)
+    pdata.update_identifier_maps({pdata.prot.var_names[0]: "NEWGENE"}, on="protein", direction="reverse",
+                                 overwrite=True, verbose=False)  # list-of-dicts metadata
+    for on in ("protein", "peptide"):
+        adata = ad.read_h5ad(pdata.export_h5ad(tmp_path / on, on=on))
+        assert adata.n_obs == pdata.prot.n_obs
+        assert "scpviz" in adata.uns
+
+
+def test_diann_save_load_roundtrip(pdata_diann, tmp_path):
+    pdata = pdata_diann.copy()
+    pdata.annotate_significant(classes=["amt"], fdr_threshold=0.05, on="protein", verbose=False)
+    pdata.pca(on="protein")
+    path = pdata.save(tmp_path / "diann")
+    loaded = pAnnData.load(path)
+    assert "X_pca" in loaded.prot.obsm
+    assert loaded.metadata["source"] == "diann"
+    assert loaded.validate(verbose=False)
+
+
+def test_diann_export_h5ad(pdata_diann, tmp_path):
+    import anndata as ad
+
+    pdata = pdata_diann.copy()
+    pdata.de(values=[{"gradient": "24min"}, {"gradient": "60min"}])
+    adata = ad.read_h5ad(pdata.export_h5ad(tmp_path / "diann_prot", on="protein"))
+    assert adata.shape == pdata.prot.shape
+    assert len(adata.uns["scpviz"]["stats"]) == len(pdata.stats)

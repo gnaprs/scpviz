@@ -43,6 +43,10 @@ def test_impute_mean_groupwise(pdata_preprocessing):
     assert np.isclose(imputed[2, 0], 1.5) # BE_kd3 missing P1 → (1 + 2) / 2 = 1.5
     assert np.isclose(imputed[3, 1], 500.0) # AS_sc1 missing P2 → (400 + 600) / 2 = 500
 
+def test_impute_groupwise_missing_classes_column(pdata_preprocessing):
+    with pytest.raises(KeyError, match="not found in .obs"):
+        pdata_preprocessing.impute(classes="nope", method="mean")
+
 def test_impute_median_groupwise(pdata_preprocessing):
     pdata = pdata_preprocessing
     pdata.impute(classes=["cellline", "treatment"], method="median")
@@ -416,8 +420,8 @@ def test_de_passes_on_valid_inputs(pdata, fold_change_mode, test):
     assert "p_value" in df.columns
     assert "adj_p_value" not in df.columns
     assert "log2fc" in df.columns
-    assert "BE_kd" in df.columns
-    assert "AS_sc" in df.columns
+    assert "[{'cellline': 'BE', 'treatment': 'kd'}]" in df.columns
+    assert "[{'cellline': 'AS', 'treatment': 'sc'}]" in df.columns
 
 def test_de_raises_on_invalid_foldchange(pdata):
     with pytest.raises(ValueError, match="Unsupported fold_change_mode"):
@@ -696,6 +700,12 @@ def test_leiden_default_layer(pdata):
     if n_clusters == 1:
         print("⚠️ Single cluster detected (likely due to small sample size or Scanpy≥1.10).")
 
+def test_leiden_refreshes_summary(pdata):
+    """leiden() refreshes .summary with the new obs column (bug-6)."""
+    pdata.leiden(on="protein", layer="X", resolution=0.5)
+    assert "leiden" in pdata.summary.columns
+    assert not pdata._summary_is_stale
+
 from unittest.mock import patch
 
 def test_leiden_custom_layer(pdata):
@@ -818,7 +828,6 @@ def test_umap_on_peptide_data(pdata):
     assert "umap" in pdata.pep.uns
 
 # test harmony
-@pytest.mark.xfail(reason="Harmony fails on some Python/sklearn versions (n_clusters=0 bug)")
 def test_harmony_runs_with_valid_key(pdata):
     # Sanity check
     assert pdata.prot.obs["cellline"].nunique() >= 2, "Cellline column must have ≥2 unique categories"
@@ -827,7 +836,7 @@ def test_harmony_runs_with_valid_key(pdata):
         pdata.pca(on="protein")
 
     # Run harmony
-    pdata.harmony(key="cellline", on="protein")
+    pdata.harmony(key="cellline", on="protein", nclust=2)
 
     # Assertions
     assert "X_pca_harmony" in pdata.prot.obsm
@@ -838,7 +847,6 @@ def test_harmony_invalid_key_raises(pdata):
     with pytest.raises(ValueError, match="Batch key 'invalid' not found"):
         pdata.harmony(key="invalid", on="protein")
 
-@pytest.mark.xfail(reason="Harmony fails on some Python/sklearn versions (n_clusters=0 bug)")
 def test_harmony_triggers_pca_if_missing(pdata):
     # Remove PCA
     pdata.prot.uns.pop("pca", None)
@@ -849,7 +857,7 @@ def test_harmony_triggers_pca_if_missing(pdata):
     assert "X_pca" not in pdata.prot.obsm
 
     # Run harmony
-    pdata.harmony(key="cellline", on="protein")
+    pdata.harmony(key="cellline", on="protein", nclust=2)
 
     # Confirm PCA was re-run
     assert "pca" in pdata.prot.uns

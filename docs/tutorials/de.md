@@ -63,7 +63,7 @@ volcano_df = pdata.mixed_de(
     contrast=("Cortex", "SNpc"),  # (test, ref)
     donor_col="animal",
 )
-stats_key = "mixed: Cortex vs SNpc | donor=animal"
+stats_key = "mixed: [{'region': 'Cortex'}] vs [{'region': 'SNpc'}] | donor=animal"
 
 # Same comparison via values sugar (identical order)
 volcano_df = pdata.mixed_de(
@@ -86,7 +86,7 @@ plt.show()
 ### Subset to a cell type, covariates, and values sugar
 
 ```python
-# Explicit contrast=(test, ref): log2fc = Agg+ − Agg−, key "Agg+ vs Agg-"
+# Explicit contrast=(test, ref): log2fc = Agg+ − Agg−; subset stored as filter: [{...}]
 df = pdata.mixed_de(
     group_col="condition",
     contrast=("Agg+", "Agg-"),

@@ -1,16 +1,21 @@
 from pathlib import Path
 import datetime
+import importlib.metadata
+import os
 import re
 import warnings
 from typing import List, Optional, Tuple, Dict, Any, Union
 from collections import Counter, defaultdict
 
+import anndata as ad
 import pandas as pd
 import numpy as np
 from scipy import sparse
 from sklearn.preprocessing import MultiLabelBinarizer
 
 from scpviz.utils import format_log_prefix
+from scpviz.utils import serialization
+from scpviz.TrackedDataFrame import TrackedDataFrame
 
 """
 Data import utilities for building `pAnnData` objects from supported proteomics tools.
@@ -704,11 +709,7 @@ def _create_pAnnData_from_parts(
     # --- Metadata ---
     metadata = metadata or {}
     metadata.setdefault("imported_at", datetime.datetime.now().isoformat())
-
-    if pdata.prot is not None:
-        pdata.prot.uns['metadata'] = metadata
-    if pdata.pep is not None:
-        pdata.pep.uns['metadata'] = metadata
+    pdata.metadata.update(metadata)
 
     # --- Summary + Validation ---
     pdata.update_summary(recompute=True, verbose=False)
@@ -1155,6 +1156,9 @@ class IOMixin:
         resolve_obs_columns: Extracts `.obs` column structure from filenames or metadata.
         suggest_obs_from_file: Suggests sample-level metadata based on consistent filename tokens.
         analyze_filename_formats: Analyzes filename structures to identify possible grouping patterns.
+        save: Writes the full object to a single `.pdata` (HDF5) file.
+        load: Restores an object saved with `save()`.
+        export_h5ad: Writes one modality as a standalone `.h5ad` for scanpy / AnnData users.
     """
 
     @classmethod
@@ -1374,3 +1378,253 @@ class IOMixin:
             when filenames embed experimental metadata.
         """
         return suggest_obs_columns(*args, **kwargs)
+
+    def save(self, filepath, overwrite=False, compression="gzip", verbose=True):
+        """
+        Save the full pAnnData object to a single `.pdata` (HDF5) file.
+
+        Stores `.prot` and `.pep` (every AnnData slot), `.rs`, `.summary` (with its stale
+        flag), `.stats`, `.history`, and `.metadata`. Values are written natively where
+        possible; anything without an HDF5 encoding is pickled on its own and listed in
+        the log, and is restored automatically by `load()`. Saving does not modify the object.
+
+        Args:
+            filepath (str or Path): Destination file. `.pdata` is appended if the path has no extension.
+            overwrite (bool): Replace an existing file. Default False.
+            compression (str or None): h5py compression for array data (`"gzip"`, `"lzf"`, or None).
+            verbose (bool): Print progress messages.
+
+        Returns:
+            Path: The written file path.
+
+        Raises:
+            FileExistsError: If the file exists and `overwrite=False`.
+
+        Example:
+            Save a processed object and reload it later:
+                ```python
+                pdata.save("experiment1")              # → experiment1.pdata
+                pdata = pAnnData.load("experiment1")
+                ```
+        """
+        import scpviz
+
+        filepath = Path(filepath).expanduser()
+        if not filepath.suffix:
+            filepath = filepath.with_suffix(".pdata")
+        if filepath.exists() and not overwrite:
+            raise FileExistsError(
+                f"{format_log_prefix('error')} {filepath} already exists. Pass overwrite=True to replace it."
+            )
+
+        if verbose:
+            print(f"{format_log_prefix('user')} Saving pAnnData → {filepath.name}")
+
+        parts = {
+            "prot": self.prot, # type: ignore[attr-defined]
+            "pep": self.pep, # type: ignore[attr-defined]
+            "rs": self.rs, # type: ignore[attr-defined]
+            "summary": pd.DataFrame(self._summary) if self._summary is not None else None, # type: ignore[attr-defined]
+            "stats": self.stats, # type: ignore[attr-defined]
+            "history": self.history, # type: ignore[attr-defined]
+            "metadata": self.metadata, # type: ignore[attr-defined]
+        }
+        attrs = {
+            "format": serialization.FILE_FORMAT,
+            "schema_version": serialization.SCHEMA_VERSION,
+            "scpviz_version": scpviz.__version__,
+            "anndata_version": importlib.metadata.version("anndata"),
+            "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "summary_is_stale": bool(self._summary_is_stale), # type: ignore[attr-defined]
+        }
+
+        # Write to a temp file, then swap in, so a failed save never leaves a half-written file.
+        tmp_path = filepath.with_name(filepath.name + ".tmp")
+        try:
+            pickled = serialization.write_pdata_file(tmp_path, parts, attrs, compression=compression)
+            os.replace(tmp_path, filepath)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+        if verbose:
+            for name, adata in (("prot", self.prot), ("pep", self.pep)): # type: ignore[attr-defined]
+                if adata is not None:
+                    print(f"{format_log_prefix('info_only', 2)} .{name}: {adata.n_obs} samples × {adata.n_vars} features, "
+                          f"{len(adata.layers)} layers")
+            print(f"{format_log_prefix('info_only', 2)} .stats: {len(self.stats)} entries, .history: {len(self.history)} entries") # type: ignore[attr-defined]
+            if pickled:
+                print(f"{format_log_prefix('warn')} {len(pickled)} value(s) have no native HDF5 encoding and were "
+                      "stored as pickle (restored automatically by load()):")
+                for p in pickled[:10]:
+                    print(f"{format_log_prefix('blank', 3)}- {p}")
+                if len(pickled) > 10:
+                    print(f"{format_log_prefix('blank', 3)}... and {len(pickled) - 10} more")
+            print(f"{format_log_prefix('result')} Saved to {filepath.resolve()}")
+            print(f"{format_log_prefix('blank')} Load with: pdata = pAnnData.load({str(filepath)!r})")
+
+        return filepath
+
+    @classmethod
+    def load(cls, filepath, validate=True, source=None, verbose=True):
+        """
+        Load a pAnnData object saved with `save()`.
+
+        Identifier-map caches are not stored; they are rebuilt on first use.
+
+        Args:
+            filepath (str or Path): `.pdata` file. `.pdata` is appended if the path has no extension.
+            validate (bool): Run `validate()` after loading and warn on failure. Default True.
+            source (str, optional): Import source to record in `.metadata['source']`
+                (`'diann'`, `'proteomeDiscoverer'`, `'maxquant'`). Only needed when the saved
+                object has none (e.g. it was built by hand); peptide-to-protein mapping relies on it.
+            verbose (bool): Print progress messages.
+
+        Returns:
+            pAnnData: The restored object.
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+            ValueError: If the file is not a `.pdata` file or uses a newer schema version.
+
+        Example:
+            Load a saved object, recording its source if it was never imported:
+                ```python
+                pdata = pAnnData.load("experiment1.pdata")
+                pdata = pAnnData.load("handbuilt.pdata", source="diann")
+                ```
+        """
+        import scpviz
+
+        filepath = Path(filepath).expanduser()
+        if not filepath.suffix:
+            filepath = filepath.with_suffix(".pdata")
+        if not filepath.exists():
+            raise FileNotFoundError(f"{format_log_prefix('error')} {filepath} not found.")
+
+        if verbose:
+            print(f"{format_log_prefix('user')} Loading pAnnData ← {filepath.name}")
+
+        parts, attrs = serialization.read_pdata_file(filepath)
+        saved_version = attrs.get("scpviz_version", "unknown")
+        if verbose and saved_version != scpviz.__version__:
+            print(f"{format_log_prefix('warn')} Saved with scpviz v{saved_version}; current is v{scpviz.__version__}.")
+
+        obj = cls()
+        obj._prot, obj._pep, obj._rs = parts["prot"], parts["pep"], parts["rs"]
+        obj._stats, obj._history, obj._metadata = parts["stats"], parts["history"], parts["metadata"]
+        if parts["summary"] is None:
+            obj.update_summary(recompute=True, sync_back=False, verbose=False)
+        else:
+            obj._summary = TrackedDataFrame(parts["summary"], parent=obj, mark_stale_fn=obj._mark_summary_stale)
+            obj._summary_is_stale = bool(attrs["summary_is_stale"])
+
+        if source is not None:
+            obj.metadata["source"] = source
+            if verbose:
+                print(f"{format_log_prefix('info_only', 2)} Set .metadata['source'] = {source!r}")
+        elif obj.pep is not None and not obj.metadata.get("source"):
+            print(f"{format_log_prefix('warn')} No import source recorded; peptide-to-protein mapping will fail. "
+                  "Pass load(..., source=...) or set pdata.metadata['source'] = 'diann' | 'proteomeDiscoverer' | 'maxquant'.")
+
+        obj._append_history(f"Loaded from {filepath.name} (saved with scpviz v{saved_version}).")
+
+        if validate and not obj.validate(verbose=False):
+            print(f"{format_log_prefix('warn')} Loaded object failed validation. Run pdata.validate(verbose=True) for details.")
+
+        if verbose:
+            print(f"{format_log_prefix('result')} Load complete. Use `print(pdata)` to view the object.")
+        return obj
+
+    def export_h5ad(self, filepath, on="protein", overwrite=False, compression="gzip", verbose=True):
+        """
+        Export one modality as a standalone `.h5ad` for scanpy / AnnData users.
+
+        The file holds that modality's AnnData (X, layers, obs, var, obsm, varm, obsp, varp, uns)
+        plus `uns['scpviz']` with `.stats`, `.metadata`, and the scpviz version. The other
+        modality, `.rs`, `.summary`, and `.history` are **not** exported, and values h5ad cannot
+        store are converted (e.g. tuples → lists, MultiIndex columns joined with `"|"`,
+        `DataFrame.attrs` dropped); a warning lists both. Use `save()` for a lossless copy.
+
+        Args:
+            filepath (str or Path): Destination file. `.h5ad` is appended if the path has no extension.
+            on (str): `'protein'` / `'prot'` or `'peptide'` / `'pep'`.
+            overwrite (bool): Replace an existing file. Default False.
+            compression (str or None): h5ad compression (`"gzip"`, `"lzf"`, or None).
+            verbose (bool): Print progress messages. Warnings about dropped data are always shown.
+
+        Returns:
+            Path: The written file path.
+
+        Raises:
+            FileExistsError: If the file exists and `overwrite=False`.
+            ValueError: If `on` is invalid or that modality has no data.
+
+        Example:
+            Export protein data for scanpy:
+                ```python
+                pdata.export_h5ad("experiment1_prot", on="protein")   # → experiment1_prot.h5ad
+                adata = anndata.read_h5ad("experiment1_prot.h5ad")
+                ```
+        """
+        import scpviz
+
+        if on in ("protein", "prot"):
+            on_key, other_key = "prot", "pep"
+        elif on in ("peptide", "pep"):
+            on_key, other_key = "pep", "prot"
+        else:
+            raise ValueError(f"{format_log_prefix('error')} on must be 'protein' or 'peptide', got {on!r}.")
+        adata, other = getattr(self, on_key), getattr(self, other_key)
+        if adata is None:
+            raise ValueError(f"{format_log_prefix('error')} No .{on_key} data to export.")
+
+        filepath = Path(filepath).expanduser()
+        if not filepath.suffix:
+            filepath = filepath.with_suffix(".h5ad")
+        if filepath.exists() and not overwrite:
+            raise FileExistsError(
+                f"{format_log_prefix('error')} {filepath} already exists. Pass overwrite=True to replace it."
+            )
+
+        if verbose:
+            print(f"{format_log_prefix('user')} Exporting .{on_key} → {filepath.name}")
+
+        notes = []
+        to_safe = serialization.to_h5ad_safe
+        uns = to_safe(dict(adata.uns), "uns", notes)
+        uns["scpviz"] = to_safe(
+            {"stats": self.stats, "metadata": self.metadata, "scpviz_version": scpviz.__version__}, # type: ignore[attr-defined]
+            "uns['scpviz']", notes,
+        )
+        out = ad.AnnData(
+            X=adata.X,
+            obs=to_safe(pd.DataFrame(adata.obs), "obs", notes),
+            var=to_safe(pd.DataFrame(adata.var), "var", notes),
+            layers=dict(adata.layers),
+            obsm={k: to_safe(v, f"obsm[{k!r}]", notes) for k, v in adata.obsm.items()},
+            varm={k: to_safe(v, f"varm[{k!r}]", notes) for k, v in adata.varm.items()},
+            obsp=dict(adata.obsp),
+            varp=dict(adata.varp),
+            uns=uns,
+        )
+        out.write_h5ad(filepath, compression=compression)
+
+        dropped = [name for name, present in (
+            (f".{other_key}", other is not None),
+            (".rs", self.rs is not None), # type: ignore[attr-defined]
+            (".summary", self._summary is not None), # type: ignore[attr-defined]
+            (".history", bool(self.history)), # type: ignore[attr-defined]
+        ) if present]
+        if dropped:
+            print(f"{format_log_prefix('warn')} export_h5ad keeps only .{on_key}; not exported: {', '.join(dropped)}. "
+                  "Use pdata.save() to keep everything.")
+        if notes:
+            print(f"{format_log_prefix('warn')} {len(notes)} value(s) converted to h5ad-compatible forms:")
+            for n in notes[:10]:
+                print(f"{format_log_prefix('blank', 3)}- {n}")
+            if len(notes) > 10:
+                print(f"{format_log_prefix('blank', 3)}... and {len(notes) - 10} more")
+        if verbose:
+            print(f"{format_log_prefix('result')} Exported to {filepath.resolve()}")
+        return filepath

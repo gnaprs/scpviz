@@ -403,4 +403,23 @@ If filenames follow multiple formats, use `parse_filename_index` to handle diffe
 
 ---
 
+## Saving and loading
+
+Save the whole object (protein + peptide data, RS matrix, summary, DE / enrichment results in `.stats`, history, and import metadata) to a single `.pdata` file, and load it back exactly as it was:
+
+```py title="Save and reload a pAnnData object"
+pdata.save("experiment1")                       # writes experiment1.pdata
+pdata = pAnnData.load("experiment1")            # validates on load
+```
+
+`save()` refuses to overwrite an existing file unless you pass `overwrite=True`. If the object was built by hand rather than imported, record its source so peptide-to-protein mapping works: `pAnnData.load("experiment1", source="diann")` (or set `pdata.metadata["source"]` directly).
+
+To share one modality with scanpy / AnnData users, export it as `.h5ad`. The other modality, the RS matrix, the summary, and the history are not included (a warning lists them); `.stats` and `.metadata` are stored under `adata.uns["scpviz"]`:
+
+```py title="Export protein data for scanpy"
+pdata.export_h5ad("experiment1_prot", on="protein")   # writes experiment1_prot.h5ad
+```
+
+---
+
 ➡️ Next: [Filtering and Normalization](filtering.md)

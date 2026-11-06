@@ -899,17 +899,19 @@ plt.show()
 
 <div class="result" markdown>
 
-```text title="output" hl_lines="7"
+```text title="output" hl_lines="10"
+     ⚠️ [WARN] Layer 'X' appears to contain non-log intensities (median=4.92e+04). Statistical tests assume approximately normal distributions — consider log_transform() before DE analysis.
 🧭 [USER] Running differential expression [protein]
    🔸 Comparing groups: [{'condition': 'SWI'}] vs [{'condition': 'Uninjured'}]
    🔸 Group sizes: 5 vs 5 samples
-   🔸 Method: ttest | Fold Change: mean | Layer: X
+   🔸 Layer: X (non-log)
+   🔸 Method: ttest | Fold Change: mean
    🔸 P-value threshold: 0.05 | Log2FC threshold: 1
      ℹ️ [INFO] 413 proteins were not comparable (zero or NaN mean in one group).
      ✅ DE complete. Results stored in:
        • .stats["[{'condition': 'SWI'}] vs [{'condition': 'Uninjured'}]"]
        • Columns: log2fc, p_value, significance, etc.
-       • Upregulated: 86 | Downregulated: 88 | Not significant: 2605
+       • Upregulated: 86 | Downregulated: 88 | Not significant: 2605 | Not comparable: 413
 ```
 
 </div>
@@ -968,7 +970,7 @@ pdata_sc_norm.enrichment_functional(from_de=True, de_key="SWI vs Uninjured")
 
 <div class="result" markdown>
 
-```text title="output" hl_lines="23"
+```text title="output" hl_lines="29"
 🧭 [USER] Running STRING enrichment [DE-based: [{'condition': 'SWI'}] vs [{'condition': 'Uninjured'}]]
 
 🔹 Up-regulated proteins
@@ -976,9 +978,11 @@ pdata_sc_norm.enrichment_functional(from_de=True, de_key="SWI vs Uninjured")
      🌐 [API] UniProt mapped: 82 / 86
      🌐 [API] STRING mapped: 0 / 4 (missing after UniProt)
           ℹ️ Cached 82 STRING ID mappings.
+          ⚠️ 4 identifier(s) still unmapped: P58774-2, Q61595-5, Q8C5H8-2, Q810U4-2
+          Tip: look these up on STRING, then `pdata.update_string_mapping({'ACCESSION': '9606.ENSP...'})`.
    🔸 Proteins: 86 → STRING IDs: 82
    🔸 Species: 10090 | Background: None
-     ✅ [OK] Enrichment complete (7.11s)
+     ✅ [OK] Enrichment complete (2.40s)
    • Access result: pdata.stats['functional']["SWI vs Uninjured_up"]["result"]
    • Plot command : pdata.plot_enrichment_svg("SWI vs Uninjured", direction="up")
    • View online  : https://string-db.org/cgi/network?identifiers=10090.ENSMUSP00000020277%0d10090...ENSMUSP00000030187&caller_identity=scpviz&species=10090&show_query_node_labels=1
@@ -989,13 +993,29 @@ pdata_sc_norm.enrichment_functional(from_de=True, de_key="SWI vs Uninjured")
      🌐 [API] UniProt mapped: 83 / 88
      🌐 [API] STRING mapped: 1 / 5 (missing after UniProt)
           ℹ️ Cached 84 STRING ID mappings.
+          ⚠️ 4 identifier(s) still unmapped: P10637-3, Q60900-2, A2AP18-2, Q810U4-5
+          Tip: look these up on STRING, then `pdata.update_string_mapping({'ACCESSION': '9606.ENSP...'})`.
    🔸 Proteins: 88 → STRING IDs: 84
    🔸 Species: 10090 | Background: None
-     ✅ [OK] Enrichment complete (5.09s)
+     ✅ [OK] Enrichment complete (2.41s)
    • Access result: pdata.stats['functional']["SWI vs Uninjured_down"]["result"]
    • Plot command : pdata.plot_enrichment_svg("SWI vs Uninjured", direction="down")
-   • View online  : https://string-db.org/cgi/network?identifiers=10090.ENSMUSP00000105980%0d10090...caller_identity=scpviz&species=10090&show_query_node_labels=1
+   • View online  : https://string-db.org/cgi/network?identifiers=10090.ENSMUSP00000105980%0d10090...ENSMUSP00000109795&caller_identity=scpviz&species=10090&show_query_node_labels=1
 
+
+🔹 Up- and down-regulated proteins
+     ℹ️ Found 166 cached STRING IDs. 8 need lookup.
+     🌐 [API] UniProt mapped: 0 / 8
+     🌐 [API] STRING mapped: 0 / 8 (missing after UniProt)
+          ℹ️ Cached 0 STRING ID mappings.
+          ⚠️ 8 identifier(s) still unmapped: P58774-2, Q61595-5, Q8C5H8-2, Q810U4-2, P10637-3, Q60900-2, A2AP18-2, Q810U4-5
+          Tip: look these up on STRING, then `pdata.update_string_mapping({'ACCESSION': '9606.ENSP...'})`.
+   🔸 Proteins: 174 → STRING IDs: 166
+   🔸 Species: 10090 | Background: None
+     ✅ [OK] Enrichment complete (1.88s)
+   • Access result: pdata.stats['functional']["SWI vs Uninjured_both"]["result"]
+   • Plot command : pdata.plot_enrichment_svg("SWI vs Uninjured", direction="both")
+   • View online  : https://string-db.org/cgi/network?identifiers=10090.ENSMUSP00000020277%0d10090...ENSMUSP00000109795&caller_identity=scpviz&species=10090&show_query_node_labels=1
 ```
 
 </div>

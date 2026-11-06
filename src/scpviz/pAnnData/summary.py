@@ -126,7 +126,6 @@ class SummaryMixin:
         
         self._summary = TrackedDataFrame(
             summary, parent=self, mark_stale_fn=self._mark_summary_stale)
-        self._previous_summary = summary.copy()
 
     def _push_summary_to_obs(self, skip_if_contains='pep', verbose=False):
         """
