@@ -64,18 +64,19 @@ commit_parsers = [
   # skip noise
   { message = "(?i)merge (pull request|branch|development)", skip = true },
   { message = "(?i)update to v[0-9]", skip = true },
+  { message = "^chore: update changelogs", skip = true },
 
   # Conventional Commit types (scope-aware)
-  { message = "^(feat)(\\(.+\\))?:", group = "Added", default_scope = "unscoped" },
-  { message = "^(fix)(\\(.+\\))?:", group = "Fixed", default_scope = "unscoped" },
-  { message = "^(refactor)(\\(.+\\))?:", group = "Changed", default_scope = "unscoped" },
-  { message = "^(perf)(\\(.+\\))?:", group = "Performance", default_scope = "unscoped" },
-  { message = "^(style)(\\(.+\\))?:", group = "Style", default_scope = "unscoped" },
-  { message = "^(build)(\\(.+\\))?:", group = "Build System", default_scope = "unscoped" },
-  { message = "^(ci)(\\(.+\\))?:", group = "CI", default_scope = "unscoped" },
-  { message = "^(test)(\\(.+\\))?:", group = "Tests", default_scope = "unscoped" },
-  { message = "^(chore)(\\(.+\\))?:", group = "Chores", default_scope = "unscoped" },
-  { message = "^(docs)(\\(.+\\))?:", group = "Documentation", default_scope = "unscoped" },
+  { message = "^(feat)(\\(.+\\))?!?:", group = "Added", default_scope = "unscoped" },
+  { message = "^(fix)(\\(.+\\))?!?:", group = "Fixed", default_scope = "unscoped" },
+  { message = "^(refactor)(\\(.+\\))?!?:", group = "Changed", default_scope = "unscoped" },
+  { message = "^(perf)(\\(.+\\))?!?:", group = "Performance", default_scope = "unscoped" },
+  { message = "^(style)(\\(.+\\))?!?:", group = "Style", default_scope = "unscoped" },
+  { message = "^(build)(\\(.+\\))?!?:", group = "Build System", default_scope = "unscoped" },
+  { message = "^(ci)(\\(.+\\))?!?:", group = "CI", default_scope = "unscoped" },
+  { message = "^(test)(\\(.+\\))?!?:", group = "Tests", default_scope = "unscoped" },
+  { message = "^(chore)(\\(.+\\))?!?:", group = "Chores", default_scope = "unscoped" },
+  { message = "^(docs)(\\(.+\\))?!?:", group = "Documentation", default_scope = "unscoped" },
 
   # Legacy keyword groups (for older commits)
   { message = "(?i)^(add|added|implement|introduce|create|upload)", group = "Added" },
