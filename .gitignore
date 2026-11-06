@@ -2,6 +2,7 @@
 
 # Directories
 .claude/
+.cursor/
 .vscode/
 src/scpviz/__pycache__/
 tests/__pycache__/
@@ -20,6 +21,7 @@ dev/*.xlsx
 dev/*.tar*
 dev/win*.py
 dev/saveTest*
+dev/md/
 
 # Specific files
 testing.ipynb

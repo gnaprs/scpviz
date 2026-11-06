@@ -63,7 +63,7 @@ Quick view of what to work on. Full tables below.
 
 | Priority | Status | ID | Description |
 |----------|--------|----|-------------|
-| M | [~] | ref-1 | Sync DE for adata and pdata into a combined workflow, and volcano code |
+| M | [x] | ref-1 | Sync DE for adata and pdata into a combined workflow, and volcano code |
 | L | [ ] | ref-2 | Standardize internal terminology: `classes` vs `class_types` for sample-level grouping |
 | L | [ ] | ref-3 | Add typing to variables — low priority, should be easy |
 | H | [ ] | ref-4 | Docstring hover: hovering over functions doesn't show docstring all the time (pdata class inherits mixin; .plotting/.utils are fine) — fix ASAP |
