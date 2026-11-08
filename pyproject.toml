@@ -70,8 +70,8 @@ dev = ["pytest>=9.0.3","coverage>=7.13.5","flake8>=7.3.0","pytest-cov>=7.1.0"]
 # mkdocs-material>=9.7.5 requires MkDocs<2 so builds stay valid if MkDocs 2.0 ships (breaking theme/plugin API).
 docs = [
   "mkdocs-material>=9.7.5",
-  "mkdocstrings>=0.29.1,<0.31",
-  "mkdocstrings-python>=1.16.2,<2",
+  "mkdocstrings>=1.0,<2",
+  "mkdocstrings-python>=2,<3",
   "mkdocs-literate-nav",
   "mkdocs-section-index",
   "pymdown-extensions",
