@@ -1,6 +1,181 @@
 All notable changes to this project are documented here.
 
 <details open>
+<summary><b>1.2.0</b> – 2026-11-08</summary>
+
+
+#### Added
+
+
+##### (Enrichment)
+
+
+- Cache STRING IDs manually and enrich all DE genes by default (0885fde…)
+
+- Add direction="both" and log STRING enrichment to history (56a209b…)
+
+
+
+##### (PAnnData)
+
+
+- Add .pdata save/load and export_h5ad (00df863…)
+
+- Add .pdata save/load, STRING enrichment overhaul, and DE dict-repr keys (breaking) (8ac2590…)
+
+
+
+##### (Utils)
+
+
+- Add verbose progress logging to get_upset_query (982c7e2…)
+
+- Support length in peptide property helpers (0f09cbf…)
+
+- Store DE comparison labels as dict-repr in stats keys (39d96f2…)
+
+
+
+#### Build System
+
+
+##### (Docs)
+
+
+- Upgrade mkdocstrings to 1.x and mkdocstrings-python to 2.x (b33ca6e…)
+
+
+
+##### (V1.2.0)
+
+
+- Bump version (774c3b0…)
+
+
+
+#### CI
+
+
+##### (Changelog)
+
+
+- Classify breaking commits and skip changelog bot commits (70100a9…)
+
+
+
+#### Changed
+
+
+##### (Plotting)
+
+
+- Merge heatmaps into clustering.py and polish plot_clustermap (dd5fd68…)
+
+
+
+#### Chores
+
+
+##### (Dev)
+
+
+- Add save/load verification notebook (ed58611…)
+
+
+
+##### (PAnnData)
+
+
+- Remove unused tkinter import and dead summary copy (06404e6…)
+
+
+
+##### (Todo)
+
+
+- Mark rs sync bug as fixed, add bug on empty load() (eb22a1a…)
+
+
+
+#### Documentation
+
+
+##### (Enrichment)
+
+
+- Refresh quickstart outputs and fix enrichment tutorial examples (9719f52…)
+
+- Refresh single_cell outputs and regenerate enrichment figure (1301352…)
+
+
+
+
+- Correct stale contributor and tutorial instructions (9004559…)
+
+
+
+#### Fixed
+
+
+##### (Enrichment)
+
+
+- POST identifiers in plot_enrichment_svg to avoid STRING 520 on long lists (997d2c9…)
+
+
+
+##### (Filtering)
+
+
+- Sync peptides and rs correctly in in-place protein filters (c3d7bf0…)
+
+- Align found/significance metrics to current features (94a0944…)
+
+
+
+##### (PAnnData)
+
+
+- Skip anndata 0.13 layers[None] in filter and repr (c8c36d7…)
+
+- Build summary when constructing from prot/pep (a6120ef…)
+
+- Refresh summary after leiden and pass harmony kwargs (312b89c…)
+
+
+
+##### (Plotting)
+
+
+- Use hollow circle edge legends and grey shape handles in PCA/UMAP (8a9f5a4…)
+
+- Skip housekeeping groups with no matching genes (8b6bd4c…)
+
+
+
+
+- Honor debug flag in plot_raincloud and get_upset_contents (f8a67c2…)
+
+
+
+##### (Utils)
+
+
+- Query UniProt via /accessions and keep entry-name stream fallback (e1b6445…)
+
+- Raise clear KeyError for missing classes column in get_samplenames (f61c904…)
+
+- Keep numeric peptide property columns as float (9452e8d…)
+
+
+
+#### Other
+
+
+
+</details>
+
+<details open>
 <summary><b>1.1.2</b> – 2026-08-05</summary>
 
 
@@ -75,6 +250,8 @@ All notable changes to this project are documented here.
 ##### (PAnnData)
 
 
+- Treat zero as missing in quant metrics and refresh summary on X changes #48 (9e71e21…)
+
 - Fix _resolve_de_key failing on legacy dict key, fix cell-level LMM failing to converge and default to auto to fall back on pseudobulk (e067645…)
 
 - Bug fix for mixed_de having mixedlm non-convergence on near-zero (sensitive to BLAS/OS ubuntu py3.11) (31b5d84…)
@@ -96,6 +273,13 @@ All notable changes to this project are documented here.
 
 
 #### Style
+
+
+##### (Docs)
+
+
+- Fix formatting errors on docstrings (d79ef4f…)
+
 
 
 ##### (Filtering)
@@ -139,23 +323,11 @@ All notable changes to this project are documented here.
 
 
 
-#### Chores
-
-
-
-- Update changelogs [skip ci] (fa8db5c…)
-
-- Update changelogs [skip ci] (fbc23eb…)
-
-
-
 #### Fixed
 
 
 ##### (PAnnData)
 
-
-- Treat zero as missing in quant metrics and refresh summary on X changes #48 (9e71e21…)
 
 - Treat zero as missing in quant metrics and refresh summary on X changes #48 (d6ad025…)
 
@@ -166,8 +338,6 @@ All notable changes to this project are documented here.
 
 ##### (Docs)
 
-
-- Fix formatting errors on docstrings (d79ef4f…)
 
 - Fix formatting errors on docstrings (711842e…)
 
@@ -201,14 +371,6 @@ All notable changes to this project are documented here.
 
 
 - Bump version to 1.1.0 (d9179a3…)
-
-
-
-#### Chores
-
-
-
-- Update changelogs [skip ci] (c84e95a…)
 
 
 
@@ -342,14 +504,6 @@ All notable changes to this project are documented here.
 
 
 
-#### Chores
-
-
-
-- Update changelogs [skip ci] (9f0440f…)
-
-
-
 #### Documentation
 
 
@@ -415,14 +569,6 @@ All notable changes to this project are documented here.
 
 
 
-#### Chores
-
-
-
-- Update changelogs [skip ci] (db52750…)
-
-
-
 #### Documentation
 
 
@@ -475,6 +621,61 @@ All notable changes to this project are documented here.
 <summary><b>0.6.0</b> – 2026-04-14</summary>
 
 
+#### Added
+
+
+##### (Analysis)
+
+
+- Add ssGSEA and declare gseapy dependency (33a3578…)
+
+- Add pairwise_correlation function (d5a62b9…)
+
+- Add log_transform for preprocessing and update handling of log data on de(), pca() and pairwise_correlation() (e8f9af4…)
+
+
+
+##### (Editing)
+
+
+- Update export_layer to support multiple labels (25dd299…)
+
+
+
+##### (Enrichment)
+
+
+- Add enrichment_functional_pca for STRING on PCA loadings (0099128…)
+
+
+
+##### (PAnnData)
+
+
+- Layer provenance registry, log_transform, and show_layer_provenance (5cceb9a…)
+
+- Update layer provenance in .analysis functions (c1cca58…)
+
+
+
+##### (Pca_gsea)
+
+
+- Implement gseapy prerank, using multi-library default, FDR counts in verbose (1b6cd7d…)
+
+
+
+##### (Plotting)
+
+
+- Add PCA-GSEA plots and pAnnData wrappers (44d82f2…)
+
+- Add plot_pairwise_correlation (86483c3…)
+
+- Add accession and gene columns to plot_cv() returned df (ac850b9…)
+
+
+
 #### Build System
 
 
@@ -504,6 +705,13 @@ All notable changes to this project are documented here.
 #### CI
 
 
+##### (Docs)
+
+
+- Update to local editable copy of scpviz for docs serve (f069efa…)
+
+
+
 
 - Automate changelog and PyPI release workflows (a773a00…)
 
@@ -514,6 +722,10 @@ All notable changes to this project are documented here.
 
 ##### (Plotting)
 
+
+- Cleanup, move single use functions into helper functions (643061c…)
+
+- Refactor both biplots for protein and pathway vectors to accept n_vectors per pc, fix bug on ylim/xlim, allow cmap coloring (3112be7…)
 
 - Plotting module refactor (3da4e61…)
 
@@ -529,6 +741,13 @@ All notable changes to this project are documented here.
 #### Chores
 
 
+##### (Gitignore)
+
+
+- Extend .gitignore for save tar folders etc (a89b398…)
+
+
+
 ##### (Merge)
 
 
@@ -538,12 +757,15 @@ All notable changes to this project are documented here.
 
 
 
+##### (Todo)
 
-- Update changelogs [skip ci] (5391347…)
 
-- Update changelogs [skip ci] (37fc44b…)
+- Refactor todo list w priority and better oganization (cf4d03c…)
 
-- Update changelogs [skip ci] (5e6b792…)
+
+
+
+- Expose __version__, align print_versions, ignore logo asset (e750e24…)
 
 
 
@@ -557,6 +779,13 @@ All notable changes to this project are documented here.
 
 
 
+##### (Utils)
+
+
+- Synchronize docs layout for utilies and plotting modules (d83cb71…)
+
+
+
 ##### (Version bump)
 
 
@@ -567,10 +796,33 @@ All notable changes to this project are documented here.
 #### Fixed
 
 
+##### (Plotting)
+
+
+- Update plot_venn to override alpha if provided (32afcbe…)
+
+
+
+##### (Test_provenance_chain_depth_after_chain)
+
+
+- Add update to current_X_layer in editing.py (ae7d7de…)
+
+
+
 ##### (Tests)
 
 
+- Correct GLOBAL_DEBUG import in pytest_configure (4d7a271…)
+
 - Typo in test assertion for test_print_versions_runs() (ffb3b0a…)
+
+
+
+##### (Utils)
+
+
+- Force string typecast on join for get_classlist() (474f97b…)
 
 
 
@@ -580,9 +832,30 @@ All notable changes to this project are documented here.
 ##### (Paper)
 
 
+- Update Paper PDF Draft (ebe6943…)
+
 - Update Paper PDF Draft (f4b1e86…)
 
 - Update Paper PDF Draft (6451bae…)
+
+
+
+#### Style
+
+
+##### (Analysis)
+
+
+- Fix typo in pca_gsea() printed results key (f28f201…)
+
+
+
+##### (Docs)
+
+
+- Fix griffe errors for plot.py (c3cf62d…)
+
+- Fix griffe errors for pAnnData.py (f7dd584…)
 
 
 
@@ -592,7 +865,23 @@ All notable changes to this project are documented here.
 ##### (Analysis)
 
 
+- Cover ssGSEA storage, gene column, and duplicate collapse (e1e8d04…)
+
 - Remove xfail from passing tests due to bump in python version (634addd…)
+
+
+
+##### (Editing)
+
+
+- Add tests for layer provenance (2b13eac…)
+
+
+
+##### (Enrichment)
+
+
+- Cover enrichment_functional_pca PC tails and key suffix (8ca4855…)
 
 
 
@@ -602,6 +891,13 @@ All notable changes to this project are documented here.
 - Debug test_import_pd_excel #30 (cd4c98c…)
 
 - Exclude macos py3.8 due to scikit installation error (7efb218…)
+
+
+
+##### (Plotting)
+
+
+- Cover PCA-GSEA plots, protein loading vectors, and pAnnData wrappers (297e698…)
 
 
 
@@ -629,31 +925,6 @@ All notable changes to this project are documented here.
 
 
 - Refactor todo list w priority and better oganization (e6d3c4b…)
-
-
-
-
-- Update changelogs [skip ci] (7a6cced…)
-
-- Update changelogs [skip ci] (ba29e77…)
-
-- Update changelogs [skip ci] (85a5de7…)
-
-- Update changelogs [skip ci] (4eb539a…)
-
-- Update changelogs [skip ci] (fa78650…)
-
-- Update changelogs [skip ci] (8c0fd83…)
-
-- Update changelogs [skip ci] (2b5f382…)
-
-- Update changelogs [skip ci] (8f3d47a…)
-
-- Update changelogs [skip ci] (017730b…)
-
-- Update changelogs [skip ci] (b5a4837…)
-
-- Update changelogs [skip ci] (e8b0949…)
 
 
 
@@ -732,6 +1003,18 @@ Fixes #35 (198692f…)
 <summary><b>0.5.8-alpha</b> – 2026-03-16</summary>
 
 
+#### Added
+
+
+##### (Plotting)
+
+
+- Update plot_abundance_boxgrid to more flexible plotting style, bug fixes (4276636…)
+
+- Update plot_abundance_boxgrid and add tests (2c1b0cd…)
+
+
+
 #### Build System
 
 
@@ -742,25 +1025,82 @@ Fixes #35 (198692f…)
 
 
 
-#### Chores
-
-
-
-- Update changelogs [skip ci] (787c652…)
-
-- Update changelogs [skip ci] (f33ed77…)
-
-
-
 #### Documentation
+
+
+##### (Plotting)
+
+
+- Update examples for various plotting functions (cc43b62…)
+
+
+
+##### (Quickstart)
+
+
+- Update quickstart to include new plotting functions (d4f1d48…)
+
 
 
 ##### (Tutorial)
 
 
+- Add wget downloads to importing ipynb (f9d34fa…)
+
 - Update single cell and quickstart tutorial (1a04522…)
 
 - Update single_cell.ipynb (b5eb1fb…)
+
+
+
+##### (Tutorials)
+
+
+- Complete importing tutorial (3534a19…)
+
+
+
+##### (Upload)
+
+
+- Upload test_input.csv (94ca178…)
+
+
+
+#### Fixed
+
+
+##### (Get_abundance)
+
+
+- Bug fix on get_abundance throwing error when passing in string instead of list (9b70b75…)
+
+
+
+##### (Tests)
+
+
+- Typos on errortype and assertion match (f0b9674…)
+
+
+
+#### Other
+
+
+#### Tests
+
+
+##### (Import)
+
+
+- Add test for pep xlsx import (6d67ccb…)
+
+
+
+##### (Plotting)
+
+
+- Update test names for plot_abundance_boxgrid (21933a5…)
 
 
 
@@ -779,12 +1119,6 @@ Fixes #35 (198692f…)
 
 - Add pimms imputation (3745120…)
 
-- Add ssGSEA and declare gseapy dependency (33a3578…)
-
-- Add pairwise_correlation function (d5a62b9…)
-
-- Add log_transform for preprocessing and update handling of log data on de(), pca() and pairwise_correlation() (e8f9af4…)
-
 
 
 ##### (Directlfq)
@@ -794,19 +1128,10 @@ Fixes #35 (198692f…)
 
 
 
-##### (Editing)
-
-
-- Update export_layer to support multiple labels (25dd299…)
-
-
-
 ##### (Enrichment)
 
 
 - Allow category argument for plot_enrichment_svg (297e9f7…)
-
-- Add enrichment_functional_pca for STRING on PCA loadings (0099128…)
 
 
 
@@ -814,22 +1139,6 @@ Fixes #35 (198692f…)
 
 
 - Add warning about underscores in class_type throwing error within annotate_found and annotate_significant (51b0664…)
-
-
-
-##### (PAnnData)
-
-
-- Layer provenance registry, log_transform, and show_layer_provenance (5cceb9a…)
-
-- Update layer provenance in .analysis functions (c1cca58…)
-
-
-
-##### (Pca_gsea)
-
-
-- Implement gseapy prerank, using multi-library default, FDR counts in verbose (1b6cd7d…)
 
 
 
@@ -858,16 +1167,6 @@ Fixes #35 (198692f…)
 - Text adjustments to mark_volcano and mark_volcano_significance (2c8219a…)
 
 - Add weighted option to plot_venn (4e516a4…)
-
-- Update plot_abundance_boxgrid to more flexible plotting style, bug fixes (4276636…)
-
-- Update plot_abundance_boxgrid and add tests (2c1b0cd…)
-
-- Add PCA-GSEA plots and pAnnData wrappers (44d82f2…)
-
-- Add plot_pairwise_correlation (86483c3…)
-
-- Add accession and gene columns to plot_cv() returned df (ac850b9…)
 
 
 
@@ -935,13 +1234,6 @@ Fixes #35 (198692f…)
 - Update patch pass to 80% (809e06a…)
 
 - Patch pass to 70% (c19c842…)
-
-
-
-##### (Docs)
-
-
-- Update to local editable copy of scpviz for docs serve (f069efa…)
 
 
 
@@ -1023,10 +1315,6 @@ Fixes #35 (198692f…)
 
 - Return ax on plot_venn to match other plot functions, change test (5722d3c…)
 
-- Cleanup, move single use functions into helper functions (643061c…)
-
-- Refactor both biplots for protein and pathway vectors to accept n_vectors per pc, fix bug on ylim/xlim, allow cmap coloring (3112be7…)
-
 
 
 ##### (Setup)
@@ -1046,13 +1334,6 @@ Fixes #35 (198692f…)
 
 
 
-##### (Gitignore)
-
-
-- Extend .gitignore for save tar folders etc (a89b398…)
-
-
-
 ##### (Plot_abundance)
 
 
@@ -1067,53 +1348,7 @@ Fixes #35 (198692f…)
 
 
 
-##### (Todo)
-
-
-- Refactor todo list w priority and better oganization (cf4d03c…)
-
-
-
-
-- Update changelogs [skip ci] (9b4fecb…)
-
-- Update changelogs [skip ci] (0a63f6b…)
-
-- Update changelogs [skip ci] (525bdb9…)
-
-- Update changelogs [skip ci] (6c89f44…)
-
-- Expose __version__, align print_versions, ignore logo asset (e750e24…)
-
-- Update changelogs [skip ci] (fe0eb7b…)
-
-- Update changelogs [skip ci] (48a0c89…)
-
-- Update changelogs [skip ci] (2bc44af…)
-
-- Update changelogs [skip ci] (a9ebeff…)
-
-- Update changelogs [skip ci] (d9e026b…)
-
-- Update changelogs [skip ci] (f3bb302…)
-
-
-
 #### Documentation
-
-
-##### (Plotting)
-
-
-- Update examples for various plotting functions (cc43b62…)
-
-
-
-##### (Quickstart)
-
-
-- Update quickstart to include new plotting functions (d4f1d48…)
-
 
 
 ##### (Refactor)
@@ -1123,36 +1358,8 @@ Fixes #35 (198692f…)
 
 
 
-##### (Tutorial)
-
-
-- Add wget downloads to importing ipynb (f9d34fa…)
-
-
-
-##### (Tutorials)
-
-
-- Complete importing tutorial (3534a19…)
-
-
-
 
 - General updates to site style, formatting for mixins (d0a1bca…)
-
-
-
-##### (Upload)
-
-
-- Upload test_input.csv (94ca178…)
-
-
-
-##### (Utils)
-
-
-- Synchronize docs layout for utilies and plotting modules (d83cb71…)
 
 
 
@@ -1179,13 +1386,6 @@ Fixes #35 (198692f…)
 
 
 - Fix link to importing tutorial (541b849…)
-
-
-
-##### (Get_abundance)
-
-
-- Bug fix on get_abundance throwing error when passing in string instead of list (9b70b75…)
 
 
 
@@ -1223,30 +1423,12 @@ Fixes #35 (198692f…)
 
 - Fix return on plot_venn to pass test (6d1709c…)
 
-- Update plot_venn to override alpha if provided (32afcbe…)
-
 
 
 ##### (Summary)
 
 
 - Check and remove_unused_categories after filter, mostly for PD data (925e72d…)
-
-
-
-##### (Test_provenance_chain_depth_after_chain)
-
-
-- Add update to current_X_layer in editing.py (ae7d7de…)
-
-
-
-##### (Tests)
-
-
-- Typos on errortype and assertion match (f0b9674…)
-
-- Correct GLOBAL_DEBUG import in pytest_configure (4d7a271…)
 
 
 
@@ -1264,8 +1446,6 @@ Fixes #35 (198692f…)
 
 - Fix for py3.8 compatibility (8163c5c…)
 
-- Force string typecast on join for get_classlist() (474f97b…)
-
 
 
 #### Other
@@ -1275,8 +1455,6 @@ Fixes #35 (198692f…)
 
 
 - Update Paper PDF Draft (4644379…)
-
-- Update Paper PDF Draft (ebe6943…)
 
 - Update Paper PDF Draft (c371cd7…)
 
@@ -1292,8 +1470,6 @@ Fixes #35 (198692f…)
 
 - Remove extra blank lines (1897136…)
 
-- Fix typo in pca_gsea() printed results key (f28f201…)
-
 
 
 ##### (Docs)
@@ -1302,10 +1478,6 @@ Fixes #35 (198692f…)
 - Change root_heading to true, remove others section (bb68f1d…)
 
 - Add tabs back to website for better navigation (45ba11f…)
-
-- Fix griffe errors for plot.py (c3cf62d…)
-
-- Fix griffe errors for pAnnData.py (f7dd584…)
 
 
 
@@ -1384,8 +1556,6 @@ Fixes #35 (198692f…)
 
 - Add mark xfail for failure due to potential package version mismatch (a7c808a…)
 
-- Cover ssGSEA storage, gene column, and duplicate collapse (e1e8d04…)
-
 
 
 ##### (Boxgrid)
@@ -1409,19 +1579,10 @@ Fixes #35 (198692f…)
 
 
 
-##### (Editing)
-
-
-- Add tests for layer provenance (2b13eac…)
-
-
-
 ##### (Enrichment)
 
 
 - Add test for helper _scalarize_taxon() within get_string_mappings (485b830…)
-
-- Cover enrichment_functional_pca PC tails and key suffix (8ca4855…)
 
 
 
@@ -1429,13 +1590,6 @@ Fixes #35 (198692f…)
 
 
 - Add test for automated annotation with simple group (451ce0a…)
-
-
-
-##### (Import)
-
-
-- Add test for pep xlsx import (6d67ccb…)
 
 
 
@@ -1478,10 +1632,6 @@ Fixes #35 (198692f…)
 - Add mark xfail for known plt version error, add test for violin (c6a3854…)
 
 - Add test for plot_volcano_adata with no data (6791ad6…)
-
-- Update test names for plot_abundance_boxgrid (21933a5…)
-
-- Cover PCA-GSEA plots, protein loading vectors, and pAnnData wrappers (297e698…)
 
 
 
@@ -1552,44 +1702,6 @@ Fixes #35 (198692f…)
 - Remove dynamic ref logic to fix wrong head (ee792f4…)
 
 - Add local checkout to main for pull (959a605…)
-
-
-
-#### Chores
-
-
-
-- Update changelogs [skip ci] (20d06bc…)
-
-- Update changelogs [skip ci] (9e5bac4…)
-
-- Update changelogs [skip ci] (3e16c2e…)
-
-- Update changelogs [skip ci] (752f655…)
-
-- Update changelogs [skip ci] (3b72040…)
-
-- Update changelogs [skip ci] (ddbbfd8…)
-
-- Update changelogs [skip ci] (0033c88…)
-
-- Update changelogs [skip ci] (5201ba9…)
-
-- Update changelogs [skip ci] (366a05d…)
-
-- Update changelogs [skip ci] (d35654a…)
-
-- Update changelogs [skip ci] (1450a6d…)
-
-- Update changelogs [skip ci] (14c452a…)
-
-- Update changelogs [skip ci] (f920f5b…)
-
-- Update changelogs [skip ci] (b73cbc1…)
-
-- Update changelogs [skip ci] (2ee80b8…)
-
-- Update changelogs [skip ci] (73f898a…)
 
 
 
@@ -1677,6 +1789,13 @@ Fixes #35 (198692f…)
 #### Build System
 
 
+##### (Package name)
+
+
+- Rename scviz to scpviz (9bc6347…)
+
+
+
 
 - Bump scpviz to v0.5.0-alpha (1942e28…)
 
@@ -1725,31 +1844,6 @@ Fixes #35 (198692f…)
 
 
 - Update todo list (388fdf3…)
-
-
-
-
-- Update changelogs [skip ci] (8e09ce2…)
-
-- Update changelogs [skip ci] (dfff921…)
-
-- Update changelogs [skip ci] (6e3f746…)
-
-- Update changelogs [skip ci] (8a99267…)
-
-- Update changelogs [skip ci] (d6d3633…)
-
-- Update changelogs [skip ci] (f0cbb17…)
-
-- Update changelogs [skip ci] (00d4bf8…)
-
-- Update changelogs [skip ci] (f849dd9…)
-
-- Update changelogs [skip ci] (aa84d7c…)
-
-- Update changelogs [skip ci] (11a3754…)
-
-- Update changelogs [skip ci] (b7f7e72…)
 
 
 
@@ -2009,22 +2103,6 @@ Fixes #35 (198692f…)
 
 - Update full changelog [skip ci] (b8b5634…)
 
-- Update changelogs [skip ci] (c3a8704…)
-
-- Update changelogs [skip ci] (2356fff…)
-
-- Update changelogs [skip ci] (9910211…)
-
-- Update changelogs [skip ci] (b5d04c7…)
-
-- Update changelogs [skip ci] (7e5d8b6…)
-
-- Update changelogs [skip ci] (a688e34…)
-
-- Update changelogs [skip ci] (265982c…)
-
-- Update changelogs [skip ci] (ca558ad…)
-
 
 
 ##### (Workflow)
@@ -2051,6 +2129,8 @@ Fixes #35 (198692f…)
 
 
 
+
+- Include changelog in docs (9d7dbc0…)
 
 - Update markdown files (d72e6fa…)
 
@@ -2104,13 +2184,6 @@ Fixes #35 (198692f…)
 
 
 
-##### (Package name)
-
-
-- Rename scviz to scpviz (9bc6347…)
-
-
-
 #### Style
 
 
@@ -2161,6 +2234,9 @@ Fixes #35 (198692f…)
 <summary><b>0.4.0-alpha</b> – 2025-10-28</summary>
 
 
+#### Added
+
+
 #### Changed
 
 
@@ -2170,6 +2246,12 @@ Fixes #35 (198692f…)
 
 - Add git-cliff config and changelog workflows (0159d05…)
 
+
+
+#### Fixed
+
+
+#### Other
 
 
 
@@ -2186,11 +2268,6 @@ Fixes #35 (198692f…)
 
 
 #### Documentation
-
-
-
-- Include changelog in docs (9d7dbc0…)
-
 
 
 #### Fixed
