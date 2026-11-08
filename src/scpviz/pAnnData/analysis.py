@@ -474,10 +474,11 @@ class AnalysisMixin:
                 ``contrast_term``).
             values (list of dict, optional): Two-group sugar (simple path), same style
                 as :meth:`de`. Order is ``[group1, group2]`` → stats key
-                ``mixed: {group1} vs {group2} | ...`` and log2fc = group1 - group2.
+                ``mixed: [{group1}] vs [{group2}] | ...`` and log2fc = group1 - group2.
                 Equivalent to ``contrast=(group1, group2)`` i.e. ``(test, ref)``.
             subset (dict, optional): AND-combined observation filters, e.g.
-                ``{"cell_type": "Astrocyte"}``.
+                ``{"cell_type": "Astrocyte"}``. Stored as ``filter: [{...}]`` on the
+                auto stats key.
             fixed_covariates (list of str, optional): Additive covariates (simple path).
             reference_levels (dict, optional): Reference level per categorical column.
             random_effects (str): ``"intercept"`` (default) or ``"intercept_slope"``.
@@ -543,7 +544,7 @@ class AnalysisMixin:
                     donor_col="animal",
                 )
                 # Auto stats key (also printed at end of run):
-                stats_key = "mixed: Cortex vs SNpc | donor=animal"
+                stats_key = "mixed: [{'region': 'Cortex'}] vs [{'region': 'SNpc'}] | donor=animal"
                 # volcano_df is the same table as pdata.stats[stats_key]
 
                 import matplotlib.pyplot as plt
@@ -621,7 +622,7 @@ class AnalysisMixin:
 
             Volcano from stored results (``de_data`` alternative):
                 ```python
-                stats_key = "mixed: Agg+ vs Agg- | cell_type=Astrocyte | donor=donor"
+                stats_key = "mixed: [{'condition': 'Agg+'}] vs [{'condition': 'Agg-'}] | filter: [{'cell_type': 'Astrocyte'}] | donor=donor"
                 scplt.plot_volcano(ax, pdata, stats_key=stats_key, correct_fdr=True)
                 # equivalent: scplt.plot_volcano(ax, de_data=pdata.stats[stats_key], correct_fdr=True)
                 ```
@@ -759,6 +760,7 @@ class AnalysisMixin:
             contrast_mode=contrast_mode,
             contrast=contrast,
             focal_level=focal_level,
+            group_col=resolved_contrast_term,
         )
 
         n_features_tested = int(detect_mask.sum())
@@ -1569,6 +1571,7 @@ class AnalysisMixin:
             self.set_X(layer = layer, on = on) # type: ignore[attr-defined], EditingMixin
 
         sc.tl.leiden(adata, resolution)
+        self.update_summary(recompute=False, verbose=False) # type: ignore[attr-defined], SummaryMixin
 
         self._append_history(f'{on}: Leiden clustering fitted on {layer}, stored in obs["leiden"]') # type: ignore[attr-defined], HistoryMixin
         print(f"{format_log_prefix('result_only', indent=2)} Leiden clustering complete. Results stored in:")
@@ -1756,7 +1759,7 @@ class AnalysisMixin:
         var_pc1, var_pc2 = pca_data[2][:2]
         print(f"       • Variance explained by PC1/PC2: {var_pc1*100:.2f}% , {var_pc2*100:.2f}%") 
 
-    def harmony(self, key, on = 'protein'):
+    def harmony(self, key, on = 'protein', **kwargs):
         """
         Perform batch correction using Harmony integration.
 
@@ -1766,6 +1769,8 @@ class AnalysisMixin:
         Args:
             key (str): Column name in `.obs` representing the batch variable to correct.
             on (str): Whether to use "protein" or "peptide" data. Accepts "prot"/"protein" or "pep"/"peptide" (default: "protein").
+            **kwargs: Passed to `harmonypy.run_harmony` (e.g. `nclust`, `max_iter_harmony`, `theta`).
+                With few samples, set `nclust` explicitly; harmonypy's default can be 0 and fail.
 
         Returns:
             None
@@ -1785,9 +1790,6 @@ class AnalysisMixin:
             - Harmony requires prior PCA computation. If PCA is missing, it will be computed automatically.
             - The Harmony-corrected coordinates are stored in `.obsm["X_pca_harmony"]`.
             - Updates the processing history via `.history`.
-
-        Todo:
-            Add optional arguments for controlling Harmony parameters (e.g., `max_iter_harmony`, `theta`, `lambda`).
         """
 
         if not self._check_data(on): # type: ignore[attr-defined], ValidationMixin
@@ -1810,7 +1812,7 @@ class AnalysisMixin:
         if key not in adata.obs.columns:
             raise ValueError(f"Batch key '{key}' not found in adata.obs.")
 
-        sc.external.pp.harmony_integrate(adata, key)
+        sc.external.pp.harmony_integrate(adata, key, **kwargs)
 
         self._append_history(f'{on}: Harmony batch correction applied on key {key}, stored in obsm["X_pca_harmony"] and uns["umap"]') # type: ignore[attr-defined], HistoryMixin
         print(f"{format_log_prefix('result_only', indent=2)} Harmony batch correction complete. Results stored in:")

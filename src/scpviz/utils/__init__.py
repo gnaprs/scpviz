@@ -6,7 +6,7 @@ Import as:
 
     from scpviz import utils as scutils
 
-Submodules (for maintainers): ``formatting``, ``data``, ``class_filter``, ``id_maps``, ``stats``.
+Submodules (for maintainers): ``formatting``, ``data``, ``class_filter``, ``id_maps``, ``stats``, ``serialization`` (``.pdata`` save/load encoding; not star-imported).
 
 ## Text / formatting
 
@@ -28,8 +28,8 @@ Functions:
     get_peptides_for_accessions: Map accessions or genes to observed peptides via RS.
     get_accessions_for_peptides: Map peptide IDs or sequences to protein accessions via RS.
     strip_peptide_sequence: Clean PD/DIA-NN peptide strings for Biopython analysis.
-    compute_peptide_properties: Compute Biopython ProtParam metrics from amino-acid sequences.
-    get_peptide_properties: Compute peptide ProtParam metrics and annotate ``.pep.var``.
+    compute_peptide_properties: Compute local / Biopython peptide metrics from sequences.
+    get_peptide_properties: Compute peptide biophysical metrics and annotate ``.pep.var``.
     update_layer_provenance: Register a matrix layer in ``adata.uns['layer_provenance']``.
     resolve_input_layer: Map ``layer='X'`` to ``uns['current_X_layer']`` for provenance.
     infer_layer_is_log: Infer log-transformed layers via provenance or name heuristic.
@@ -46,7 +46,7 @@ Functions:
 ## Identifier mappings (UniProt / STRING)
 
 Functions:
-    get_uniprot_fields_worker: Low-level UniProt REST API query function (batch up to 1024).
+    get_uniprot_fields_worker: Low-level UniProt REST API query (accessions endpoint, chunked).
     get_uniprot_fields: High-level UniProt API wrapper with batching.
     standardize_uniprot_columns: Normalize UniProt column names for stable downstream use.
     get_string_mappings: Map UniProt accessions to STRING IDs (UniProt + STRING fallback).

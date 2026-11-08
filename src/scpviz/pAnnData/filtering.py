@@ -1,4 +1,3 @@
-from tkinter import N
 import numpy as np
 import pandas as pd
 from scpviz import utils
@@ -140,6 +139,7 @@ class FilterMixin:
 
         pdata = self.copy() if return_copy else self # type: ignore[attr-defined]
         action = "Returning a copy of" if return_copy else "Filtered and modified"
+        orig_prot_names = pdata.prot.var_names.copy()
 
         message_parts = []
 
@@ -259,7 +259,7 @@ class FilterMixin:
             # PEPTIDES: also filter out peptides that belonged only to the filtered proteins
             if pdata.pep is not None and pdata.rs is not None: # type: ignore[attr-defined]
                 proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names = pdata._filter_sync_peptides_to_proteins(
-                    original=self, 
+                    orig_prot_names=orig_prot_names,
                     updated_prot=pdata.prot, 
                     debug=debug)
 
@@ -400,6 +400,9 @@ class FilterMixin:
 
         # Determine filtering mode: group vs file or handle ambiguity/missing
         group_metrics = adata.uns.get(f"found_metrics_{on}")
+        if group_metrics is not None:
+            # .uns isn't subset by feature filters; align to current features
+            group_metrics = group_metrics.reindex(adata.var_names)
 
         mode = None
         all_file_cols = all(f"Found In: {g}" in var.columns for g in group)
@@ -501,7 +504,7 @@ class FilterMixin:
             # Optional: filter peptides + rs as well
             if filtered.pep is not None and filtered.rs is not None:
                 proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names = filtered._filter_sync_peptides_to_proteins(
-                    original=self,
+                    orig_prot_names=adata.var_names,
                     updated_prot=filtered.prot,
                     debug=False
                 )
@@ -639,9 +642,11 @@ class FilterMixin:
         adata = self.prot 
         var = adata.var
 
-        # Detect per-sample significance layer
+        # Detect per-sample significance layer.
+        # anndata >= 0.13 stores .X as layers[None]; skip non-string keys.
         has_protein_level_significance = any(
-            k.lower().endswith("_qval") or k.lower().endswith("_fdr") for k in adata.layers.keys()
+            isinstance(k, str) and (k.lower().endswith("_qval") or k.lower().endswith("_fdr"))
+            for k in adata.layers.keys()
         )
 
         # --- Handle missing significance data entirely ---
@@ -670,7 +675,7 @@ class FilterMixin:
 
             if filtered.pep is not None and filtered.rs is not None:
                 proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names = filtered._filter_sync_peptides_to_proteins(
-                    original=self, updated_prot=filtered.prot, debug=verbose
+                    orig_prot_names=adata.var_names, updated_prot=filtered.prot, debug=verbose
                 )
                 rs_message = filtered._apply_rs_filter(
                     keep_proteins=proteins_to_keep,
@@ -758,6 +763,9 @@ class FilterMixin:
         # --- 3️⃣ Mode detection and ambiguity handling ---
         metrics_key = "significance_metrics_protein"
         metrics_df = adata.uns.get(metrics_key, pd.DataFrame())
+        if not metrics_df.empty and "Global" not in metrics_df.index:
+            # .uns isn't subset by feature filters; align to current features
+            metrics_df = metrics_df.reindex(adata.var_names)
 
         is_ambiguous, annotated_files, annotated_groups = _detect_ambiguous_input(group_list, var, metrics_df)
         if is_ambiguous:
@@ -798,7 +806,7 @@ class FilterMixin:
         # Sync peptides and RS
         if filtered.pep is not None and filtered.rs is not None:
             proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names = filtered._filter_sync_peptides_to_proteins(
-                original=self, updated_prot=filtered.prot, debug=False
+                orig_prot_names=adata.var_names, updated_prot=filtered.prot, debug=False
             )
             rs_message = filtered._apply_rs_filter(
                 keep_proteins=proteins_to_keep,
@@ -862,7 +870,7 @@ class FilterMixin:
 
         return filtered if return_copy else None
 
-    def _filter_sync_peptides_to_proteins(self, original, updated_prot, debug=None):
+    def _filter_sync_peptides_to_proteins(self, orig_prot_names, updated_prot, debug=None):
         """
         Helper function to filter peptides based on the updated protein list.
 
@@ -870,7 +878,8 @@ class FilterMixin:
         and returns the necessary inputs for `_apply_rs_filter`.
 
         Args:
-            original (pAnnData): Original pAnnData object before filtering.
+            orig_prot_names (array-like): Protein names before filtering (RS row order). `.pep` and `.rs`
+                must not be filtered yet.
             updated_prot (AnnData): Updated protein AnnData object to filter against.
             debug (bool, optional): If True, prints debugging information.
 
@@ -880,10 +889,10 @@ class FilterMixin:
         if debug:
             print(f"{format_log_prefix('info')} Applying RS-based peptide sync-up on peptides after protein filtering...")
 
-        # Get original axis names from unfiltered self
-        rs = original.rs
-        orig_prot_names = np.array(original.prot.var_names)
-        orig_pep_names = np.array(original.pep.var_names)
+        # .rs and .pep are still unfiltered here; .prot may already be filtered in place
+        rs = self.rs
+        orig_prot_names = np.array(orig_prot_names)
+        orig_pep_names = np.array(self.pep.var_names)
         # Determine which protein rows to keep in RS
         proteins_to_keep=updated_prot.var_names
         keep_set = set(proteins_to_keep)
@@ -1634,16 +1643,12 @@ class FilterMixin:
                 return f"{format_log_prefix('warn_only',2)} No samples or proteins to clean up. Skipping RS sync."
             return None
 
-        # Backup original for RS/peptide syncing, ensure summary and obs are aligned before making copy
-        if self._summary is not None and not self.prot.obs.index.equals(self._summary.index):
-            self._summary = self._summary.loc[self.prot.obs.index].copy()
-        original = self.copy()
         # Filter protein data
         self.prot = self.prot[:, keep_mask].copy()
 
         if self.pep is not None and self.rs is not None:
             proteins_to_keep, peptides_to_keep, orig_prot_names, orig_pep_names = self._filter_sync_peptides_to_proteins(
-                original=original,
+                orig_prot_names=original_var_names,
                 updated_prot=self.prot,
                 debug=False
             )
@@ -2045,7 +2050,7 @@ class FilterMixin:
 
         # Prepare or retrieve existing numeric storage in .uns
         metrics_key = f"found_metrics_{on}"
-        metrics_df = adata.uns.get(metrics_key, pd.DataFrame(index=adata.var_names))
+        metrics_df = adata.uns.get(metrics_key, pd.DataFrame(index=adata.var_names)).reindex(adata.var_names)
 
         if classes is not None:
             classes_list = utils.get_classlist(adata, classes=classes)
@@ -2146,7 +2151,7 @@ class FilterMixin:
         
         # Group-level summary
         metrics_key = f"significance_metrics_{on}"
-        metrics_df = adata.uns.get(metrics_key, pd.DataFrame(index=adata.var_names))
+        metrics_df = adata.uns.get(metrics_key, pd.DataFrame(index=adata.var_names)).reindex(adata.var_names)
 
         if classes is not None:
             classes_list = utils.get_classlist(adata, classes=classes)

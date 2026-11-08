@@ -20,6 +20,22 @@ from scpviz.utils.formatting import format_log_prefix
 if TYPE_CHECKING:
     from scpviz.pAnnData.pAnnData import pAnnData
 
+# UniProt REST: /uniprotkb/accessions is the bulk-ID endpoint (max 100 per GET).
+# /uniprotkb/stream with a large Lucene OR query 500s / times out (~50 IDs is safe).
+_UNIPROT_ACCESSIONS_URL = "https://rest.uniprot.org/uniprotkb/accessions"
+_UNIPROT_STREAM_URL = "https://rest.uniprot.org/uniprotkb/stream"
+_UNIPROT_IDMAPPING_RUN_URL = "https://rest.uniprot.org/idmapping/run"
+_UNIPROT_ACCESSIONS_MAX = 100
+_UNIPROT_STREAM_QUERY_MAX = 50
+_UNIPROT_TIMEOUT = 30
+_UNIPROT_ACC_RE = re.compile(
+    r"^(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|"
+    r"[A-NR-Z][0-9][A-Z][A-Z0-9]{2}[0-9](?:[A-Z][A-Z0-9]{2}[0-9])?)"
+    r"(?:-\d+)?$",
+    re.IGNORECASE,
+)
+
+
 def get_uniprot_fields_worker(
     prot_list: list[str],
     search_fields: list[str] | None = None,
@@ -28,12 +44,14 @@ def get_uniprot_fields_worker(
     """
     Query UniProt for a batch of protein accessions.
 
-    This function sends requests to the UniProt REST API for up to 1024 proteins
-    at a time and returns the requested fields as a DataFrame. It handles isoform
-    accessions, fallback queries, and UniProt ID redirects automatically.
+    Accession-shaped IDs use ``/uniprotkb/accessions`` (max 100 per request,
+    chunked internally). UniProt entry names (e.g. ``MDHC_HUMAN``) and other
+    non-accession IDs use ``/uniprotkb/stream`` with ``id:`` queries. Isoform
+    accessions, missing-ID fallbacks, and UniProt ID redirects are handled
+    automatically.
 
     Args:
-        prot_list (list of str): List of protein accessions or IDs.
+        prot_list (list of str): Protein accessions and/or UniProt entry names.
         search_fields (list of str): UniProt return fields.
             See: https://www.uniprot.org/help/return_fields
         verbose (bool): If True, print progress messages and missing accessions.
@@ -54,87 +72,126 @@ def get_uniprot_fields_worker(
         - get_uniprot_fields: High-level batch UniProt query wrapper.
     """
 
-    base_url = 'https://rest.uniprot.org/uniprotkb/stream'
     if search_fields is None:
         raise ValueError("search_fields is required for UniProt queries.")
-    fields = "%2C".join(search_fields)
-    format_type = 'tsv'
-    
+    fields_param = ",".join(search_fields)
+    format_type = "tsv"
+
+    def _get_tsv(url: str, params: dict, n_ids: int) -> pd.DataFrame:
+        results = requests.get(url, params=params, timeout=_UNIPROT_TIMEOUT)
+        results.raise_for_status()
+        if not results.text.strip():
+            if verbose:
+                print(
+                    f"{format_log_prefix('warn_only', 2)} "
+                    f"UniProt returned empty response for {n_ids} proteins."
+                )
+            return pd.DataFrame()
+        return pd.read_csv(io.StringIO(results.text), sep="\t")
+
+    def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
+        frames = [f for f in frames if f is not None and not f.empty]
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
     def query_uniprot_batch(ids, query_type="accession"):
         if not ids:
             return pd.DataFrame()
 
         if query_type == "accession":
-            query_parts = [f"%28accession%3A{id}%29" for id in ids]
-        elif query_type == "id":
-            query_parts = [f"%28id%3A{id}%29" for id in ids]
-        else:
-            raise ValueError(f"Unknown query_type: {query_type}")
+            valid = [i for i in ids if _UNIPROT_ACC_RE.match(str(i).strip())]
+            frames = []
+            for start in range(0, len(valid), _UNIPROT_ACCESSIONS_MAX):
+                chunk = valid[start:start + _UNIPROT_ACCESSIONS_MAX]
+                if verbose:
+                    print(f"Querying UniProt (accessions, TSV mode) for {len(chunk)} proteins")
+                frames.append(_get_tsv(
+                    _UNIPROT_ACCESSIONS_URL,
+                    {
+                        "accessions": ",".join(chunk),
+                        "format": format_type,
+                        "fields": fields_param,
+                    },
+                    len(chunk),
+                ))
+            return _concat_frames(frames)
 
-        query = "+OR+".join(query_parts)
-        full_query = f"%28{query}%29"
-        url = f'{base_url}?fields={fields}&format={format_type}&query={full_query}'
+        if query_type == "id":
+            frames = []
+            for start in range(0, len(ids), _UNIPROT_STREAM_QUERY_MAX):
+                chunk = ids[start:start + _UNIPROT_STREAM_QUERY_MAX]
+                query = "(" + " OR ".join(f"(id:{x})" for x in chunk) + ")"
+                if verbose:
+                    print(f"Querying UniProt (id, TSV mode) for {len(chunk)} proteins")
+                frames.append(_get_tsv(
+                    _UNIPROT_STREAM_URL,
+                    {
+                        "query": query,
+                        "format": format_type,
+                        "fields": fields_param,
+                    },
+                    len(chunk),
+                ))
+            return _concat_frames(frames)
 
-        if verbose:
-            print(f"Querying UniProt ({query_type}, TSV mode) for {len(ids)} proteins")
-
-        results = requests.get(url)
-        results.raise_for_status()
-
-        # Handle empty response gracefully
-        if not results.text.strip():
-            print(f"{format_log_prefix('warn_only', 2)} UniProt returned empty response for {len(ids)} proteins.")
-            return pd.DataFrame()
-
-        return pd.read_csv(io.StringIO(results.text), sep="\t")
+        raise ValueError(f"Unknown query_type: {query_type}")
 
     if verbose:
         print(f"{format_log_prefix('API', 1)} Querying UniProt for {len(prot_list)} total proteins [TSV mode].")
     
     def resolve_uniprot_redirects(accessions, from_db='UniProtKB_AC-ID', to_db='UniProtKB'):
-        url = 'https://rest.uniprot.org/idmapping/run'
         data = {'from': from_db, 'to': to_db, 'ids': ','.join(accessions)}
 
-        res = requests.post(url, data=data)
+        res = requests.post(_UNIPROT_IDMAPPING_RUN_URL, data=data, timeout=_UNIPROT_TIMEOUT)
         res.raise_for_status()
         job_id = res.json()['jobId']
 
         # Poll until job is complete
         while True:
-            status = requests.get(f"https://rest.uniprot.org/idmapping/status/{job_id}").json()
+            status = requests.get(
+                f"https://rest.uniprot.org/idmapping/status/{job_id}",
+                timeout=_UNIPROT_TIMEOUT,
+            ).json()
             if status.get("jobStatus") == "RUNNING":
                 time.sleep(1)
             else:
                 break
 
         # Get results
-        results = requests.get(f"https://rest.uniprot.org/idmapping/uniprotkb/results/{job_id}").json()
+        results = requests.get(
+            f"https://rest.uniprot.org/idmapping/uniprotkb/results/{job_id}",
+            timeout=_UNIPROT_TIMEOUT,
+        ).json()
         mapping = {item['from']: item['to']['primaryAccession'] for item in results.get('results', [])}
         return mapping
 
-    # Split isoform vs canonical accessions
-    isoform_ids = [acc for acc in prot_list if '-' in acc]
-    canonical_ids = [acc for acc in prot_list if '-' not in acc]
+    # Accession-shaped IDs go to /accessions; everything else is an entry-name lookup.
+    acc_like = [i for i in prot_list if _UNIPROT_ACC_RE.match(str(i).strip())]
+    other_ids = [i for i in prot_list if i not in acc_like]
+    isoform_ids = [acc for acc in acc_like if "-" in acc]
+    canonical_ids = [acc for acc in acc_like if "-" not in acc]
 
     df_canonical = query_uniprot_batch(canonical_ids, query_type="accession")
     df_isoform = query_uniprot_batch(isoform_ids, query_type="accession")
 
-    # Identify any isoforms that weren't found
-    found_isoform_ids = set(df_isoform['Entry']) if not df_isoform.empty else set()
+    found_isoform_ids = set(df_isoform["Entry"]) if not df_isoform.empty and "Entry" in df_isoform.columns else set()
     missing_isoforms = [acc for acc in isoform_ids if acc not in found_isoform_ids]
-
     if missing_isoforms and verbose:
         print(f"{format_log_prefix('info_only', 3)} Attempting fallback query for {len(missing_isoforms)} isoform base IDs")
+    fallback_ids = list({acc.split("-")[0] for acc in missing_isoforms})
+    df_fallback = query_uniprot_batch(fallback_ids, query_type="accession")
 
-    # Attempt fallback query using base accessions
-    fallback_ids = list(set([id.split('-')[0] for id in missing_isoforms]))
-    df_fallback = query_uniprot_batch(fallback_ids, query_type="id")
+    df_entry_names = query_uniprot_batch(other_ids, query_type="id")
+    if not df_entry_names.empty and "Entry Name" in df_entry_names.columns:
+        df_entry_names = df_entry_names.copy()
+        queried_names = {str(x) for x in other_ids}
+        mask = df_entry_names["Entry Name"].astype(str).isin(queried_names)
+        df_entry_names.loc[mask, "Entry"] = df_entry_names.loc[mask, "Entry Name"]
 
-    # Combine all DataFrames
-    df = pd.concat([df_canonical, df_isoform, df_fallback], ignore_index=True)
+    df = _concat_frames([df_canonical, df_isoform, df_fallback, df_entry_names])
 
-    # Final pass: insert missing rows if still unresolved
-    found_entries = set(df['Entry']) if 'Entry' in df.columns else set()
+    found_entries = set(df["Entry"].dropna().astype(str)) if "Entry" in df.columns else set()
     still_missing = set(prot_list) - found_entries
 
     if still_missing:
@@ -150,7 +207,7 @@ def get_uniprot_fields_worker(
             if 'Entry' in df_redirected.columns:
                 df_redirected['Entry'] = df_redirected['Entry'].apply(lambda x: inv_map.get(x, x))
 
-            df = pd.concat([df, df_redirected], ignore_index=True)
+            df = _concat_frames([df, df_redirected])
 
             resolved = set(redirect_map.keys())
             still_missing -= resolved
@@ -158,11 +215,11 @@ def get_uniprot_fields_worker(
     # Step 5: Fill in placeholders for totally missing accessions
     if still_missing:
         print(f"{format_log_prefix('warn_only', 3)} Proteins not found in UniProt: {list(still_missing)[:5]}") if verbose else None
-        missing_df = pd.DataFrame({'Entry': list(still_missing)})
-        for col in search_fields:
-            if col != 'accession' and col not in missing_df.columns:
+        missing_df = pd.DataFrame({"Entry": list(still_missing)})
+        for col in df.columns:
+            if col != "Entry":
                 missing_df[col] = np.nan
-        df = pd.concat([df, missing_df], ignore_index=True)
+        df = _concat_frames([df, missing_df])
     
     if 'STRING' in df.columns:
         # keep first STRING ID (or join all if you prefer)
@@ -188,10 +245,11 @@ def get_uniprot_fields(
     protein IDs, returning results as a single DataFrame.
 
     Args:
-        prot_list (list of str): List of protein accessions.
+        prot_list (list of str): Protein accessions and/or UniProt entry names.
         search_fields (list of str): UniProt fields to return.
             Defaults include accession, gene names, GO terms, and STRING IDs.
-        batch_size (int): Number of accessions per batch (max 1024, default=100).
+        batch_size (int): Number of accessions per batch (default=100, the
+            UniProt ``/uniprotkb/accessions`` GET limit).
         verbose (bool): If True, print progress messages.
         standardize (bool): If True (default), normalize UniProt column names
             to canonical lowercase keys (e.g., "gene_primary", "organism_id",
@@ -239,25 +297,38 @@ def get_uniprot_fields(
     # --- Split IDs into batches
     batches = [prot_list[i:i + batch_size] for i in range(0, len(prot_list), batch_size)]
     all_results = []
+    n_batches = len(batches)
 
-    for i, batch in enumerate(batches, start=1):
+    def _fetch_batch(batch, label: str):
         if verbose:
             print(
-                f"{format_log_prefix('api', indent=2)} Querying UniProt for batch {i}/{len(batches)} "
+                f"{format_log_prefix('api', indent=2)} Querying UniProt for batch {label}/{n_batches} "
                 f"({len(batch)} proteins) [fields: {', '.join(search_fields)}]"
             )
-
-            if len(batches) > 1:
-                print(f"{format_log_prefix('info_only', indent=3)} Processing batch {i}/{len(batches)}...")
+            if n_batches > 1:
+                print(f"{format_log_prefix('info_only', indent=3)} Processing batch {label}/{n_batches}...")
 
         try:
             batch_df = get_uniprot_fields_worker(batch, search_fields, verbose=worker_verbose)
             if standardize:
                 batch_df = _u.standardize_uniprot_columns(batch_df)
             all_results.append(batch_df)
+        except requests.exceptions.RequestException as e:
+            if len(batch) > 1:
+                mid = max(1, len(batch) // 2)
+                print(
+                    f"{format_log_prefix('warn')} Failed batch {label} ({len(batch)} proteins): {e}. "
+                    f"Retrying as two smaller batches."
+                )
+                _fetch_batch(batch[:mid], f"{label}a")
+                _fetch_batch(batch[mid:], f"{label}b")
+                return
+            print(f"{format_log_prefix('warn')} Failed batch {label}: {e}")
         except Exception as e:
-            print(f"{format_log_prefix('warn')} Failed batch {i}: {e}")
-            continue
+            print(f"{format_log_prefix('warn')} Failed batch {label}: {e}")
+
+    for i, batch in enumerate(batches, start=1):
+        _fetch_batch(batch, str(i))
 
     if not all_results:
         if verbose:

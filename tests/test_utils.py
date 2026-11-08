@@ -287,6 +287,11 @@ def test_get_samplenames_multiple_columns(adata_example):
     ]
     assert result == expected
 
+@pytest.mark.parametrize("classes", ["nope", ["cellline", "nope"]])
+def test_get_samplenames_missing_column_raises_keyerror(adata_example, classes):
+    with pytest.raises(KeyError, match="not found in .obs"):
+        utils.get_samplenames(adata_example, classes)
+
 def test_get_samplenames_none_returns_none(adata_example):
     """Return None if classes=None."""
     result = utils.get_samplenames(adata_example, None)
@@ -532,12 +537,12 @@ def test_get_upset_query_returns_dataframe(monkeypatch):
     monkeypatch.setattr(utils, "get_uniprot_fields",
                         lambda ids, verbose=False: pd.DataFrame({"Accession": ids}))
     result = utils.get_upset_query(
-        pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True
+        pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True, verbose=False
     )
     assert isinstance(result, pd.DataFrame)
     assert set(result["Accession"]) == {"P12345", "Q67890"}
 
-def test_get_upset_query_handles_empty(monkeypatch):
+def test_get_upset_query_handles_empty(monkeypatch, capsys):
     """Handle case where no proteins are found."""
     # Mock return structure of upsetplot.query
     dummy_query_result = type("DummyQuery", (), {"data": {"id": np.array([])}})()
@@ -550,6 +555,9 @@ def test_get_upset_query_handles_empty(monkeypatch):
     result = utils.get_upset_query(
         pd.DataFrame(), present=["X"], absent=["Y"], fetch_uniprot=True
     )
+    captured = capsys.readouterr()
+    assert "Getting UpSet query" in captured.out
+    assert "No features matched" in captured.out
 
     assert isinstance(result, pd.DataFrame)
     assert result.empty
@@ -568,14 +576,18 @@ def test_get_upset_query_passes_verbose_flag(monkeypatch):
         return pd.DataFrame({"Accession": ids})
     monkeypatch.setattr(utils, "get_uniprot_fields", mock_get_uniprot_fields)
 
-    # Run
+    # Default verbose=True is forwarded to UniProt
     utils.get_upset_query(
         pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True
     )
-
-    # Assertions
-    assert called["verbose"] is False
+    assert called["verbose"] is True
     assert called["ids"] == ["A1"]
+
+    # Explicit verbose=False is also forwarded
+    utils.get_upset_query(
+        pd.DataFrame(), present=["A"], absent=["B"], fetch_uniprot=True, verbose=False
+    )
+    assert called["verbose"] is False
 
 def test_get_upset_query_skips_uniprot_when_fetch_false(monkeypatch, pdata):
     """fetch_uniprot=False should not call get_uniprot_fields."""
@@ -599,12 +611,35 @@ def test_get_upset_query_skips_uniprot_when_fetch_false(monkeypatch, pdata):
         absent=["B"],
         fetch_uniprot=False,
         pdata=pdata,
+        verbose=False,
     )
 
     assert not called["uniprot"]
     assert list(result.columns) == ["accession", "gene_primary"]
     assert result["accession"].tolist() == accessions
     assert result["gene_primary"].notna().all()
+
+def test_get_upset_query_fetch_false_verbose_messages(monkeypatch, pdata, capsys):
+    """fetch_uniprot=False prints header, branch info, and result lines."""
+    accessions = pdata.prot.var_names[:2].tolist()
+    dummy_query_result = type("DummyQuery", (), {
+        "data": {"id": np.array(accessions)}
+    })()
+    monkeypatch.setattr(utils.upsetplot, "query", lambda c, present, absent: dummy_query_result)
+
+    result = utils.get_upset_query(
+        pd.DataFrame(),
+        present=["A"],
+        absent=["B"],
+        fetch_uniprot=False,
+        pdata=pdata,
+        verbose=True,
+    )
+    captured = capsys.readouterr()
+    assert "Getting UpSet query" in captured.out
+    assert "Building mark_df" in captured.out
+    assert "Built query DataFrame" in captured.out
+    assert len(result) == 2
 
 def test_get_upset_query_fetch_false_warns_missing_genes(monkeypatch, pdata):
     """fetch_uniprot=False should warn when some gene names are missing."""
@@ -625,6 +660,7 @@ def test_get_upset_query_fetch_false_warns_missing_genes(monkeypatch, pdata):
             absent=["B"],
             fetch_uniprot=False,
             pdata=pdata,
+            verbose=False,
         )
 
     assert "missing gene names" in str(w[-1].message).lower()
@@ -642,15 +678,19 @@ def test_get_upset_query_fetch_false_requires_pdata(monkeypatch):
             present=["A"],
             absent=["B"],
             fetch_uniprot=False,
+            verbose=False,
         )
 
 # test de_reporting helpers
 from scpviz.utils import de_reporting
 
-def test_format_de_group_label_unwraps_single_dict_list():
-    assert de_reporting.format_de_group_label([{"region": "Cortex"}]) == "Cortex"
+def test_format_de_group_label_default_is_dict_repr_list():
+    assert de_reporting.format_de_group_label({"region": "Cortex"}) == "[{'region': 'Cortex'}]"
     assert de_reporting.format_de_group_label(
-        {"cellline": "BE", "treatment": "kd"}
+        [{"cellline": "BE", "treatment": "kd"}]
+    ) == "[{'cellline': 'BE', 'treatment': 'kd'}]"
+    assert de_reporting.format_de_group_label(
+        {"cellline": "BE", "treatment": "kd"}, style="values"
     ) == "BE_kd"
     assert de_reporting.format_de_group_label(
         {"cellline": "BE", "treatment": "kd"}, style="slash"
@@ -659,7 +699,17 @@ def test_format_de_group_label_unwraps_single_dict_list():
 def test_format_de_comparison_label():
     assert de_reporting.format_de_comparison_label(
         {"region": "Cortex"}, {"region": "SNpc"}
+    ) == "[{'region': 'Cortex'}] vs [{'region': 'SNpc'}]"
+    assert de_reporting.format_de_comparison_label(
+        {"region": "Cortex"}, {"region": "SNpc"}, style="values"
     ) == "Cortex vs SNpc"
+
+def test_format_parsed_group_label_unwraps_dict_repr():
+    assert de_reporting.format_parsed_group_label("[{'region': 'Cortex'}]") == "Cortex"
+    assert de_reporting.format_parsed_group_label("Cortex") == "Cortex"
+    assert de_reporting.format_parsed_group_label(
+        "[{'cellline': 'BE', 'treatment': 'kd'}]"
+    ) == "BE/kd"
 
 def test_parse_contrast_label():
     assert de_reporting.parse_contrast_label("Cortex vs SNpc") == ("Cortex", "SNpc")
@@ -689,8 +739,8 @@ def test_de_adata_passes_on_valid_inputs(pdata, fold_change_mode, test):
     assert "p_value" in df.columns
     assert "adj_p_value" not in df.columns
     assert "log2fc" in df.columns
-    assert "BE_kd" in df.columns
-    assert "AS_sc" in df.columns
+    assert "[{'cellline': 'BE', 'treatment': 'kd'}]" in df.columns
+    assert "[{'cellline': 'AS', 'treatment': 'sc'}]" in df.columns
 
 def test_de_adata_raises_on_invalid_foldchange(pdata):
     with pytest.raises(ValueError, match="Unsupported fold_change_mode"):
@@ -921,6 +971,21 @@ def test_compute_peptide_properties_defaults():
     assert list(df.columns) == ["gravy", "molecular_weight", "isoelectric_point"]
     assert df.iloc[0]["gravy"] == pytest.approx(-1.3917, rel=1e-3)
 
+
+def test_compute_peptide_properties_length():
+    seq = "MQHNLEQQIQAR"
+    df = utils.compute_peptide_properties(seq, properties=["length", "gravy"])
+    assert list(df.columns) == ["length", "gravy"]
+    assert df.iloc[0]["length"] == len(seq)
+    assert df.iloc[0]["gravy"] == pytest.approx(-1.3917, rel=1e-3)
+
+def test_compute_peptide_properties_numeric_dtype_with_invalid():
+    """Invalid sequences give NaN without making numeric columns object dtype (bug-7)."""
+    df = utils.compute_peptide_properties(["MQHNLEQQIQAR", "not-a-sequence"], properties=["length", "gravy"])
+    assert df["gravy"].dtype == "float64"
+    assert df["length"].dtype == "float64"
+    assert df.iloc[1].isna().all()
+
 def test_resolve_peptide_sequence_pd(pdata):
     """Proteome Discoverer: parse Annotated Sequence notation from .pep.var."""
     pep_id = pdata.pep.var_names[0]
@@ -995,6 +1060,19 @@ def test_get_peptide_properties_count_amino_acids_dict(pdata):
     counts = df.iloc[0]["aa_counts"]
     assert isinstance(counts, dict)
     assert sum(counts.values()) == len(df.iloc[0]["peptide_sequence"])
+
+
+def test_get_peptide_properties_length(pdata):
+    acc, _ = _pd_accession_with_peptides(pdata)
+    df = utils.get_peptide_properties(
+        pdata,
+        properties=["length", "gravy"],
+        accessions=[acc],
+        return_copy=True,
+    )
+    assert "length" in df.columns
+    assert (df["length"] == df["peptide_sequence"].str.len()).all()
+    assert df["gravy"].notna().any()
 
 def test_get_datetime_format():
     from scpviz.setup import get_datetime
@@ -1418,6 +1496,176 @@ def test_get_uniprot_fields_live_standardized_subset():
             "⚠️ Critical UniProt schema change detected in standardized subset:\n"
             + "\n".join(warn_messages)
         )
+
+class _FakeHTTPResponse:
+    def __init__(self, text="", json_data=None, status_code=200):
+        self.text = text
+        self.status_code = status_code
+        self._json = json_data or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.exceptions.HTTPError(f"{self.status_code} Server Error")
+
+    def json(self):
+        return self._json
+
+
+def test_get_uniprot_fields_uses_accessions_endpoint(monkeypatch):
+    """Accession lookups should hit /uniprotkb/accessions, not a Lucene stream query."""
+    calls = []
+
+    def fake_get(url, params=None, **kwargs):
+        calls.append((url, params or {}))
+        assert "stream" not in url
+        accs = (params or {}).get("accessions", "").split(",")
+        rows = "\n".join(f"{a}\tGENE_{a}" for a in accs if a)
+        return _FakeHTTPResponse("Entry\tGene Names (primary)\n" + rows + "\n")
+
+    monkeypatch.setattr("scpviz.utils.id_maps.requests.get", fake_get)
+    monkeypatch.setattr(
+        "scpviz.utils.id_maps.requests.post",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("idmapping should not run")),
+    )
+
+    df = utils.get_uniprot_fields(
+        ["P40925", "P40926"],
+        search_fields=["accession", "gene_primary"],
+        verbose=False,
+        standardize=True,
+    )
+    assert calls, "Expected a UniProt GET"
+    assert all("accessions" in url for url, _ in calls)
+    assert set(df["accession"]) == {"P40925", "P40926"}
+
+
+def test_get_uniprot_fields_skips_invalid_accessions_in_query(monkeypatch):
+    """Invalid-format IDs must not be sent to /accessions (that 400s the whole batch)."""
+    seen_accessions = []
+
+    def fake_get(url, params=None, **kwargs):
+        if "accessions" in url:
+            seen_accessions.extend((params or {}).get("accessions", "").split(","))
+            accs = [a for a in seen_accessions if a]
+            rows = "\n".join(f"{a}\tGENE_{a}" for a in accs)
+            return _FakeHTTPResponse("Entry\tGene Names (primary)\n" + rows + "\n")
+        return _FakeHTTPResponse(json_data={"jobStatus": "FINISHED", "results": []})
+
+    monkeypatch.setattr("scpviz.utils.id_maps.requests.get", fake_get)
+    monkeypatch.setattr(
+        "scpviz.utils.id_maps.requests.post",
+        lambda *a, **k: _FakeHTTPResponse(json_data={"jobId": "job"}),
+    )
+
+    df = utils.get_uniprot_fields(
+        ["P40925", "NOT_AN_ID"],
+        search_fields=["accession", "gene_primary"],
+        verbose=False,
+        standardize=True,
+    )
+    assert "NOT_AN_ID" not in seen_accessions
+    assert "P40925" in set(df["accession"])
+    assert "NOT_AN_ID" in set(df["accession"])
+    assert list(df.columns).count("accession") == 1
+    assert list(df.columns).count("gene_primary") == 1
+
+
+def test_get_uniprot_fields_queries_entry_names_via_stream(monkeypatch):
+    """UniProt entry names must use /uniprotkb/stream id: queries, not /accessions."""
+    calls = []
+
+    def fake_get(url, params=None, **kwargs):
+        calls.append((url, params or {}))
+        if "accessions" in url:
+            raise AssertionError("entry names must not be sent to /accessions")
+        if "stream" in url:
+            return _FakeHTTPResponse(
+                "Entry\tEntry Name\tGene Names (primary)\nP40925\tMDHC_HUMAN\tMDH1\n"
+            )
+        raise AssertionError(f"unexpected GET {url}")
+
+    monkeypatch.setattr("scpviz.utils.id_maps.requests.get", fake_get)
+    monkeypatch.setattr(
+        "scpviz.utils.id_maps.requests.post",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("idmapping should not run")),
+    )
+
+    df = utils.get_uniprot_fields(
+        ["MDHC_HUMAN"],
+        search_fields=["accession", "id", "gene_primary"],
+        verbose=False,
+        standardize=True,
+    )
+    assert any("stream" in url for url, _ in calls)
+    assert any("id:MDHC_HUMAN" in (params.get("query") or "") for _, params in calls)
+    assert "MDHC_HUMAN" in set(df["accession"])
+    assert "MDH1" in set(df["gene_primary"].astype(str))
+
+
+def test_get_uniprot_fields_mixed_accessions_and_entry_names(monkeypatch):
+    """A mixed list should split: accessions → /accessions, entry names → stream."""
+    seen_accessions = []
+    stream_queries = []
+
+    def fake_get(url, params=None, **kwargs):
+        if "accessions" in url:
+            accs = [a for a in (params or {}).get("accessions", "").split(",") if a]
+            seen_accessions.extend(accs)
+            rows = "\n".join(f"{a}\tGENE_{a}" for a in accs)
+            return _FakeHTTPResponse("Entry\tGene Names (primary)\n" + rows + "\n")
+        if "stream" in url:
+            stream_queries.append((params or {}).get("query", ""))
+            return _FakeHTTPResponse(
+                "Entry\tEntry Name\tGene Names (primary)\nP40925\tMDHC_HUMAN\tMDH1\n"
+            )
+        raise AssertionError(f"unexpected GET {url}")
+
+    monkeypatch.setattr("scpviz.utils.id_maps.requests.get", fake_get)
+    monkeypatch.setattr(
+        "scpviz.utils.id_maps.requests.post",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("idmapping should not run")),
+    )
+
+    df = utils.get_uniprot_fields(
+        ["P40926", "MDHC_HUMAN"],
+        search_fields=["accession", "gene_primary"],
+        verbose=False,
+        standardize=True,
+    )
+    assert seen_accessions == ["P40926"]
+    assert any("MDHC_HUMAN" in q for q in stream_queries)
+    assert set(df["accession"]) == {"P40926", "MDHC_HUMAN"}
+
+
+def test_get_uniprot_fields_splits_failed_http_batch(monkeypatch, capsys):
+    """A 5xx/timeout on a multi-ID batch should split and retry rather than drop all IDs."""
+    import requests
+
+    calls = []
+
+    def fake_worker(batch, search_fields=None, verbose=False):
+        calls.append(list(batch))
+        if len(batch) > 2:
+            raise requests.exceptions.HTTPError("500 Server Error: for url: https://rest.uniprot.org/...")
+        return pd.DataFrame({
+            "Entry": list(batch),
+            "Gene Names (primary)": [f"G{x}" for x in batch],
+        })
+
+    monkeypatch.setattr("scpviz.utils.id_maps.get_uniprot_fields_worker", fake_worker)
+    df = utils.get_uniprot_fields(
+        ["P00001", "P00002", "P00003", "P00004"],
+        search_fields=["accession", "gene_primary"],
+        batch_size=4,
+        verbose=True,
+        standardize=True,
+    )
+    assert any(len(c) > 2 for c in calls)
+    assert any(len(c) <= 2 for c in calls)
+    assert set(df["accession"]) == {"P00001", "P00002", "P00003", "P00004"}
+    out = capsys.readouterr().out
+    assert "Retrying as two smaller batches" in out
+
 
 # test convert_identifier...
 

@@ -302,12 +302,20 @@ def plot_abundance_housekeeping(ax: "plt.Axes", pdata: pAnnData, classes: str | 
         fig, axes = plt.subplots(1, 3, figsize=(16, 4), constrained_layout=True)
         groups = ['whole cell', 'nuclear', 'mitochondrial']
         for ax_sub, group in zip(axes, groups):
+            if not utils.resolve_accessions(pdata.prot, loading_controls[group], on_empty="return", quiet=True):
+                print(f"{format_log_prefix('warn')} No '{group}' housekeeping proteins found in .prot.var['Genes']; skipping.")
+                ax_sub.set_title(group.title())
+                continue
             palette = get_color('colors', n=len(loading_controls[group]))
             plot_abundance(ax_sub, pdata, namelist=loading_controls[group], classes=classes, layer='X', palette=palette, **kwargs)
             ax_sub.set_title(group.title())
         fig.suptitle("Housekeeping Protein Abundance", fontsize=14)
         return fig, axes
     else:
+        if not utils.resolve_accessions(pdata.prot, loading_controls[loading_control], on_empty="return", quiet=True):
+            print(f"{format_log_prefix('warn')} No '{loading_control}' housekeeping proteins found in .prot.var['Genes']; skipping.")
+            ax.set_title(loading_control.title())
+            return ax
         palette = get_color('colors', n=len(loading_controls[loading_control]))
         plot_abundance(ax, pdata, namelist=loading_controls[loading_control], classes=classes, layer='X', palette=palette, **kwargs)
         ax.set_title(loading_control.title())
@@ -2106,7 +2114,7 @@ def plot_raincloud(ax: "plt.Axes", pdata: pAnnData, classes: str | list[str] | N
     data_X = []
 
     for j, class_value in enumerate(classes_list):
-        rank_data = u.resolve_class_filter(adata, classes, class_value, debug=True)
+        rank_data = u.resolve_class_filter(adata, classes, class_value, debug=debug)
 
         plot_df = rank_data.to_df().transpose()
         plot_df['Average: '+class_value] = np.nanmean(rank_data.X.toarray(), axis=0)

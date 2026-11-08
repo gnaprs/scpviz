@@ -8,7 +8,7 @@ Use STRING integration for enrichment and protein–protein interaction (PPI) an
 ## Functional Enrichment (GSEA / GO)
 
 ```python
-pdata.enrichment_functional(on="protein", source="de_results")
+pdata.enrichment_functional(from_de=True, de_key="...")  # key from pdata.list_enrichments()
 ```
 
 ---
@@ -16,7 +16,7 @@ pdata.enrichment_functional(on="protein", source="de_results")
 ## PPI Enrichment
 
 ```python
-pdata.ppi_enrichment(on="protein", source="de_results")
+pdata.enrichment_ppi(genes=["P55072", "NPLOC4", "UFD1", "STX5A", "NSFL1C"])
 ```
 
 ---

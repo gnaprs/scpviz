@@ -26,8 +26,9 @@ Also writes abundance-colored PCA/UMAP examples:
 Also writes ``plot_pca_mapping.png`` (bulk tuple-key mapping) and PCA-GSEA figures
 ``plot_pca_gsea_pathway_vectors.png``, ``plot_pca_gsea_bubble.png``, ``plot_pca_gsea_heatmap.png``.
 Also writes ``plot_grouped_heatmap.png``, ``plot_grouped_heatmap_spacing.png``,
-``plot_clustered_heatmap.png``, ``plot_clustered_heatmap_spacing.png``, and
-``plot_clustered_heatmap_de.png`` (DE hits via ``stats_key`` after volcano).
+``plot_clustered_heatmap.png``, ``plot_clustered_heatmap_spacing.png``,
+``plot_clustered_heatmap_de.png`` (DE hits via ``stats_key`` after volcano), and
+``plot_clustermap.png`` (overview row + column dendrograms).
 Also writes ``plot_abundance_boxgrid_bar.png``, ``plot_abundance_boxgrid_line.png``,
 ``plot_abundance_boxgrid_violin.png``, ``plot_abundance_boxgrid_custom.png``,
 ``plot_abundance_boxgrid_significance.png``, and ``plot_abundance_boxgrid_significance_multi.png``
@@ -137,20 +138,29 @@ def _region_literal_mapping(umap_kw: dict) -> tuple[list[str], dict]:
 
 
 def _bulk_literal_mapping(adata, mapping_keys: list[str]) -> dict:
-    """Literal face+edge styles for bulk ``cellline`` × ``condition|treatment`` combos."""
+    """Literal face+edge styles for bulk ``cellline`` × ``condition|treatment`` combos.
+
+    Face = cell line (AS orange / BE light grey); edge = condition (kd red / sc charcoal).
+    Charcoal (not light grey) for sc keeps BE+sc rings visible on grey fills.
+    """
     mapping: dict = {}
     combos = adata.obs[mapping_keys].drop_duplicates()
     for row in combos.itertuples(index=False, name=None):
         key = tuple(row)
         cell = str(row[0])
         g2 = str(row[1]) if len(row) > 1 else ""
-        face = "white" if cell == "AS" else "lightgrey" if cell == "BE" else "#f0f0f0"
-        if g2 == "kd":
-            edge = "black"
-        elif g2 == "sc":
-            edge = "steelblue"
+        if cell == "AS":
+            face = "#F4A261"
+        elif cell == "BE":
+            face = "#D0D0D0"
         else:
-            edge = "black"
+            face = "#f0f0f0"
+        if g2 == "kd":
+            edge = "#C0392B"
+        elif g2 == "sc":
+            edge = "#4A4A4A"
+        else:
+            edge = "#4A4A4A"
         mapping[key] = {"color": face, "edge_color": edge}
     return mapping
 
@@ -701,7 +711,7 @@ def main(*, skip_umap: bool = False) -> None:
             mapping=map_edges_sc,
             force=True,
         )
-        scplt.shift_legend(ax)
+        scplt.shift_legend(ax, anchor_pos=(1.15, 1.0))
         save_current_fig("plot_pca_mapping_abundance_sc")
 
         fig, ax = plt.subplots(figsize=umap_kw.get("figsize", (3, 3)))
@@ -764,7 +774,7 @@ def main(*, skip_umap: bool = False) -> None:
             s=umap_kw.get("s", 20),
             alpha=umap_kw.get("alpha", 0.8),
         )
-        scplt.shift_legend(ax)
+        scplt.shift_legend(ax, anchor_pos=(1.15, 1.0))
         save_current_fig("plot_umap_mapping_abundance")
     else:
         if skip_umap:
@@ -777,7 +787,7 @@ def main(*, skip_umap: bool = False) -> None:
                 f"{_umap_data_root()}, no {ASSETS_DOC / 'report_sc.parquet'}, or load failed."
             )
 
-    # ── correlation.py ───────────────────────────────────────────────────────
+    # ── clustering.py ────────────────────────────────────────────────────────
     pw_layer = _ensure_pairwise_zscore_layer(pdata_norm)
     fig, ax = scplt.plot_pairwise_correlation(
         pdata_norm,
@@ -790,20 +800,21 @@ def main(*, skip_umap: bool = False) -> None:
     plt.savefig(OUT / "plot_pairwise_correlation.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
 
-    _, ax_cm = plt.subplots(figsize=(1, 1))
-    g_cm = scplt.plot_clustermap(
-        ax_cm,
+    # Overview clustermap: row + column dendrograms (sample order from col tree).
+    # Subset for a readable docs figure; omit namelist to plot all features.
+    fig_cm = scplt.plot_clustermap(
         pdata_norm,
-        on="prot",
         classes=classes_2,
-        force=True,
-        impute="row_min",
-        z_score=0,
-        center=0,
-        linewidth=0,
-        figsize=(10, 6),
+        namelist=list(pdata_norm.prot.var_names[:80]),
+        layer="X",
+        display_scale="zscore",
+        figsize=(8, 10),
+        text_size=7,
+        show_row_labels=False,
+        header_spacing=0.06,
+        header_height=0.35,
     )
-    g_cm.savefig(OUT / "plot_clustermap.png", dpi=DPI, bbox_inches="tight")
+    fig_cm.savefig(OUT / "plot_clustermap.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
 
     # Publication heatmaps (grouped blocks + clustered rows)

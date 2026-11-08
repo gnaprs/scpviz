@@ -53,7 +53,9 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
             Binary relational matrix (proteins × peptides), where non-zero entries indicate a parent-protein relationship.
 
     Note:
-        ``summary``, ``stats``, and ``history`` are created internally (empty by default) and populated as you use the object; they are not constructor arguments.
+        ``summary``, ``stats``, ``history``, and ``metadata`` are created internally (empty by default) and populated as you use the object; they are not constructor arguments.
+        ``metadata`` holds import provenance (e.g. ``source``); for hand-built objects, set
+        ``pdata.metadata['source']`` so peptide-to-protein mapping works.
 
     """
     def __init__(self, 
@@ -71,7 +73,11 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
         self._history = []
         self._summary = pd.DataFrame()
         self._stats = {}
+        self._metadata = {}
         self._summary_is_stale = False
+
+        if self._prot is not None or self._pep is not None:
+            self.update_summary(recompute=True, verbose=False)
 
     def __repr__(self):
         def format_summary(summary):
@@ -106,7 +112,8 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
             obs_cols = ', '.join(adata.obs.columns[:5]) + ('...' if len(adata.obs.columns) > 5 else '')
             var_cols = ', '.join(adata.var.columns[:5]) + ('...' if len(adata.var.columns) > 5 else '')
             obsm_keys = ', '.join(adata.obsm.keys())
-            layers_keys = ', '.join(adata.layers.keys())
+            # anndata >= 0.13 stores .X as layers[None]
+            layers_keys = ', '.join(k for k in adata.layers.keys() if isinstance(k, str))
 
             obs_line = "  obs:    (same as protein)" if shared_obs and label == "Peptide" else f"  obs:    {obs_cols or '—'}"
 
@@ -138,7 +145,7 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
         def format_enrichments(stats):
             functional = stats.get("functional", {})
             ppi_keys = stats.get("ppi", {})
-            de_keys = {k for k in stats if "vs" in k and not k.endswith(("_up", "_down"))}
+            de_keys = {k for k in stats if "vs" in k and not k.endswith(("_up", "_down", "_both"))}
 
             enriched_de = {
                 meta.get("input_key", k)
@@ -229,11 +236,10 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
 
     @property
     def metadata(self):
-        if self.prot is not None and 'metadata' in self.prot.uns:
-            return self.prot.uns['metadata']
-        elif self.pep is not None and 'metadata' in self.pep.uns:
-            return self.pep.uns['metadata']
-        return {}
+        if "_metadata" not in vars(self):  # objects created before metadata moved off .uns (e.g. unpickled)
+            legacy = [a.uns.pop("metadata") for a in (self._prot, self._pep) if a is not None and "metadata" in a.uns]
+            self._metadata = dict(legacy[0]) if legacy else {}
+        return self._metadata
 
     @property
     def _cached_identifier_maps_protein(self):
@@ -279,3 +285,7 @@ class pAnnData(BaseMixin, ValidationMixin, SummaryMixin, MetricsMixin,
     @stats.setter
     def stats(self, value):
         self._stats = value
+
+    @metadata.setter
+    def metadata(self, value):
+        self._metadata = value

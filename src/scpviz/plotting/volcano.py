@@ -16,7 +16,11 @@ import seaborn as sns
 from adjustText import adjust_text
 
 from scpviz import utils
-from scpviz.utils.de_reporting import format_de_group_label, parse_contrast_label
+from scpviz.utils.de_reporting import (
+    format_de_group_label,
+    format_parsed_group_label,
+    parse_contrast_label,
+)
 from scpviz.utils.formatting import format_log_prefix
 
 if TYPE_CHECKING:
@@ -322,7 +326,7 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
                 contrast=("Cortex", "SNpc"),  # same as `values=[{"region": "Cortex"}, {"region": "SNpc"}]`
                 donor_col="animal",
             )
-            stats_key = "mixed: SNpc vs Cortex | donor=animal"
+            stats_key = "mixed: [{'region': 'Cortex'}] vs [{'region': 'SNpc'}] | donor=animal"
 
             # Plot Volcano 
             fig, ax = plt.subplots(figsize=(4, 4))
@@ -488,7 +492,8 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
             contrast_txt = str(mixed_meta["contrast_label"])
         parsed = parse_contrast_label(contrast_txt) if contrast_txt else None
         if parsed is not None:
-            group1, group2 = parsed
+            group1 = format_parsed_group_label(parsed[0])
+            group2 = format_parsed_group_label(parsed[1])
         elif mixed_meta.get("contrast") is not None:
             # contrast stored as (test, ref); label/sign is test vs ref
             ref_test = mixed_meta["contrast"]

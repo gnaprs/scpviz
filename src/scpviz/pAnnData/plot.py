@@ -24,6 +24,7 @@ class PlotMixin:
         plot_pca_gsea_heatmap: Heatmap of PCA–GSEA enrichment results.
         plot_grouped_heatmap: Grouped abundance heatmap.
         plot_clustered_heatmap: Clustered abundance heatmap.
+        plot_clustermap: Overview heatmap with row + column dendrograms.
     """
 
     def plot_counts(self, classes=None, y='protein_count', **kwargs):
@@ -1282,6 +1283,97 @@ class PlotMixin:
             text_size=text_size,
             cbar_scale=cbar_scale,
             legend_width=legend_width,
+            auto_log2=auto_log2,
+            gene_col=gene_col,
+            separate_legend=separate_legend,
+            **kwargs,
+        )
+
+    def plot_clustermap(
+        self,
+        classes,
+        namelist=None,
+        on="protein",
+        layer="X",
+        display_scale="auto",
+        metric="correlation",
+        cor_method="pearson",
+        linkage_method="average",
+        optimal_ordering=True,
+        header_colors=None,
+        sample_label_col=None,
+        cmap=None,
+        figsize=None,
+        text_size=8,
+        cbar_scale=1.0,
+        legend_width=None,
+        header_spacing=0.06,
+        header_height=0.35,
+        dendrogram_linewidth=None,
+        show_row_labels=False,
+        auto_log2=True,
+        gene_col="Genes",
+        separate_legend=False,
+        **kwargs,
+    ):
+        """
+        Plot an overview clustered heatmap with row and column dendrograms.
+
+        Thin wrapper around :func:`scpviz.plotting.plot_clustermap`. Sample order
+        follows the column dendrogram (not metadata sort).
+
+        Args:
+            classes (list of str): ``.obs`` columns for header strips.
+            namelist (list of str, optional): Gene/accession subset; ``None`` = all.
+            on (str): ``"protein"`` or ``"peptide"``.
+            layer (str): Abundance layer (default ``"X"``).
+            display_scale (str): ``"auto"`` / ``"zscore"`` / ``"log"`` / ``"raw"``.
+            metric (str): ``"correlation"`` (default) or ``"euclidean"``.
+            cor_method (str): ``"pearson"`` or ``"spearman"``.
+            linkage_method (str): Scipy linkage method (default ``"average"``).
+            optimal_ordering (bool): Improve leaf order for display.
+            header_colors (dict, optional): Header strip colors (same as grouped).
+            sample_label_col (str, optional): ``.obs`` column for bottom ticks.
+            cmap (str, optional): Colormap; ``None`` auto-selects by scale.
+            figsize (tuple, optional): Figure size; auto if None.
+            text_size (int): Base font size (default 8).
+            cbar_scale (float): Colorbar vertical scale (default ``1.0``).
+            legend_width (float, optional): Left margin for colorbar + legends.
+            header_spacing (float): Space between headers and heatmap.
+            header_height (float): Relative header strip height.
+            dendrogram_linewidth (float, optional): Dendrogram line width.
+            show_row_labels (bool): Show feature labels (default False).
+            auto_log2 (bool): In-memory log2 when layer looks linear.
+            gene_col (str): ``.var`` gene label column.
+            separate_legend (bool): If True, return ``(fig, legend_fig)``.
+            **kwargs: Optional ``title``.
+
+        Returns:
+            fig or ``(fig, legend_fig)`` when ``separate_legend=True``.
+        """
+        self._check_data(on)
+        return plotting.plot_clustermap(
+            self,
+            classes,
+            namelist=namelist,
+            on=on,
+            layer=layer,
+            display_scale=display_scale,
+            metric=metric,
+            cor_method=cor_method,
+            linkage_method=linkage_method,
+            optimal_ordering=optimal_ordering,
+            header_colors=header_colors,
+            sample_label_col=sample_label_col,
+            cmap=cmap,
+            figsize=figsize,
+            text_size=text_size,
+            cbar_scale=cbar_scale,
+            legend_width=legend_width,
+            header_spacing=header_spacing,
+            header_height=header_height,
+            dendrogram_linewidth=dendrogram_linewidth,
+            show_row_labels=show_row_labels,
             auto_log2=auto_log2,
             gene_col=gene_col,
             separate_legend=separate_legend,
