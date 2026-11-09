@@ -52,7 +52,8 @@ def import_data(source_type: str, **kwargs):
               → Uses `import_proteomeDiscoverer()`.  
               Required kwargs:
                 - `prot_file` (str): Path to protein-level report file
-                - `obs_columns` (list of str): Columns to extract for `.obs`
+                - `obs_columns` (list of str): Columns to extract for `.obs`. Use `None` at a
+                  position to discard that filename token.
               Optional kwargs:
                 - `pep_file` (str): Path to peptide-level report file
 
@@ -60,7 +61,8 @@ def import_data(source_type: str, **kwargs):
               → Uses `import_diann()`.  
               Required kwargs:
                 - `report_file` (str): Path to DIA-NN report file
-                - `obs_columns` (list of str): Columns to extract for `.obs`
+                - `obs_columns` (list of str): Columns to extract for `.obs`. Use `None` at a
+                  position to discard that filename token.
 
             - `'fragpipe'`, `'fp'`: Not yet implemented  
             - `'spectronaut'`, `'sn'`: Not yet implemented
@@ -94,6 +96,15 @@ def import_data(source_type: str, **kwargs):
                 source_type='pd',
                 prot_file='HCT116 resistance_20230601_pdoutput.xlsx',
                 obs_columns=obs_columns
+            )
+            ```
+
+        Discarding filename tokens you don't want in `.obs` with `None` placeholders:
+            ```python
+            pdata = import_data(
+                source_type='diann',
+                report_file='report.tsv',
+                obs_columns=['date', None, 'well', None, 'run_id']
             )
             ```
 
@@ -147,6 +158,7 @@ def import_proteomeDiscoverer(prot_file: Optional[str] = None, pep_file: Optiona
         pep_file (str, optional): Path to the peptide-level report file (optional but recommended).
         obs_columns (list of str): List of columns to extract for `.obs`. These should match metadata tokens
             embedded in the filenames (e.g. sample, condition, replicate).
+            Use `None` at a position to parse that filename token but discard it.
         **kwargs: Additional keyword arguments passed to `import_data()`.
 
     Returns:
@@ -372,6 +384,7 @@ def import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[s
     Args:
         report_file (str): Path to the DIA-NN report file (required).
         obs_columns (list of str): List of metadata columns to extract from the filename for `.obs`.
+            Use `None` at a position to parse that filename token but discard it.
         delimiter (str): Character to split file names by to set up metadata in obs.
         prot_value (str): Column name in DIA-NN output to use for protein quantification.
             Default: `'PG.MaxLFQ'`.
@@ -628,6 +641,7 @@ def _create_pAnnData_from_parts(
         pep_obs_names (list-like, optional): Sample identifiers for `.pep`.
         pep_var_names (list-like, optional): Peptide identifiers.
         obs_columns (list of str, optional): Columns from filenames to include in `.summary` and `.obs`.
+            Use `None` at a position to parse that filename token but discard it.
         X_mbr_prot (np.ndarray or DataFrame, optional): Optional protein-level MBR identification info.
         X_mbr_pep (np.ndarray or DataFrame, optional): Optional peptide-level MBR identification info.
         X_qval_prot (np.ndarray or DataFrame, optional): Optional protein-level Q-value info.
@@ -650,6 +664,10 @@ def _create_pAnnData_from_parts(
     print("")
     pdata = pAnnData(prot_X, pep_X, rs)
 
+    # None entries in obs_columns mark filename tokens to discard; names are assigned
+    # first so a length mismatch still raises, then those positions are dropped.
+    keep_obs = [c is not None for c in obs_columns] if obs_columns else slice(None)
+
     # --- PROTEIN ---
     if prot_X is not None:
         prot_var.index = prot_var.index.astype(str)
@@ -659,6 +677,7 @@ def _create_pAnnData_from_parts(
         pdata.prot.obs_names = list(prot_obs_names) # type: ignore[attr-defined]
         pdata.prot.var_names = list(prot_var_names) # type: ignore[attr-defined]
         pdata.prot.obs.columns = obs_columns if obs_columns else list(range(pdata.prot.obs.shape[1])) # type: ignore[attr-defined]
+        pdata.prot.obs = pdata.prot.obs.iloc[:, keep_obs] # type: ignore[attr-defined]
         pdata.prot.layers['X_raw'] = prot_X # type: ignore[attr-defined]
         pdata.prot.uns['X_raw_obs_names'] = list(prot_obs_names) # type: ignore[attr-defined]
         pdata.prot.uns['X_raw_var_names'] = list(prot_var_names)
@@ -695,6 +714,7 @@ def _create_pAnnData_from_parts(
         pdata.pep.obs_names = list(pep_obs_names) # type: ignore[attr-defined]
         pdata.pep.var_names = list(pep_var_names) # type: ignore[attr-defined]
         pdata.pep.obs.columns = obs_columns if obs_columns else list(range(pdata.pep.obs.shape[1])) # type: ignore[attr-defined]
+        pdata.pep.obs = pdata.pep.obs.iloc[:, keep_obs] # type: ignore[attr-defined]
         pdata.pep.layers['X_raw'] = pep_X # type: ignore[attr-defined]
         pdata.pep.uns['X_raw_obs_names'] = list(pep_obs_names) # type: ignore[attr-defined]
         pdata.pep.uns['X_raw_var_names'] = list(pep_var_names)
@@ -1177,7 +1197,8 @@ class IOMixin:
                 → Uses `import_proteomeDiscoverer()`.  
                 Required kwargs:
                     - `prot_file` (str): Path to protein-level report file
-                    - `obs_columns` (list of str): Columns to extract for `.obs`
+                    - `obs_columns` (list of str): Columns to extract for `.obs`. Use `None` at a
+                  position to discard that filename token.
                 Optional kwargs:
                     - `pep_file` (str): Path to peptide-level report file
 
@@ -1185,7 +1206,8 @@ class IOMixin:
                 → Uses `import_diann()`.  
                 Required kwargs:
                     - `report_file` (str): Path to DIA-NN report file
-                    - `obs_columns` (list of str): Columns to extract for `.obs`
+                    - `obs_columns` (list of str): Columns to extract for `.obs`. Use `None` at a
+                  position to discard that filename token.
 
                 - `'fragpipe'`, `'fp'`: Not yet implemented  
                 - `'spectronaut'`, `'sn'`: Not yet implemented
@@ -1222,6 +1244,15 @@ class IOMixin:
                 )
                 ```
 
+            Discarding filename tokens you don't want in `.obs` with `None` placeholders:
+                ```python
+                pdata = pAnnData.import_data(
+                    source_type='diann',
+                    report_file='report.tsv',
+                    obs_columns=['date', None, 'well', None, 'run_id']
+                )
+                ```
+
         Note:
             If `obs_columns` is not provided and filename formats are inconsistent,
             fallback parsing is applied with generic columns (`"File"`, `"parsingType"`).
@@ -1239,6 +1270,7 @@ class IOMixin:
         Args:
             report_file (str): Path to the DIA-NN report file (required).
             obs_columns (list of str): List of metadata columns to extract from the filename for `.obs`.
+            Use `None` at a position to parse that filename token but discard it.
             prot_value (str): Column name in DIA-NN output to use for protein quantification.
                 Default: `'PG.MaxLFQ'`.
             pep_value (str): Column name in DIA-NN output to use for peptide quantification.
@@ -1283,6 +1315,7 @@ class IOMixin:
             pep_file (str, optional): Path to the peptide-level report file (optional but recommended).
             obs_columns (list of str): List of columns to extract for `.obs`. These should match metadata tokens
                 embedded in the filenames (e.g. sample, condition, replicate).
+            Use `None` at a position to parse that filename token but discard it.
             **kwargs: Additional keyword arguments passed to `import_data()`.
 
         Returns:

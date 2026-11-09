@@ -374,6 +374,25 @@ pdata = pAnnData.import_data(
 )
 ```
 
+### Dropping tokens you don't need
+
+`obs_columns` needs one entry per filename token, but you don't have to keep them all. Use `None` at a position to parse that token and discard it. For example, to drop the constant `Sample` token and the `RA` token from the PD filenames above:
+
+```py title="Discard filename tokens with None"
+obs_columns = [None, "cellline", None, "condition", "day"]
+pdata = pAnnData.import_data(
+        source_type="pd",
+        prot_file=prot_file_path,
+        pep_file=pep_file_path,
+        obs_columns=obs_columns,
+)
+```
+
+The dropped tokens are removed from `.prot.obs`, `.pep.obs` and `.summary` together, so they do not reappear after `pdata.update_summary()`. This works for DIA-NN and PD imports alike.
+
+!!! note
+    The list must still match the number of tokens in the filenames (including the `None` placeholders), otherwise the import raises an error.
+
 If filenames follow multiple formats, use `parse_filename_index` to handle different token lengths.
 
 === "Parse by token length"

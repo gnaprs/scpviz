@@ -401,3 +401,81 @@ def test_validate_detects_rs_shape_mismatch(pdata, capsys):
 
     assert result is False
     assert "RS shape mismatch" in captured
+
+
+# --- obs_columns None placeholders (drop filename tokens at import) ---
+
+PD_OBS = ['sample', 'cellline', 'treatment']
+DIANN_OBS = ['name', 'amt', 'enzyme', 'date', 'MS', 'acquisition', 'method', 'gradient', 'replicate']
+
+def _import_pd_obs(obs_columns):
+    test_dir = Path(__file__).parent
+    return pAnnData.import_data(
+        source_type='pd',
+        prot_file=str(test_dir / 'test_pd_prot.txt'),
+        pep_file=str(test_dir / 'test_pd_pep.txt'),
+        obs_columns=obs_columns,
+        fetch_uniprot=False,
+    )
+
+def _import_diann_obs(obs_columns):
+    test_dir = Path(__file__).parent
+    return pAnnData.import_data(
+        source_type='diann',
+        report_file=str(test_dir / 'test_diann.tsv'),
+        obs_columns=obs_columns,
+        fetch_uniprot=False,
+    )
+
+def test_import_pd_obs_columns_none_dropped():
+    full = _import_pd_obs(PD_OBS)
+    pdata = _import_pd_obs(['sample', None, 'treatment'])
+
+    for df in (pdata.prot.obs, pdata.pep.obs):
+        assert 'cellline' not in df.columns
+        assert None not in list(df.columns)
+        assert list(df.columns[:2]) == ['sample', 'treatment']
+        assert df['sample'].tolist() == full.prot.obs['sample'].tolist()
+        assert df['treatment'].tolist() == full.prot.obs['treatment'].tolist()
+    assert 'cellline' not in pdata.summary.columns
+
+    # column must not come back from .pep.obs when the summary is rebuilt
+    pdata.update_summary(recompute=True, verbose=False)
+    assert 'cellline' not in pdata.summary.columns
+    assert 'cellline' not in pdata.prot.obs.columns
+    assert 'cellline' not in pdata.pep.obs.columns
+    assert pdata.summary['treatment'].tolist() == full.summary['treatment'].tolist()
+
+def test_import_diann_obs_columns_multiple_none_dropped():
+    full = _import_diann_obs(DIANN_OBS)
+    obs_columns = ['name', None, 'enzyme', None, None, 'acquisition', 'method', None, 'replicate']
+    pdata = _import_diann_obs(obs_columns)
+    kept = [c for c in obs_columns if c is not None]
+    dropped = {'amt', 'date', 'MS', 'gradient'}
+
+    for df in (pdata.prot.obs, pdata.pep.obs):
+        assert list(df.columns[:len(kept)]) == kept  # order preserved
+        assert not dropped & set(df.columns)
+        for c in kept:
+            assert df[c].tolist() == full.prot.obs[c].tolist()
+
+    pdata.update_summary(recompute=True, verbose=False)
+    assert not dropped & set(pdata.summary.columns)
+    assert not dropped & set(pdata.pep.obs.columns)
+    for c in kept:
+        assert c in pdata.summary.columns
+
+def test_import_obs_columns_all_none():
+    full = _import_pd_obs(PD_OBS)
+    pdata = _import_pd_obs([None, None, None])
+    # only computed annotation columns remain (none of the filename tokens)
+    for df, df_full in ((pdata.prot.obs, full.prot.obs), (pdata.pep.obs, full.pep.obs)):
+        assert not set(PD_OBS) & set(df.columns)
+        assert list(df.columns) == [c for c in df_full.columns if c not in PD_OBS]
+        assert list(df.index) == list(df_full.index)
+
+def test_import_obs_columns_none_length_mismatch_raises():
+    with pytest.raises(ValueError):
+        _import_pd_obs(['sample', None])
+    with pytest.raises(ValueError):
+        _import_pd_obs(['sample', None, 'treatment', None])
