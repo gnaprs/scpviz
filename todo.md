@@ -39,6 +39,7 @@ Quick view of what to work on. Full tables below.
 | M | [x] | viz-5 | plot_grouped_heatmap + plot_clustered_heatmap (publication heatmaps) |
 | M | [ ] | enr-1 | String DB values rank API — check API key; per-user or local copy in package? [API help](https://string-db.org/cgi/help?subpage=api%23valuesranks-enrichment-api) |
 | L | [ ] | feat-qc-1 | Consider QC metrics beyond what we already have |
+| H | [~] | feat-sn-1 | Spectronaut import (`import_spectronaut`, tab-separated wide "Run Pivot" protein + peptide reports; explode protein groups like DIA-NN; ion mobility carried from the peptide report) |
 | H | [x] | base-5 | Save/load: `pdata.save()` / `pAnnData.load()` (single `.pdata` HDF5 file, lossless, per-value pickle fallback) + `pdata.export_h5ad(on=...)`; `.metadata` moved to object level (`_metadata`). Encoding in `utils/serialization.py` |
 
 ---
@@ -56,6 +57,8 @@ Quick view of what to work on. Full tables below.
 | L | [ ] | enh-7 | Add modification print for diann import |
 | L | [x] | enh-8 | When impute errors on wrong obs column, pretty-format the error message |
 | L | [ ] | enh-9 | Standardize history logging (datetime stamp, formatting) |
+| L | [ ] | enh-10 | Spectronaut import: read `<report>.setup.txt` (first ~8 lines: version on line 1, `Analysis Type:`; optionally normalization / quantity settings) into `.metadata`. Optional file, often renamed, so match by report basename and fail soft |
+| L | [ ] | enh-11 | Spectronaut import: support long-format and parquet exports (currently only tab-separated wide "Run Pivot" reports; the importer raises a clear `ValueError` if no `[n] <run>.<metric>` columns are found) |
 
 ---
 

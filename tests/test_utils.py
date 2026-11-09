@@ -877,6 +877,7 @@ class DummyPDataMapping:
 @pytest.mark.parametrize("source,expected_col", [
     ("proteomediscoverer", "Master Protein Accessions"),
     ("diann", "Protein.Group"),
+    ("spectronaut", "Protein.Group"),
     ("maxquant", "Leading razor protein"),
 ])
 def test_get_pep_prot_mapping_known_sources(source, expected_col):

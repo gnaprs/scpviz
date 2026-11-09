@@ -27,11 +27,13 @@ between peptides and proteins.
 Supported tools:
     - Proteome Discoverer (PD 1.3, PD 2.4, etc.)
     - DIA-NN
+    - Spectronaut (tab-separated wide "Run Pivot" reports)
 
 Functions:
     import_data: Main entry point that dispatches to the appropriate import function based on source_type.
     import_proteomeDiscoverer: Parses PD output files and initializes a pAnnData object.
     import_diann: Parses DIA-NN report file and initializes a pAnnData object.
+    import_spectronaut: Parses Spectronaut protein/peptide pivot reports and initializes a pAnnData object.
     resolve_obs_columns: Extracts `.obs` column structure from filenames or metadata.
     suggest_obs_from_file: Suggests sample-level metadata based on consistent filename tokens.
     analyze_filename_formats: Analyzes filename structures to identify possible grouping patterns.
@@ -64,8 +66,14 @@ def import_data(source_type: str, **kwargs):
                 - `obs_columns` (list of str): Columns to extract for `.obs`. Use `None` at a
                   position to discard that filename token.
 
-            - `'fragpipe'`, `'fp'`: Not yet implemented  
-            - `'spectronaut'`, `'sn'`: Not yet implemented
+            - `'spectronaut'`, `'sn'`:  
+              → Uses `import_spectronaut()`.  
+              Required kwargs (at least one):
+                - `prot_file` (str): Path to the tab-separated wide ("Run Pivot") protein report
+                - `pep_file` (str): Path to the tab-separated wide peptide (precursor) report
+              Optional kwargs: `obs_columns`, `delimiter`, `prot_value`, `pep_value`
+
+            - `'fragpipe'`, `'fp'`: Not yet implemented
 
         fetch_uniprot (bool): If True (default), query UniProt during import to fill
             missing values in `.prot.var["Genes"]`. Set to False when offline or
@@ -118,7 +126,7 @@ def import_data(source_type: str, **kwargs):
     source_type = source_type.lower()
     obs_columns = kwargs.get('obs_columns', None)
     if obs_columns is None:
-        source = kwargs.get('report_file') if 'report_file' in kwargs else kwargs.get('prot_file')
+        source = kwargs.get('report_file') or kwargs.get('prot_file') or kwargs.get('pep_file')
         delimiter = kwargs.get('delimiter') if 'delimiter' in kwargs else None
         format_info, fallback_columns, fallback_obs = resolve_obs_columns(source, source_type, delimiter=delimiter)
 
@@ -140,7 +148,7 @@ def import_data(source_type: str, **kwargs):
         raise NotImplementedError("FragPipe import is not yet implemented. Stay tuned!")
 
     elif source_type in ['spectronaut', 'sn']:
-        raise NotImplementedError("Spectronaut import is not yet implemented. Stay tuned!")
+        return _import_spectronaut(**kwargs)
 
     else:
         raise ValueError(f"{format_log_prefix('error')} Unsupported import source: '{source_type}'. "
@@ -564,6 +572,194 @@ def _import_diann(report_file: Optional[str] = None, obs_columns: Optional[List[
 
     return pdata
 
+_SN_RUN_COL = re.compile(r"^\[(\d+)\] (.+)\.((?:PG|PEP|EG|FG)\.\S+?)(?: \([^)]*\))?$")
+
+
+def _parse_spectronaut_columns(columns):
+    """Parse Spectronaut pivot columns like ``[1] run.d.PG.Quantity`` into ``(column, run, metric)`` tuples (column order kept).
+
+    The ``[n] `` prefix, the ``(Run-Wise)``/``(Settings)`` suffix and the raw-file extension are stripped.
+    Columns that do not follow the pattern (annotation columns) are skipped.
+    """
+    parsed = []
+    for col in columns:
+        m = _SN_RUN_COL.match(str(col))
+        if m:
+            parsed.append((col, re.sub(r"\.(d|raw|wiff|mzML)$", "", m.group(2), flags=re.IGNORECASE), m.group(3)))
+    return parsed
+
+
+def _read_spectronaut_report(path, value, qval_metric):
+    """Read one Spectronaut wide report.
+
+    Returns:
+        tuple: ``(ann, X, Q, runs)`` with annotation columns ``ann`` (features x columns), quantity ``X`` and
+        q-value ``Q`` as sparse (runs x features) float matrices with explicit NaN (``Q`` is None if
+        ``qval_metric`` is absent; it is NaN wherever ``X`` is NaN), and the run names in column order.
+    """
+    header = pd.read_csv(path, sep="\t", nrows=0).columns
+    parsed = _parse_spectronaut_columns(header)
+    if not parsed:
+        raise ValueError(f"{format_log_prefix('error')} No '[n] <run>.<metric>' columns found in {path}. "
+                         "Export a wide (Run Pivot) tab-separated Spectronaut report.")
+    metrics = list(dict.fromkeys(m for _, _, m in parsed))
+    if value not in metrics:
+        raise ValueError(f"{format_log_prefix('error')} Metric '{value}' not found in {path}. Available: {', '.join(metrics)}.")
+    if "PG.ProteinGroups" not in header:
+        raise ValueError(f"{format_log_prefix('error')} Column 'PG.ProteinGroups' not found in {path}.")
+
+    run_cols = {c for c, _, _ in parsed}
+    x_cols = [(c, r) for c, r, m in parsed if m == value]
+    q_cols = [(c, r) for c, r, m in parsed if m == qval_metric]
+    use = [c for c in header if c not in run_cols] + [c for c, _ in x_cols + q_cols]
+    df = pd.read_csv(path, sep="\t", usecols=use, na_values={c: ["Filtered"] for c, _ in x_cols + q_cols})
+
+    runs = [r for _, r in x_cols]
+    X = df[[c for c, _ in x_cols]].to_numpy(dtype=np.float64)
+    Q = None
+    if q_cols:
+        q_by_run = dict((r, c) for c, r in q_cols)
+        if set(q_by_run) == set(runs):
+            Q = df[[q_by_run[r] for r in runs]].to_numpy(dtype=np.float64)
+            Q[np.isnan(X)] = np.nan
+    ann = df.drop(columns=[c for c in df.columns if c in run_cols])
+    return ann, sparse.csr_matrix(X.T), (sparse.csr_matrix(Q.T) if Q is not None else None), runs
+
+
+def import_spectronaut(prot_file: Optional[str] = None, pep_file: Optional[str] = None, obs_columns: Optional[List[str]] = None, delimiter: Optional[str] = '_', prot_value: str = 'PG.Quantity', pep_value: str = 'EG.TotalQuantity', **kwargs):
+    """
+    Import Spectronaut wide ("Run Pivot") reports into a `pAnnData` object.
+
+    Args:
+        prot_file (str, optional): Tab-separated protein-group report (`PG.ProteinGroups`, `[n] <run>.PG.Quantity`, ...).
+        pep_file (str, optional): Tab-separated precursor report (`EG.PrecursorId`, `[n] <run>.EG.TotalQuantity`, ...).
+            At least one of `prot_file` and `pep_file` is required.
+        obs_columns (list of str): Names for the filename tokens in `.obs`. Use `None` at a position to discard that token.
+        delimiter (str): Character used to split run names into `obs_columns`.
+        prot_value (str): Protein quantity metric. Default `'PG.Quantity'`.
+        pep_value (str): Peptide quantity metric. Default `'EG.TotalQuantity'`.
+        **kwargs: Additional keyword arguments passed to `import_data()` (e.g. `fetch_uniprot`).
+
+    Returns:
+        pAnnData: A populated object with `.prot`, `.pep`, `.summary`, and the RS matrix (when both files are given).
+
+    Raises:
+        ValueError: If no file is given, the file is not a wide report, the requested metric is missing,
+            or the protein and peptide files contain different runs.
+
+    Example:
+        To import a protein and peptide Spectronaut export:
+            ```python
+            pdata = import_spectronaut(
+                prot_file='Protein_Report.tsv',
+                pep_file='Peptide_Report.tsv',
+                obs_columns=['date', 'sample', 'well'],
+            )
+            ```
+
+    Note:
+        - Protein groups (`PG.ProteinGroups`, `;`-joined) are split into individual accessions; each member carries
+          its group's values and the group string is kept in `.prot.var['Protein.Group']`. As with DIA-NN,
+          `protein_count` therefore counts accessions rather than groups, and group-level `Genes` strings are shared by all members.
+        - Spectronaut values are already normalized (local cross-run normalization by default).
+        - Runs without any quantified feature are kept and a warning is printed.
+        - Long-format and parquet exports are not supported.
+    """
+    return import_data(source_type='spectronaut', prot_file=prot_file, pep_file=pep_file, obs_columns=obs_columns, delimiter=delimiter, prot_value=prot_value, pep_value=pep_value, **kwargs)
+
+
+def _import_spectronaut(prot_file: Optional[str] = None, pep_file: Optional[str] = None, obs_columns: Optional[List[str]] = None, delimiter: Optional[str] = '_', obs: Optional[pd.DataFrame] = None, prot_value: str = 'PG.Quantity', pep_value: str = 'EG.TotalQuantity', **kwargs):
+    fetch_uniprot = kwargs.pop("fetch_uniprot", True)
+
+    if not prot_file and not pep_file:
+        raise ValueError(f"{format_log_prefix('error')} At least one of prot_file or pep_file must be provided. Try prot_file='Protein_Report.tsv' or pep_file='Peptide_Report.tsv'.")
+    print("--------------------------\nStarting import [Spectronaut]\n")
+    print(f"Source file: {prot_file} / {pep_file}")
+
+    prot_X = prot_var = prot_var_names = prot_qval = pep_X = pep_var = pep_var_names = pep_qval = rs = None
+    prot_runs = pep_runs = None
+
+    # -----------------------------
+    # PROTEIN DATA
+    if prot_file:
+        ann, X, Q, prot_runs = _read_spectronaut_report(prot_file, prot_value, "PG.QValue")
+        groups = ann["PG.ProteinGroups"].astype(str)
+        members = groups.str.split(";")
+        row_idx = np.repeat(np.arange(len(ann)), members.str.len().to_numpy())
+        accessions = pd.Series(np.concatenate(members.to_numpy()))
+        dup = accessions.duplicated().to_numpy()
+        if dup.any():
+            print(f"{format_log_prefix('warn')} {int(dup.sum())} accession(s) occur in more than one protein group; keeping the first occurrence.")
+            row_idx = row_idx[~dup]
+            accessions = accessions[~dup]
+        prot_var = ann.iloc[row_idx].rename(columns={"PG.ProteinGroups": "Protein.Group", "PG.Genes": "Genes"})
+        prot_var.index = accessions.to_numpy()
+        prot_var_names = prot_var.index.values
+        prot_X = X[:, row_idx]
+        prot_qval = Q[:, row_idx] if Q is not None else None
+        print(f"Number of files: {len(prot_runs)}")
+        print(f"Proteins: {len(prot_var)} (from {len(ann)} protein groups)")
+
+    # -----------------------------
+    # PEPTIDE DATA
+    if pep_file:
+        ann, X, Q, pep_runs = _read_spectronaut_report(pep_file, pep_value, "EG.Qvalue")
+        if "EG.PrecursorId" not in ann.columns:
+            raise ValueError(f"{format_log_prefix('error')} Column 'EG.PrecursorId' not found in {pep_file}.")
+        if prot_runs is not None:
+            if set(prot_runs) != set(pep_runs):
+                raise ValueError(f"{format_log_prefix('error')} Protein and peptide files contain different runs "
+                                 f"({len(set(prot_runs) ^ set(pep_runs))} not shared); check that they come from the same experiment.")
+            order = [pep_runs.index(r) for r in prot_runs]
+            X, Q, pep_runs = X[order], (Q[order] if Q is not None else None), prot_runs
+        pep_X, pep_qval = X, Q
+        parts = ann["EG.PrecursorId"].astype(str).str.extract(r"^_(.*)_\.(\d+)$")
+        ann["Modified.Sequence"] = parts[0].fillna(ann["EG.PrecursorId"].astype(str))
+        ann["Stripped.Sequence"] = ann["Modified.Sequence"].str.replace(r"\[[^\]]*\]", "", regex=True)
+        ann["Precursor.Charge"] = pd.to_numeric(parts[1])
+        if ann["Precursor.Charge"].notna().all():
+            ann["Precursor.Charge"] = ann["Precursor.Charge"].astype(int)
+        pep_var = ann.rename(columns={"PG.ProteinGroups": "Protein.Group", "PG.Genes": "Genes", "EG.IonMobility": "Ion.Mobility"})
+        pep_var.index = pep_var["EG.PrecursorId"].to_numpy()
+        pep_var = pep_var.drop(columns="EG.PrecursorId")
+        pep_var_names = pep_var.index.values
+        print(f"Peptides: {len(pep_var)}")
+
+    # -----------------------------
+    # RS DATA
+    if prot_file and pep_file:
+        rs, mlb = _build_rs_matrix(pep_var["Protein.Group"].astype(str).str.split(";"), prot_var_names=prot_var_names)
+        unmatched = set(mlb.classes_) - set(prot_var_names)
+        if unmatched:
+            print(f"{format_log_prefix('warn')} {len(unmatched)} protein(s) in the peptide data are absent from the protein data, please check if files correspond to the same data.")
+
+    # -----------------------------
+    runs = prot_runs if prot_runs is not None else pep_runs
+    if obs is not None:
+        run_obs = obs
+    else:
+        run_obs = pd.DataFrame(runs, columns=['Run'])['Run'].str.split(delimiter, expand=True)
+        if obs_columns:
+            run_obs = run_obs.rename(columns=dict(enumerate(obs_columns)))
+
+    return _create_pAnnData_from_parts(
+        prot_X, pep_X, rs,
+        run_obs, prot_var, runs, prot_var_names,
+        run_obs, pep_var, runs, pep_var_names,
+        obs_columns=obs_columns,
+        X_qval_prot=prot_qval,
+        X_qval_pep=pep_qval,
+        metadata={
+            "source": "spectronaut",
+            "prot_file": prot_file,
+            "pep_file": pep_file,
+            "protein_metric": prot_value if prot_file else None,
+            "peptide_metric": pep_value if pep_file else None,
+        },
+        history_msg=f"Imported Spectronaut report(s) {prot_file}, {pep_file} using {prot_value} (protein) and {pep_value} (peptide).",
+        fetch_uniprot=fetch_uniprot,
+    )
+
 def _safe_strip(df_like):
     """Safely strip whitespace from strings in a DataFrame or Series."""
     import sys
@@ -593,9 +789,14 @@ def _build_rs_matrix(pep_prot_list, prot_var_names=None):
     # reorder columns to match protein order
     if prot_var_names is not None:
         index_dict = {protein: idx for idx, protein in enumerate(mlb.classes_)}
-        reorder_indices = [
-            index_dict[p] for p in prot_var_names if p in index_dict
-        ]
+        # proteins without any peptide get an empty column so RS stays aligned with prot.var_names
+        missing = [p for p in prot_var_names if p not in index_dict]
+        if missing:
+            shown = ", ".join(map(str, missing[:10])) + (f", ... (+{len(missing) - 10} more)" if len(missing) > 10 else "")
+            print(f"{format_log_prefix('warn')} {len(missing)} protein(s) have no peptides in the peptide data and were given empty RS columns: {shown}. "
+                  "Check that your protein and peptide exports are complete and use matching filters.")
+            rs = sparse.hstack([rs, sparse.csr_matrix((rs.shape[0], 1), dtype=bool)], format="csr")
+        reorder_indices = [index_dict.get(p, rs.shape[1] - 1) for p in prot_var_names]
         rs = rs[:, reorder_indices]
 
     # make csr matrix so downstream operations are faster
@@ -688,7 +889,7 @@ def _create_pAnnData_from_parts(
             pdata.prot.layers['X_qval'] = X_qval_prot # type: ignore[attr-defined]
 
     gene_history_suffix = ""
-    if "Genes" in pdata.prot.var.columns and pdata.prot.var["Genes"].isna().any(): # type: ignore[attr-defined]
+    if pdata.prot is not None and "Genes" in pdata.prot.var.columns and pdata.prot.var["Genes"].isna().any(): # type: ignore[attr-defined]
         if fetch_uniprot:
             pdata.update_missing_genes(gene_col="Genes", verbose=True)
             gene_history_suffix = (
@@ -733,7 +934,15 @@ def _create_pAnnData_from_parts(
 
     # --- Summary + Validation ---
     pdata.update_summary(recompute=True, verbose=False)
-    pdata._cleanup_proteins_after_sample_filter(printout=True)
+    if pdata.prot is not None:
+        pdata._cleanup_proteins_after_sample_filter(printout=True)
+    for level, adata in (("protein", pdata.prot), ("peptide", pdata.pep)):
+        if adata is None:
+            continue
+        empty = adata.obs_names[adata.obs[f"{level}_count"] == 0].tolist()
+        if empty:
+            print(f"{format_log_prefix('warn')} {len(empty)} sample(s) have no quantified {level}s (all NaN/zero) and were kept: {', '.join(map(str, empty))}. "
+                  "Consider removing them with filter_sample().")
     pdata._annotate_found_samples(threshold=found_threshold)
     pdata._annotate_significant_samples(fdr_threshold=fdr_threshold)
 
@@ -1026,7 +1235,7 @@ def get_filenames(source: Union[str, Path], source_type: str) -> List[str]:
 
     Args:
         source (str or Path): Path to the input report file.
-        source_type (str): Tool used to generate the report. Must be one of {'diann', 'pd'}.
+        source_type (str): Tool used to generate the report. Must be one of {'diann', 'pd', 'spectronaut'}.
 
     Returns:
         list of str: Extracted list of sample names or run filenames.
@@ -1081,8 +1290,17 @@ def get_filenames(source: Union[str, Path], source_type: str) -> List[str]:
             if match:
                 filenames.append(match.group(1).strip())
 
+    # --- Spectronaut ---
+    elif source_type in ("spectronaut", "sn"):
+        if ext not in [".tsv", ".txt"]:
+            raise ValueError(f"{format_log_prefix('error')} Unsupported file type for Spectronaut: {ext} (tab-separated wide report required).")
+        runs = [run for _, run, _ in _parse_spectronaut_columns(pd.read_csv(source, sep="\t", nrows=0).columns)]
+        filenames = list(dict.fromkeys(runs))
+        if not filenames:
+            raise ValueError(f"{format_log_prefix('error')} No '[n] <run>.<metric>' columns found in Spectronaut file. Export a wide (Run Pivot) tab-separated report.")
+
     else:
-        raise ValueError("source_type must be 'pd' or 'diann'")
+        raise ValueError("source_type must be 'pd', 'diann' or 'spectronaut'")
 
     return filenames
 
@@ -1173,6 +1391,7 @@ class IOMixin:
         import_data: Main entry point that dispatches to the appropriate import function based on source_type.
         import_proteomeDiscoverer: Parses PD output files and initializes a pAnnData object.
         import_diann: Parses DIA-NN report file and initializes a pAnnData object.
+        import_spectronaut: Parses Spectronaut protein/peptide pivot reports and initializes a pAnnData object.
         resolve_obs_columns: Extracts `.obs` column structure from filenames or metadata.
         suggest_obs_from_file: Suggests sample-level metadata based on consistent filename tokens.
         analyze_filename_formats: Analyzes filename structures to identify possible grouping patterns.
@@ -1209,8 +1428,11 @@ class IOMixin:
                     - `obs_columns` (list of str): Columns to extract for `.obs`. Use `None` at a
                   position to discard that filename token.
 
-                - `'fragpipe'`, `'fp'`: Not yet implemented  
-                - `'spectronaut'`, `'sn'`: Not yet implemented
+                - `'spectronaut'`, `'sn'`:  
+                → Uses `import_spectronaut()`.  
+                Required kwargs (at least one): `prot_file`, `pep_file` (tab-separated wide reports).
+
+                - `'fragpipe'`, `'fp'`: Not yet implemented
 
             fetch_uniprot (bool): If True (default), query UniProt during import to fill
                 missing values in `.prot.var["Genes"]`. Set to False when offline or
@@ -1301,6 +1523,25 @@ class IOMixin:
             - Metadata columns in filenames must be consistently formatted to extract `.obs`.
         """
         return import_diann(*args, **kwargs)
+
+    @classmethod
+    def import_spectronaut(cls, *args, **kwargs):
+        """
+        Import Spectronaut wide ("Run Pivot") protein and/or peptide reports into a `pAnnData` object.
+
+        Wrapper for `import_spectronaut()`; see it for arguments, notes and caveats.
+
+        Example:
+            Import a protein and peptide report:
+                ```python
+                pdata = pAnnData.import_spectronaut(
+                    prot_file='Protein_Report.tsv',
+                    pep_file='Peptide_Report.tsv',
+                    obs_columns=['date', 'sample', 'well'],
+                )
+                ```
+        """
+        return import_spectronaut(*args, **kwargs)
 
     @classmethod
     def import_proteomeDiscoverer(cls, *args, **kwargs):
@@ -1509,7 +1750,7 @@ class IOMixin:
             filepath (str or Path): `.pdata` file. `.pdata` is appended if the path has no extension.
             validate (bool): Run `validate()` after loading and warn on failure. Default True.
             source (str, optional): Import source to record in `.metadata['source']`
-                (`'diann'`, `'proteomeDiscoverer'`, `'maxquant'`). Only needed when the saved
+                (`'diann'`, `'spectronaut'`, `'proteomeDiscoverer'`, `'maxquant'`). Only needed when the saved
                 object has none (e.g. it was built by hand); peptide-to-protein mapping relies on it.
             verbose (bool): Print progress messages.
 
@@ -1558,7 +1799,7 @@ class IOMixin:
                 print(f"{format_log_prefix('info_only', 2)} Set .metadata['source'] = {source!r}")
         elif obj.pep is not None and not obj.metadata.get("source"):
             print(f"{format_log_prefix('warn')} No import source recorded; peptide-to-protein mapping will fail. "
-                  "Pass load(..., source=...) or set pdata.metadata['source'] = 'diann' | 'proteomeDiscoverer' | 'maxquant'.")
+                  "Pass load(..., source=...) or set pdata.metadata['source'] = 'diann' | 'spectronaut' | 'proteomeDiscoverer' | 'maxquant'.")
 
         obj._append_history(f"Loaded from {filepath.name} (saved with scpviz v{saved_version}).")
 

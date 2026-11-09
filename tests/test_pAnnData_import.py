@@ -479,3 +479,175 @@ def test_import_obs_columns_none_length_mismatch_raises():
         _import_pd_obs(['sample', None])
     with pytest.raises(ValueError):
         _import_pd_obs(['sample', None, 'treatment', None])
+
+# --- shared import fixes: empty RS columns, peptide-only, empty-sample warning ---
+
+def test_build_rs_matrix_missing_protein_gets_empty_column(capsys):
+    from scpviz.pAnnData.io import _build_rs_matrix
+    rs, _ = _build_rs_matrix([["A"], ["A", "B"]], prot_var_names=["B", "C", "A"])
+    assert rs.shape == (2, 3)
+    assert rs.toarray().tolist() == [[False, False, True], [True, False, True]]
+    out = capsys.readouterr().out
+    assert "1 protein(s) have no peptides" in out and "C" in out
+
+def test_import_pd_peptide_only():
+    test_dir = Path(__file__).parent
+    pdata = pAnnData.import_data(source_type='pd', pep_file=str(test_dir / 'test_pd_pep.txt'),
+                                 obs_columns=['sample', 'cellline', 'treatment'], fetch_uniprot=False)
+    assert pdata.prot is None and pdata.pep is not None and pdata.rs is None
+
+def test_create_from_parts_warns_on_empty_sample(capsys):
+    X = sparse.csr_matrix(np.array([[1.0, 2.0], [np.nan, np.nan]]))
+    obs = pd.DataFrame({"g": ["a", "b"]})
+    pdata = _create_pAnnData_from_parts(
+        X, None, None, obs, pd.DataFrame(index=["P1", "P2"]), ["s1", "s2"], ["P1", "P2"],
+        obs_columns=["g"], fetch_uniprot=False,
+    )
+    assert list(pdata.prot.obs_names) == ["s1", "s2"]  # empty sample kept
+    out = capsys.readouterr().out
+    assert "1 sample(s) have no quantified proteins" in out and "s2" in out
+
+# --- Spectronaut ---
+
+SN_RUNS = ["20260101_a_1.d", "20260101_b_1.d", "20260101_c_1.d"]  # last run is empty
+
+def _sn_write(tmp_path, runs=SN_RUNS, pep_runs=None):
+    """Write synthetic protein/peptide Spectronaut pivot reports (q-value block, then quantity block)."""
+    nan = np.nan
+
+    def block(ann, runs_, q, x, qname, xname):
+        cols = dict(ann)
+        for i, r in enumerate(runs_, 1):
+            cols[f"[{i}] {r}.{qname}"] = q[r]
+        for i, r in enumerate(runs_, 1):
+            cols[f"[{i}] {r}.{xname}"] = x[r]
+        return pd.DataFrame(cols)
+
+    key = lambda r: r.split("_")[1]  # 'a', 'b', 'c'
+    pq = {"a": [0.001, 0.001, 0.5], "b": [0.001, 0.001, 0.5], "c": [0.5, 0.5, 0.5]}
+    px = {"a": [10, 5, 1], "b": [20, nan, 2], "c": [nan, nan, nan]}
+    prot = block({"PG.ProteinGroups": ["P1;P2", "P3", "P4"], "PG.Genes": ["GA;GB", None, "GD"]}, runs,
+                 {r: pq[key(r)] for r in runs}, {r: px[key(r)] for r in runs}, "PG.QValue (Run-Wise)", "PG.Quantity")
+
+    pep_runs = pep_runs or runs
+    eq = {"a": [0.001, 0.001, 0.002, 0.001], "b": [0.001, 0.001, 0.002, "Filtered"], "c": ["Filtered"] * 4}
+    ex = {"a": [100, 200, 300, 400], "b": [110, 210, 310, "Filtered"], "c": ["Filtered"] * 4}
+    pep_ann = {"EG.PrecursorId": ["_AAC[Carbamidomethyl (C)]LK_.2", "_PEPTIDEK_.3", "_M[Oxidation (M)]LK_.2", "_[Acetyl (Protein N-term)]ACK_.2"],
+               "PG.ProteinGroups": ["P1;P2", "P1;P2", "P3", "P4"], "PG.Genes": ["GA;GB", "GA;GB", None, "GD"],
+               "EG.IonMobility": [0.8, 0.9, 1.0, 1.1]}
+    pep = block(pep_ann, pep_runs, {r: eq[key(r)] for r in pep_runs}, {r: ex[key(r)] for r in pep_runs},
+                "EG.Qvalue", "EG.TotalQuantity (Settings)")
+    p, e = tmp_path / "prot.tsv", tmp_path / "pep.tsv"
+    prot.to_csv(p, sep="\t", index=False)
+    pep.to_csv(e, sep="\t", index=False)
+    return str(p), str(e)
+
+SN_OBS = ["date", "sample", "rep"]
+
+def _sn_import(tmp_path, **kw):
+    p, e = _sn_write(tmp_path)
+    kw.setdefault("obs_columns", SN_OBS)
+    return pAnnData.import_spectronaut(prot_file=p, pep_file=e, fetch_uniprot=False, **kw)
+
+def test_parse_spectronaut_columns():
+    from scpviz.pAnnData.io import _parse_spectronaut_columns
+    cols = ["PG.ProteinGroups", "[1] r1.d.PG.QValue (Run-Wise)", "[2] r2.raw.EG.TotalQuantity (Settings)",
+            "[3] x.y.mzML.PG.Quantity", "[4] plain.PG.Quantity"]
+    assert _parse_spectronaut_columns(cols) == [
+        ("[1] r1.d.PG.QValue (Run-Wise)", "r1", "PG.QValue"),
+        ("[2] r2.raw.EG.TotalQuantity (Settings)", "r2", "EG.TotalQuantity"),
+        ("[3] x.y.mzML.PG.Quantity", "x.y", "PG.Quantity"),
+        ("[4] plain.PG.Quantity", "plain", "PG.Quantity"),
+    ]
+
+def test_import_spectronaut_prot_pep(tmp_path, capsys):
+    pdata = _sn_import(tmp_path)
+    out = capsys.readouterr().out
+    assert pdata.metadata["source"] == "spectronaut"
+    assert pdata.metadata["protein_metric"] == "PG.Quantity" and pdata.metadata["peptide_metric"] == "EG.TotalQuantity"
+    assert pdata.validate(verbose=False)
+    # groups exploded; group string and genes carried to members
+    assert list(pdata.prot.var_names) == ["P1", "P2", "P3", "P4"]
+    assert pdata.prot.var.loc["P2", "Protein.Group"] == "P1;P2"
+    assert pdata.prot.var.loc["P2", "Genes"] == "GA;GB"
+    assert pd.isna(pdata.prot.var.loc["P3", "Genes"])
+    X = pdata.prot.layers["X_raw"].toarray()
+    assert X[:2, 0].tolist() == [10, 20] and X[:2, 1].tolist() == [10, 20]
+    assert np.isnan(X[1, 2])
+    # sample names / obs from run names (extension stripped); empty run kept and warned
+    assert list(pdata.prot.obs_names) == [r[:-2] for r in SN_RUNS]
+    assert list(pdata.prot.obs["sample"]) == ["a", "b", "c"]
+    assert "no quantified proteins" in out and "20260101_c_1" in out
+    # q-values masked where quantity is NaN
+    Q = pdata.prot.layers["X_qval"].toarray()
+    assert np.isnan(Q[np.isnan(X)]).all() and Q[0, 0] == 0.001
+    # peptides: sequences derived, Filtered -> NaN, var names are precursor ids
+    assert pdata.pep.var_names[0] == "_AAC[Carbamidomethyl (C)]LK_.2"
+    v = pdata.pep.var
+    assert v["Modified.Sequence"].tolist() == ["AAC[Carbamidomethyl (C)]LK", "PEPTIDEK", "M[Oxidation (M)]LK", "[Acetyl (Protein N-term)]ACK"]
+    assert v["Stripped.Sequence"].tolist() == ["AACLK", "PEPTIDEK", "MLK", "ACK"]
+    assert v["Precursor.Charge"].tolist() == [2, 3, 2, 2]
+    assert v["Ion.Mobility"].tolist() == [0.8, 0.9, 1.0, 1.1]
+    assert "EG.PrecursorId" not in v.columns and "Protein.Group" in v.columns
+    PX = pdata.pep.layers["X_raw"].toarray()
+    assert np.isnan(PX[1, 3]) and np.isnan(PX[2]).all() and PX[0, 0] == 100
+    assert np.isnan(pdata.pep.layers["X_qval"].toarray()[1, 3])
+    # RS: a peptide of group P1;P2 maps to both members
+    assert pdata.rs.shape == (4, 4)
+    assert pdata.rs[:, 0].toarray().ravel().tolist() == [True, True, False, False]
+    assert pdata.rs[2, 2] and pdata.rs[3, 3]
+
+def test_import_spectronaut_unquantified_not_significant(tmp_path):
+    pdata = _sn_import(tmp_path)
+    # P3 in run b: q < 0.01 but quantity NaN -> must not be flagged significant
+    assert not pdata.prot.var.loc["P3", "Significant In: 20260101_b_1"]
+    assert pdata.prot.var.loc["P1", "Significant In: 20260101_b_1"]
+
+def test_import_spectronaut_pep_runs_reordered(tmp_path):
+    p, e = _sn_write(tmp_path, pep_runs=SN_RUNS[::-1])
+    pdata = pAnnData.import_spectronaut(prot_file=p, pep_file=e, obs_columns=SN_OBS, fetch_uniprot=False)
+    assert pdata.pep.layers["X_raw"].toarray()[0, 0] == 100  # run a still first
+    assert list(pdata.pep.obs_names) == list(pdata.prot.obs_names)
+
+def test_import_spectronaut_prot_only_and_pep_only(tmp_path):
+    p, e = _sn_write(tmp_path)
+    kw = dict(obs_columns=SN_OBS, fetch_uniprot=False)
+    a = pAnnData.import_spectronaut(prot_file=p, **kw)
+    assert a.pep is None and a.rs is None and a.prot.shape == (3, 4)
+    b = pAnnData.import_spectronaut(pep_file=e, **kw)
+    assert b.prot is None and b.rs is None and b.pep.shape == (3, 4)
+    assert b.pep.var["Modified.Sequence"].iloc[1] == "PEPTIDEK"
+
+def test_import_spectronaut_obs_columns_none_placeholder(tmp_path):
+    pdata = _sn_import(tmp_path, obs_columns=["date", None, "rep"])
+    assert "sample" not in pdata.prot.obs.columns and "rep" in pdata.prot.obs.columns
+
+def test_import_spectronaut_no_obs_columns_returns_suggestion(tmp_path):
+    p, _ = _sn_write(tmp_path)
+    assert pAnnData.import_data(source_type="spectronaut", prot_file=p) is None
+
+def test_get_filenames_spectronaut(tmp_path):
+    from scpviz.pAnnData.io import get_filenames
+    p, _ = _sn_write(tmp_path)
+    assert get_filenames(p, "spectronaut") == [r[:-2] for r in SN_RUNS]
+
+def test_import_spectronaut_errors(tmp_path):
+    p, e = _sn_write(tmp_path)
+    kw = dict(obs_columns=SN_OBS, fetch_uniprot=False)
+    with pytest.raises(ValueError, match="At least one"):
+        pAnnData.import_spectronaut(**kw)
+    with pytest.raises(ValueError, match="Available: .*PG.Quantity"):
+        pAnnData.import_spectronaut(prot_file=p, prot_value="PG.Nope", **kw)
+    bad = tmp_path / "plain.tsv"
+    pd.DataFrame({"PG.ProteinGroups": ["P1"], "x": [1]}).to_csv(bad, sep="\t", index=False)
+    with pytest.raises(ValueError, match="No '"):
+        pAnnData.import_spectronaut(prot_file=str(bad), **kw)
+    nogroups = tmp_path / "nogroups.tsv"
+    pd.read_csv(p, sep="\t").drop(columns="PG.ProteinGroups").to_csv(nogroups, sep="\t", index=False)
+    with pytest.raises(ValueError, match="PG.ProteinGroups"):
+        pAnnData.import_spectronaut(prot_file=str(nogroups), **kw)
+    sub = tmp_path / "two_runs"
+    sub.mkdir()
+    p2, _ = _sn_write(sub, runs=SN_RUNS[:2])
+    with pytest.raises(ValueError, match="different runs"):
+        pAnnData.import_spectronaut(prot_file=p2, pep_file=e, **kw)
