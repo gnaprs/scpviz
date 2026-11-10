@@ -128,6 +128,8 @@ def import_data(source_type: str, **kwargs):
     if obs_columns is None:
         source = kwargs.get('report_file') or kwargs.get('prot_file') or kwargs.get('pep_file')
         delimiter = kwargs.get('delimiter') if 'delimiter' in kwargs else None
+        if not source:
+            raise ValueError(f"{format_log_prefix('error')} No input file given. Provide report_file (DIA-NN) or prot_file / pep_file (PD, Spectronaut).")
         format_info, fallback_columns, fallback_obs = resolve_obs_columns(source, source_type, delimiter=delimiter)
 
         if format_info["uniform"]:
@@ -622,6 +624,14 @@ def _read_spectronaut_report(path, value, qval_metric):
         if set(q_by_run) == set(runs):
             Q = df[[q_by_run[r] for r in runs]].to_numpy(dtype=np.float64)
             Q[np.isnan(X)] = np.nan
+    blank = df["PG.ProteinGroups"].isna()
+    if blank.any():
+        print(f"{format_log_prefix('warn')} Dropped {int(blank.sum())} row(s) with an empty PG.ProteinGroups from {Path(path).name}.")
+        df, X = df[~blank], X[~blank.to_numpy()]
+        if Q is not None:
+            Q = Q[~blank.to_numpy()]
+    if Q is None:
+        print(f"{format_log_prefix('warn')} No complete '{qval_metric}' columns in {Path(path).name}; q-values are unavailable, so per-sample significance cannot be annotated.")
     ann = df.drop(columns=[c for c in df.columns if c in run_cols])
     return ann, sparse.csr_matrix(X.T), (sparse.csr_matrix(Q.T) if Q is not None else None), runs
 
@@ -694,6 +704,9 @@ def _import_spectronaut(prot_file: Optional[str] = None, pep_file: Optional[str]
             accessions = accessions[~dup]
         prot_var = ann.iloc[row_idx].rename(columns={"PG.ProteinGroups": "Protein.Group", "PG.Genes": "Genes"})
         prot_var.index = accessions.to_numpy()
+        if "Genes" not in prot_var.columns:
+            print(f"{format_log_prefix('warn')} No PG.Genes column in {Path(prot_file).name}; gene names will be empty until filled from UniProt (fetch_uniprot=True or pdata.update_missing_genes()).")
+            prot_var["Genes"] = np.nan
         prot_var_names = prot_var.index.values
         prot_X = X[:, row_idx]
         prot_qval = Q[:, row_idx] if Q is not None else None

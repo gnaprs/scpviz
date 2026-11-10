@@ -39,7 +39,7 @@ Quick view of what to work on. Full tables below.
 | M | [x] | viz-5 | plot_grouped_heatmap + plot_clustered_heatmap (publication heatmaps) |
 | M | [ ] | enr-1 | String DB values rank API — check API key; per-user or local copy in package? [API help](https://string-db.org/cgi/help?subpage=api%23valuesranks-enrichment-api) |
 | L | [ ] | feat-qc-1 | Consider QC metrics beyond what we already have |
-| H | [~] | feat-sn-1 | Spectronaut import (`import_spectronaut`, tab-separated wide "Run Pivot" protein + peptide reports; explode protein groups like DIA-NN; ion mobility carried from the peptide report) |
+| H | [x] | feat-sn-1 | Spectronaut import (`import_spectronaut`, tab-separated wide "Run Pivot" protein + peptide reports; explode protein groups like DIA-NN; ion mobility carried from the peptide report) |
 | H | [x] | base-5 | Save/load: `pdata.save()` / `pAnnData.load()` (single `.pdata` HDF5 file, lossless, per-value pickle fallback) + `pdata.export_h5ad(on=...)`; `.metadata` moved to object level (`_metadata`). Encoding in `utils/serialization.py` |
 
 ---

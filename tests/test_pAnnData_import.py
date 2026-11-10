@@ -651,3 +651,107 @@ def test_import_spectronaut_errors(tmp_path):
     p2, _ = _sn_write(sub, runs=SN_RUNS[:2])
     with pytest.raises(ValueError, match="different runs"):
         pAnnData.import_spectronaut(prot_file=p2, pep_file=e, **kw)
+
+# --- Spectronaut: edge cases and error branches ---
+
+def _sn_edit(path, fn):
+    """Read a synthetic TSV, apply ``fn(df) -> df`` and write it back."""
+    df = fn(pd.read_csv(path, sep="\t"))
+    df.to_csv(path, sep="\t", index=False)
+
+def _sn_kw():
+    return dict(obs_columns=SN_OBS, fetch_uniprot=False)
+
+def test_import_no_input_file_raises_clear_error():
+    with pytest.raises(ValueError, match="No input file"):
+        pAnnData.import_data(source_type="spectronaut")
+
+def test_import_spectronaut_blank_group_row_dropped(tmp_path, capsys):
+    p, e = _sn_write(tmp_path)
+    _sn_edit(p, lambda df: df.assign(**{"PG.ProteinGroups": df["PG.ProteinGroups"].where(df.index != 1)}))
+    pdata = pAnnData.import_spectronaut(prot_file=p, pep_file=e, **_sn_kw())
+    assert "nan" not in list(pdata.prot.var_names) and "P3" not in pdata.prot.var_names
+    assert pdata.prot.shape == (3, 3)
+    assert "Dropped 1 row(s) with an empty PG.ProteinGroups" in capsys.readouterr().out
+
+def test_import_spectronaut_protein_without_peptides(tmp_path, capsys):
+    p, e = _sn_write(tmp_path)
+    _sn_edit(e, lambda df: df[df["PG.ProteinGroups"] != "P4"])
+    pdata = pAnnData.import_spectronaut(prot_file=p, pep_file=e, **_sn_kw())
+    assert "1 protein(s) have no peptides" in capsys.readouterr().out
+    assert pdata.rs.shape == (4, 3)
+    assert not pdata.rs[list(pdata.prot.var_names).index("P4")].toarray().any()  # empty RS row
+    assert pdata.validate(verbose=False)
+
+def test_import_spectronaut_peptide_protein_absent_from_protein_file(tmp_path, capsys):
+    p, e = _sn_write(tmp_path)
+    _sn_edit(p, lambda df: df[df["PG.ProteinGroups"] != "P4"])
+    pdata = pAnnData.import_spectronaut(prot_file=p, pep_file=e, **_sn_kw())
+    assert "absent from the protein data" in capsys.readouterr().out
+    assert list(pdata.prot.var_names) == ["P1", "P2", "P3"]
+
+def test_import_spectronaut_accession_in_two_groups_keeps_first(tmp_path, capsys):
+    p, e = _sn_write(tmp_path)
+    _sn_edit(p, lambda df: pd.concat([df, df.iloc[[0]].assign(**{"PG.ProteinGroups": "P1;P9"})], ignore_index=True))
+    pdata = pAnnData.import_spectronaut(prot_file=p, pep_file=e, **_sn_kw())
+    assert "1 accession(s) occur in more than one protein group" in capsys.readouterr().out
+    assert pdata.prot.var_names.is_unique and "P9" in pdata.prot.var_names
+    assert pdata.prot.var.loc["P1", "Protein.Group"] == "P1;P2"
+
+def test_import_spectronaut_filtered_in_protein_file_is_nan(tmp_path):
+    p, _ = _sn_write(tmp_path)
+    xcol = [c for c in pd.read_csv(p, sep="\t", nrows=0).columns if c.endswith("PG.Quantity")][0]
+    _sn_edit(p, lambda df: df.astype({xcol: object}).assign(**{xcol: ["Filtered", 5, 1]}))
+    pdata = pAnnData.import_spectronaut(prot_file=p, **_sn_kw())
+    assert np.isnan(pdata.prot.layers["X_raw"].toarray()[0, 0])
+
+def test_import_spectronaut_missing_genes_column_warns(tmp_path, capsys):
+    p, _ = _sn_write(tmp_path)
+    _sn_edit(p, lambda df: df.drop(columns="PG.Genes"))
+    pdata = pAnnData.import_spectronaut(prot_file=p, **_sn_kw())
+    assert "No PG.Genes column" in capsys.readouterr().out
+    assert pdata.prot.var["Genes"].isna().all()
+
+def test_import_spectronaut_incomplete_qvalue_columns_warn(tmp_path, capsys):
+    p, _ = _sn_write(tmp_path)
+    qcol = [c for c in pd.read_csv(p, sep="\t", nrows=0).columns if c.endswith("PG.QValue (Run-Wise)")][0]
+    _sn_edit(p, lambda df: df.drop(columns=qcol))
+    pdata = pAnnData.import_spectronaut(prot_file=p, **_sn_kw())
+    assert "No complete 'PG.QValue' columns" in capsys.readouterr().out
+    assert "X_qval" not in pdata.prot.layers
+
+def test_import_spectronaut_optional_peptide_columns_absent(tmp_path):
+    p, e = _sn_write(tmp_path)
+    _sn_edit(e, lambda df: df.drop(columns=["EG.IonMobility", "PG.Genes"]))
+    pdata = pAnnData.import_spectronaut(prot_file=p, pep_file=e, **_sn_kw())
+    assert "Ion.Mobility" not in pdata.pep.var.columns and "Genes" not in pdata.pep.var.columns
+    assert pdata.validate(verbose=False)
+
+def test_import_spectronaut_nonstandard_precursor_id(tmp_path):
+    p, e = _sn_write(tmp_path)
+    _sn_edit(e, lambda df: df.assign(**{"EG.PrecursorId": ["WEIRDID"] + df["EG.PrecursorId"].tolist()[1:]}))
+    pdata = pAnnData.import_spectronaut(pep_file=e, **_sn_kw())
+    v = pdata.pep.var
+    assert v.loc["WEIRDID", "Modified.Sequence"] == "WEIRDID" and pd.isna(v.loc["WEIRDID", "Precursor.Charge"])
+    assert v["Precursor.Charge"].dropna().tolist() == [3, 2, 2]
+
+def test_import_spectronaut_more_error_paths(tmp_path):
+    p, e = _sn_write(tmp_path)
+    kw = _sn_kw()
+    with pytest.raises(ValueError, match="Available: .*EG.TotalQuantity"):
+        pAnnData.import_spectronaut(pep_file=e, pep_value="EG.Nope", **kw)
+    noid = tmp_path / "noid.tsv"
+    pd.read_csv(e, sep="\t").drop(columns="EG.PrecursorId").to_csv(noid, sep="\t", index=False)
+    with pytest.raises(ValueError, match="EG.PrecursorId"):
+        pAnnData.import_spectronaut(pep_file=str(noid), **kw)
+
+def test_get_filenames_spectronaut_errors(tmp_path):
+    from scpviz.pAnnData.io import get_filenames
+    csv = tmp_path / "report.csv"
+    csv.write_text("a,b\n1,2\n")
+    with pytest.raises(ValueError, match="Unsupported file type"):
+        get_filenames(csv, "spectronaut")
+    plain = tmp_path / "plain.tsv"
+    plain.write_text("PG.ProteinGroups\tx\nP1\t1\n")
+    with pytest.raises(ValueError, match="No '"):
+        get_filenames(plain, "sn")

@@ -708,3 +708,87 @@ def test_diann_export_h5ad(pdata_diann, tmp_path):
     adata = ad.read_h5ad(pdata.export_h5ad(tmp_path / "diann_prot", on="protein"))
     assert adata.shape == pdata.prot.shape
     assert len(adata.uns["scpviz"]["stats"]) == len(pdata.stats)
+
+
+# ---------------------------------------------------------------------------
+# Spectronaut smoke tests
+# ---------------------------------------------------------------------------
+
+SN_OBS_COLUMNS = ["date", "sample", "well", "replicate", "run_id"]
+SN_PROT = str(TEST_DIR / "test_spectronaut_prot.tsv")
+SN_PEP = str(TEST_DIR / "test_spectronaut_pep.tsv")
+
+
+def test_spectronaut_import_prot_pep(capsys):
+    """Protein + peptide import: shapes, RS, q-values, metadata, empty run kept and warned."""
+    pdata = pAnnData.import_spectronaut(
+        prot_file=SN_PROT, pep_file=SN_PEP, obs_columns=SN_OBS_COLUMNS, fetch_uniprot=False
+    )
+    out = capsys.readouterr().out
+    assert pdata.validate(verbose=False)
+    assert pdata.metadata["source"] == "spectronaut"
+    assert pdata.prot.n_obs == pdata.pep.n_obs == 8
+    assert pdata.rs.shape == (pdata.prot.n_vars, pdata.pep.n_vars)
+    # groups exploded into accessions; groups quantified in no run are dropped on import
+    raw = pd.read_csv(SN_PROT, sep="	")
+    quant = raw[[c for c in raw.columns if c.endswith("PG.Quantity")]]
+    expected = {a for g in raw.loc[quant.notna().any(axis=1), "PG.ProteinGroups"] for a in g.split(";")}
+    assert set(pdata.prot.var_names) == expected
+    assert pdata.prot.layers["X_qval"].shape == pdata.prot.shape
+    assert pdata.pep.layers["X_qval"].shape == pdata.pep.shape
+    assert pd.api.types.is_float_dtype(pdata.pep.var["Ion.Mobility"])
+    assert pdata.pep.var["Precursor.Charge"].between(1, 8).all()
+    assert pdata.prot.var["Protein.Group"].str.contains(";").any()
+    assert "no quantified proteins" in out and "no quantified peptides" in out
+    assert (pdata.prot.obs["protein_count"] == 0).sum() == 1  # empty run kept
+
+
+def test_spectronaut_import_prot_only():
+    pdata = pAnnData.import_spectronaut(prot_file=SN_PROT, obs_columns=SN_OBS_COLUMNS, fetch_uniprot=False)
+    assert pdata.pep is None and pdata.rs is None
+    assert pdata.prot.n_obs == 8 and pdata.validate(verbose=False)
+
+
+def test_spectronaut_import_pep_only():
+    pdata = pAnnData.import_spectronaut(pep_file=SN_PEP, obs_columns=SN_OBS_COLUMNS, fetch_uniprot=False)
+    assert pdata.prot is None and pdata.pep.n_obs == 8
+
+
+def test_spectronaut_import_data_obs_columns_none_placeholder():
+    pdata = pAnnData.import_data(
+        source_type="sn", prot_file=SN_PROT, obs_columns=["date", None, "well", None, "run_id"], fetch_uniprot=False
+    )
+    assert {"date", "well", "run_id"} <= set(pdata.prot.obs.columns)
+    assert not {"sample", "replicate"} & set(pdata.prot.obs.columns)
+
+
+def test_spectronaut_resolve_peptides(pdata_spectronaut):
+    pdata = pdata_spectronaut
+    acc, _ = _accession_with_peptides(pdata)
+    # expected precursors come from the peptide TSV (any group listing the accession), not from RS
+    raw = pd.read_csv(SN_PEP, sep="	", usecols=["EG.PrecursorId", "PG.ProteinGroups"])
+    expected = set(raw.loc[raw["PG.ProteinGroups"].str.split(";").apply(lambda m: acc in m), "EG.PrecursorId"])
+    assert set(utils.resolve_peptides(pdata, [acc], quiet=True)) == expected
+    df = utils.get_peptides_for_accessions(pdata, [acc])
+    assert set(df["peptide_id"]) == expected and (df["accession"] == acc).all()
+
+
+def test_spectronaut_get_peptide_properties(pdata_spectronaut):
+    acc, n_peps = _accession_with_peptides(pdata_spectronaut)
+    df = utils.get_peptide_properties(pdata_spectronaut, accessions=[acc], return_copy=True)
+    assert len(df) == n_peps and df["gravy"].notna().any()
+    assert "[" not in df["peptide_sequence"].iloc[0]
+
+
+def test_spectronaut_log_transform_provenance(pdata_spectronaut):
+    pdata = pdata_spectronaut.copy()
+    pdata.log_transform(set_X=False)
+    assert pdata.prot.uns["layer_provenance"]["X_log2"]["op"] == "log_transform"
+
+
+def test_spectronaut_save_load_roundtrip(pdata_spectronaut, tmp_path):
+    path = tmp_path / "sn.pdata"
+    pdata_spectronaut.save(path)
+    loaded = pAnnData.load(path, verbose=False)
+    assert loaded.metadata["source"] == "spectronaut"
+    assert loaded.prot.shape == pdata_spectronaut.prot.shape and loaded.rs.shape == pdata_spectronaut.rs.shape
