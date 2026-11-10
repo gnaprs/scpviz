@@ -546,6 +546,14 @@ def _resolve_colorbar_norm(
         f"Options: {_opts}"
     )
 
+def _dot_handle(color: Any, label: Any) -> mlines.Line2D:
+    """Circular legend handle matching scatter points (instead of a rectangular patch)."""
+    return mlines.Line2D(
+        [], [], linestyle="none", marker="o",
+        markerfacecolor=color, markeredgecolor=color, markersize=7, label=str(label),
+    )
+
+
 def resolve_plot_colors(
     adata: ad.AnnData, classes: Any, cmap: Any, layer: str = "X"
 ) -> Any:
@@ -584,7 +592,7 @@ def resolve_plot_colors(
     # Case 1: No coloring, all grey
     if classes is None:
         color_mapped = ['grey'] * len(adata)
-        legend_elements = [mpatches.Patch(color='grey', label='All samples')]
+        legend_elements = [_dot_handle('grey', 'All samples')]
         return color_mapped, None, legend_elements
 
     # Case 2: Single categorical column from obs
@@ -603,7 +611,7 @@ def resolve_plot_colors(
             palette = [mcolors.to_hex(cmap_obj(i / max(len(class_labels) - 1, 1))) for i in range(len(class_labels))]
             color_dict = {c: palette[i] for i, c in enumerate(class_labels)}
         color_mapped = [color_dict[val] for val in y]
-        legend_elements = [mpatches.Patch(color=color_dict[c], label=c) for c in class_labels]
+        legend_elements = [_dot_handle(color_dict[c], c) for c in class_labels]
         return color_mapped, None, legend_elements
 
     # Case 3: Multiple categorical columns from obs (combined class)
@@ -622,7 +630,7 @@ def resolve_plot_colors(
             palette = [mcolors.to_hex(cmap_obj(i / max(len(class_labels) - 1, 1))) for i in range(len(class_labels))]
             color_dict = {c: palette[i] for i, c in enumerate(class_labels)}
         color_mapped = [color_dict[val] for val in y]
-        legend_elements = [mpatches.Patch(color=color_dict[c], label=c) for c in class_labels]
+        legend_elements = [_dot_handle(color_dict[c], c) for c in class_labels]
         return color_mapped, None, legend_elements
 
     # Case 4: Continuous coloring by protein abundance (accession)
@@ -955,7 +963,7 @@ def _resolve_embedding_style_mapping(
                     continue
                 seen.add(lab)
                 face_legend.append(
-                    mpatches.Patch(color=face_hex_list[i], label=", ".join(str(x) for x in lab))
+                    _dot_handle(face_hex_list[i], ", ".join(str(x) for x in lab))
                 )
         else:
             face_mapped = face_float_buf
