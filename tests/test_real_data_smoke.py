@@ -111,6 +111,27 @@ def test_pd_de_correct_fdr(pdata_pd_sample_column):
     assert "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in pdata_pd_sample_column.stats
 
 
+def test_pd_de_min_valid_fraction_strict(pdata_pd_sample_column):
+    """``de(correct_fdr=True, min_valid_fraction=1.0)`` on PD: sparse proteins drop out of BH only."""
+    values = [{"cellline": "BE"}, {"cellline": "AS"}]
+    lax = pdata_pd_sample_column.de(values=values, correct_fdr=True, min_valid_fraction=0.0)
+    strict = pdata_pd_sample_column.de(values=values, correct_fdr=True, min_valid_fraction=1.0)
+    assert strict["adj_p_value"].notna().sum() <= lax["adj_p_value"].notna().sum()
+    assert strict["p_value"].notna().sum() == lax["p_value"].notna().sum()
+
+
+def test_pd_de_zero_masked_as_missing(pdata_pd_sample_column, capsys):
+    """``de()`` on PD: an injected zero is reported and treated as missing."""
+    p = pdata_pd_sample_column.copy()
+    X = p.prot.X.toarray() if sparse.issparse(p.prot.X) else np.array(p.prot.X, dtype=float)
+    row = int(np.where(p.prot.obs["cellline"].to_numpy() == "BE")[0][0])
+    X[row, 0] = 0.0
+    p.prot.X = X
+    df = p.de(values=[{"cellline": "BE"}, {"cellline": "AS"}])
+    assert "treated as missing" in capsys.readouterr().out
+    assert "p_value" in df.columns and "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in p.stats
+
+
 def test_pd_mixed_de_cellline_explicit_contrast(pdata_pd_sample_column):
     """``mixed_de()`` simple path on PD (``Sample`` column + summary merge)."""
     df = pdata_pd_sample_column.mixed_de(
@@ -281,6 +302,27 @@ def test_diann_de_values_correct_fdr(pdata_diann):
     key = "[{'gradient': '30min'}] vs [{'gradient': '60min'}]"
     assert key in pdata_diann.stats
     assert "[{'gradient': '30min'}]" in df.columns
+
+
+def test_diann_de_min_valid_fraction_strict(pdata_diann):
+    """``de(correct_fdr=True, min_valid_fraction=1.0)`` on DIA-NN: sparse proteins drop out of BH only."""
+    values = [{"gradient": "30min"}, {"gradient": "60min"}]
+    lax = pdata_diann.de(values=values, correct_fdr=True, min_valid_fraction=0.0)
+    strict = pdata_diann.de(values=values, correct_fdr=True, min_valid_fraction=1.0)
+    assert strict["adj_p_value"].notna().sum() <= lax["adj_p_value"].notna().sum()
+    assert strict["p_value"].notna().sum() == lax["p_value"].notna().sum()
+
+
+def test_diann_de_log_layer_zero_masked(pdata_diann, capsys):
+    """``de()`` on a DIA-NN log2 layer: log-zeros (pseudocount 1) are reported and treated as missing."""
+    p = pdata_diann.copy()
+    p.log_transform(base=2, pseudocount=1.0)
+    X = p.prot.X.toarray() if sparse.issparse(p.prot.X) else np.array(p.prot.X, dtype=float)
+    X[0, 0] = 0.0  # log2(0 + 1)
+    p.prot.X = X
+    df = p.de(values=[{"gradient": "30min"}, {"gradient": "60min"}], layer="X", correct_fdr=True)
+    assert "treated as missing" in capsys.readouterr().out
+    assert np.isfinite(df["p_value"]).any()
 
 
 def test_diann_mixed_de_gradient_replicate(pdata_diann):
