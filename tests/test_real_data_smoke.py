@@ -132,6 +132,25 @@ def test_pd_de_zero_masked_as_missing(pdata_pd_sample_column, capsys):
     assert "p_value" in df.columns and "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in p.stats
 
 
+def test_pd_de_limma_log_layer(pdata_pd_sample_column):
+    """``de(method='limma')`` on PD after ``log_transform`` (values sugar, BH correction)."""
+    p = pdata_pd_sample_column.copy()
+    p.log_transform(base=2)
+    df = p.de(values=[{"cellline": "BE"}, {"cellline": "AS"}], method="limma", correct_fdr=True)
+    assert np.isfinite(df["p_value"]).any() and np.isfinite(df["adj_p_value"]).any()
+    assert df.attrs["limma"]["estimator"] in {"legacy", "unequal_df"}
+    assert "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in p.stats
+
+
+def test_pd_de_limma_legacy_values_and_pvalue_only(pdata_pd_sample_column):
+    """``de(method='limma')`` on PD via legacy ``class_type`` + values, raw p-values."""
+    p = pdata_pd_sample_column.copy()
+    p.log_transform(base=2)
+    df = p.de(class_type="cellline", values=["BE", "AS"], method="limma")
+    assert "adj_p_value" not in df.columns
+    assert df["test_statistic"].notna().any()
+
+
 def test_pd_mixed_de_cellline_explicit_contrast(pdata_pd_sample_column):
     """``mixed_de()`` simple path on PD (``Sample`` column + summary merge)."""
     df = pdata_pd_sample_column.mixed_de(
@@ -323,6 +342,25 @@ def test_diann_de_log_layer_zero_masked(pdata_diann, capsys):
     df = p.de(values=[{"gradient": "30min"}, {"gradient": "60min"}], layer="X", correct_fdr=True)
     assert "treated as missing" in capsys.readouterr().out
     assert np.isfinite(df["p_value"]).any()
+
+
+def test_diann_de_limma_log_layer(pdata_diann):
+    """``de(method='limma')`` on DIA-NN (high missingness -> unequal-df prior path) after log_transform."""
+    p = pdata_diann.copy()
+    p.log_transform(base=2)
+    df = p.de(values=[{"gradient": "30min"}, {"gradient": "60min"}], method="limma", correct_fdr=True)
+    assert np.isfinite(df["p_value"]).any() and np.isfinite(df["adj_p_value"]).any()
+    assert df.attrs["limma"]["df_prior"] > 0
+    assert "[{'gradient': '30min'}] vs [{'gradient': '60min'}]" in p.stats
+
+
+def test_diann_de_limma_legacy_values(pdata_diann):
+    """``de(method='limma')`` on DIA-NN via legacy ``class_type`` + values."""
+    p = pdata_diann.copy()
+    p.log_transform(base=2)
+    df = p.de(class_type="gradient", values=["30min", "60min"], method="limma")
+    assert np.isfinite(df["p_value"]).any()
+    assert np.isfinite(df["test_statistic"]).any()
 
 
 def test_diann_mixed_de_gradient_replicate(pdata_diann):
