@@ -1568,7 +1568,7 @@ def test_resolve_plot_colors_single_obs(dummy_adata):
     unique_colors = set(colors)
     assert len(unique_colors) == 2
     assert cmap is None
-    assert all(hasattr(p, "get_facecolor") for p in legend)
+    assert all(hasattr(p, "get_markerfacecolor") for p in legend)  # circular dot (Line2D) handles
 
 def test_resolve_plot_colors_multi_obs(dummy_adata):
     colors, cmap, legend = scplt.resolve_plot_colors(dummy_adata, classes=["cellline", "treatment"], cmap="default")
