@@ -5,11 +5,27 @@ from __future__ import annotations
 import ast
 from typing import Any, Literal
 
+import numpy as np
 import pandas as pd
 
 from scpviz.utils.formatting import format_log_prefix
 
 GroupLabelStyle = Literal["values", "slash", "underscore", "repr"]
+
+
+def print_limma_summary(lim: dict[str, Any]) -> None:
+    """Print the shared limma prior (and any zero variances) once per DE run.
+
+    Args:
+        lim: Result of :func:`scpviz.utils.moderated_two_group_test`.
+    """
+    n_zero = int(np.sum(lim["s2"] == 0))
+    print(
+        f"{format_log_prefix('info', 2)} limma ({lim['estimator']} prior estimator): prior df = "
+        f"{lim['df_prior']:.2f}, prior variance = {lim['s2_prior']:.3g}."
+    )
+    if n_zero > 0:
+        print(f"{format_log_prefix('info', 2)} {n_zero} proteins had exactly zero residual variance (floored for prior estimation).")
 
 
 def _normalize_group_def(

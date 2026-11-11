@@ -106,7 +106,7 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
               e.g. `[{"cellline": "HCT116", "treatment": "DMSO"},
                      {"cellline": "HCT116", "treatment": "DrugX"}]`.
 
-        method (str): Statistical test method. Default is `"ttest"`. Options are `"ttest"`, `"mannwhitneyu"`, `"wilcoxon"`.
+        method (str): Statistical test method. Default is `"ttest"`. Options are `"ttest"`, `"mannwhitneyu"`, `"wilcoxon"`, `"limma"` (moderated t-test; needs a log-transformed layer and `fold_change_mode="mean"`, see `pdata.de`).
         fold_change_mode (str): Method for computing fold change.
             
             - `"mean"`: log2(mean(group1) / mean(group2))

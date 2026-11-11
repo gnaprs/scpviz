@@ -12,7 +12,8 @@ from scipy import sparse
 from scipy.stats import false_discovery_control, ttest_ind, mannwhitneyu, wilcoxon
 from sklearn.decomposition import PCA
 
-from scpviz.utils.de_reporting import format_de_group_label
+from scpviz.utils.de_reporting import format_de_group_label, print_limma_summary as _print_limma_summary
+from scpviz.utils.limma import moderated_two_group_test as _moderated_two_group_test
 from scpviz.utils.formatting import format_log_prefix
 
 if TYPE_CHECKING:
@@ -180,7 +181,10 @@ def de_adata(
             - Legacy-style (if `class_type` is provided): [['HCT116', 'DMSO'], ['HCT116', 'DrugX']]
 
         class_type (str or list of str, optional): Legacy-style class label(s) to interpret `values`.
-        method (str): 'ttest', 'mannwhitneyu', 'wilcoxon'.
+        method (str): 'ttest', 'mannwhitneyu', 'wilcoxon', or 'limma' (moderated t-test with
+            empirical Bayes variance shrinkage; see ``scpviz.utils.limma``). 'limma' needs a
+            log-transformed layer (``data_is_log=True``) and ``fold_change_mode='mean'``; ``test_statistic``
+            is then the moderated t and ``equal_var`` is ignored.
         fold_change_mode (str): 'mean' or 'pairwise_median'.
         layer (str): Layer to use. Default is 'X'.
         threshold (float): Significance cutoff. Applied to raw ``p_value`` when
@@ -204,7 +208,8 @@ def de_adata(
         min_valid_fraction (float): Only used when ``correct_fdr=True``. Features
             with a fraction of non-missing values below this in either group are
             excluded from the BH correction (``adj_p_value`` is NaN; raw
-            ``p_value`` is kept). Default 0.5.
+            ``p_value`` is kept). Default 0.5. Ignored for ``method='limma'``
+            (filter sparse proteins upstream, e.g. with ``filter_prot``).
 
     Returns:
         pandas.DataFrame: DE results with volcano-ready columns.
@@ -338,30 +343,38 @@ def de_adata(
 
     # statistical test
 
-    pvals = []
-    stats = []
-
-    if method not in {"ttest", "mannwhitneyu", "wilcoxon"}:
+    if method not in {"ttest", "mannwhitneyu", "wilcoxon", "limma"}:
         raise ValueError(f"Unsupported method '{method}'")
 
-    for i in range(X.shape[1]):
-        x1, x2 = data1[:, i], data2[:, i]
+    if method == "limma":
+        if not data_is_log:
+            raise ValueError(f"{format_log_prefix('error')} method='limma' needs a log-transformed layer (set data_is_log=True).")
+        if fold_change_mode != "mean":
+            raise ValueError(f"{format_log_prefix('error')} method='limma' requires fold_change_mode='mean' (log2fc is the modeled group difference).")
+        lim = _moderated_two_group_test(data1, data2)
+        pvals, stats = lim["p_value"], lim["t"]
+        log2fc_vals = lim["beta"] * np.log2(log_base)  # modeled group difference, in log2 units
+        _print_limma_summary(lim)
+    else:
+        pvals = []
+        stats = []
+        for i in range(X.shape[1]):
+            x1, x2 = data1[:, i], data2[:, i]
 
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # all-NaN / tiny groups give NaN p-values
-                if method == 'ttest':
-                    res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
-                elif method == 'mannwhitneyu':
-                    res = mannwhitneyu(x1, x2, alternative='two-sided')
-                elif method == 'wilcoxon':
-                    res = wilcoxon(x1, x2)
-            pvals.append(res.pvalue)
-            stats.append(res.statistic)
-        except Exception:
-            pvals.append(np.nan)
-            stats.append(np.nan)
-
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")  # all-NaN / tiny groups give NaN p-values
+                    if method == 'ttest':
+                        res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
+                    elif method == 'mannwhitneyu':
+                        res = mannwhitneyu(x1, x2, alternative='two-sided')
+                    elif method == 'wilcoxon':
+                        res = wilcoxon(x1, x2)
+                pvals.append(res.pvalue)
+                stats.append(res.statistic)
+            except Exception:
+                pvals.append(np.nan)
+                stats.append(np.nan)
 
     pvals = np.array(pvals)
 
@@ -402,7 +415,10 @@ def de_adata(
     df["significance_score"] = df["-log10(p_value)"] * df["log2fc"]
 
     if correct_fdr:
-        pvals_bh, n_sparse = exclude_sparse_pvalues(pvals, data1, data2, min_valid_fraction)
+        if method == "limma":  # the prior is fitted on the supplied proteins; filter upstream (filter_prot)
+            pvals_bh, n_sparse = pvals, 0
+        else:
+            pvals_bh, n_sparse = exclude_sparse_pvalues(pvals, data1, data2, min_valid_fraction)
         if n_sparse > 0:
             print(
                 f"{format_log_prefix('info', 2)} {n_sparse} proteins had <{min_valid_fraction:.0%} "
@@ -432,6 +448,8 @@ def de_adata(
     # group labels for plotting annotation
     df.attrs["group1_label"] = group1_label
     df.attrs["group2_label"] = group2_label
+    if method == "limma":
+        df.attrs["limma"] = {k: lim[k] for k in ("s2_prior", "df_prior", "estimator")}
 
     return df
 

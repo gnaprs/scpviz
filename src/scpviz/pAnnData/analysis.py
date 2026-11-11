@@ -12,7 +12,9 @@ from scpviz.utils.de_reporting import (
     format_de_group_label,
     print_de_result_summary,
     print_de_run_header,
+    print_limma_summary,
 )
+from scpviz.utils.limma import moderated_two_group_test
 from scpviz.utils.stats import bh_adjust_pvalues, exclude_sparse_pvalues, mask_zeros_as_nan
 import warnings
 from scipy import sparse
@@ -105,7 +107,10 @@ class AnalysisMixin:
                 - Legacy-style (if `class_type` is provided): [['HCT116', 'DMSO'], ['HCT116', 'DrugX']]
 
             class_type (str or list of str, optional): Legacy-style class label(s) to interpret `values`.
-            method (str): Statistical test to use. Options: "ttest", "mannwhitneyu", "wilcoxon".
+            method (str): Statistical test to use. Options: "ttest", "mannwhitneyu", "wilcoxon", "limma".
+                ``"limma"`` is a moderated t-test (empirical Bayes variance shrinkage, validated against R limma;
+                see ``scpviz.utils.limma``). It needs a log-transformed layer and
+                ``fold_change_mode="mean"``; ``test_statistic`` is the moderated t, and ``equal_var`` is ignored.
             layer (str): Name of the data layer to use (default is "X").
             threshold (float): Significance cutoff. Applied to raw ``p_value`` when
                 ``correct_fdr=False``, and to ``adj_p_value`` when ``correct_fdr=True``. Defaults to 0.05.
@@ -122,6 +127,7 @@ class AnalysisMixin:
             min_valid_fraction (float): Only used when ``correct_fdr=True``. Proteins with a
                 fraction of non-missing values below this in either group are excluded from
                 the BH correction (``adj_p_value`` is NaN; raw ``p_value`` is kept). Default 0.5.
+                Ignored for ``method='limma'`` (filter sparse proteins upstream, e.g. with ``filter_prot``).
 
             fold_change_mode (str): Strategy for computing fold change. Options:
 
@@ -181,6 +187,9 @@ class AnalysisMixin:
                 )
             threshold = pval
 
+        if method not in ('ttest', 'mannwhitneyu', 'wilcoxon', 'limma'):
+            raise ValueError(f"{format_log_prefix('error')} Unsupported test method '{method}'. Choose 'ttest', 'mannwhitneyu', 'wilcoxon' or 'limma'.")
+
         # --- Handle legacy input ---
         if values is None:
             raise ValueError("Please provide `values` (new format) or both `class_type` and `values` (legacy format).")
@@ -217,6 +226,11 @@ class AnalysisMixin:
         data2 = np.asarray(data2)
 
         _layer_is_log = utils.infer_layer_is_log(layer, pdata_case1.prot)
+        if method == 'limma':
+            if not _layer_is_log:
+                raise ValueError(f"{format_log_prefix('error')} method='limma' needs a log-transformed layer; run log_transform() first.")
+            if fold_change_mode != 'mean':
+                raise ValueError(f"{format_log_prefix('error')} method='limma' requires fold_change_mode='mean' (log2fc is the modeled group difference).")
 
         # Find the log_transform record (base, pseudocount) in the layer's provenance chain
         _log_rec = {}
@@ -382,26 +396,29 @@ class AnalysisMixin:
             raise ValueError(f"Unsupported fold_change_mode: {fold_change_mode}")
 
         # --- Statistical test ---
-        pvals = []
-        stats = []
-        for i in range(data1.shape[1]):
-            x1, x2 = data1[:, i], data2[:, i]
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")  # all-NaN / tiny groups give NaN p-values
-                    if method == 'ttest':
-                        res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
-                    elif method == 'mannwhitneyu':
-                        res = mannwhitneyu(x1, x2, alternative='two-sided')
-                    elif method == 'wilcoxon':
-                        res = wilcoxon(x1, x2)
-                    else:
-                        raise ValueError(f"Unsupported test method: {method}")
-                pvals.append(res.pvalue)
-                stats.append(res.statistic)
-            except Exception as e:
-                pvals.append(np.nan)
-                stats.append(np.nan)
+        if method == 'limma':
+            lim = moderated_two_group_test(data1, data2)
+            pvals, stats = lim['p_value'], lim['t']
+            print_limma_summary(lim)
+        else:
+            pvals = []
+            stats = []
+            for i in range(data1.shape[1]):
+                x1, x2 = data1[:, i], data2[:, i]
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")  # all-NaN / tiny groups give NaN p-values
+                        if method == 'ttest':
+                            res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
+                        elif method == 'mannwhitneyu':
+                            res = mannwhitneyu(x1, x2, alternative='two-sided')
+                        elif method == 'wilcoxon':
+                            res = wilcoxon(x1, x2)
+                    pvals.append(res.pvalue)
+                    stats.append(res.statistic)
+                except Exception as e:
+                    pvals.append(np.nan)
+                    stats.append(np.nan)
 
         # --- Compile results ---
         var = self.prot.var.copy()
@@ -422,7 +439,10 @@ class AnalysisMixin:
         df_stats['significance_score'] = df_stats['-log10(p_value)'] * df_stats['log2fc']
 
         if correct_fdr:
-            pvals_bh, n_sparse = exclude_sparse_pvalues(np.asarray(pvals, dtype=float), data1, data2, min_valid_fraction)
+            if method == 'limma':  # the prior is fitted on the supplied proteins; filter upstream (filter_prot)
+                pvals_bh, n_sparse = np.asarray(pvals, dtype=float), 0
+            else:
+                pvals_bh, n_sparse = exclude_sparse_pvalues(np.asarray(pvals, dtype=float), data1, data2, min_valid_fraction)
             if n_sparse > 0:
                 print(
                     f"{format_log_prefix('info', 2)} {n_sparse} proteins had <{min_valid_fraction:.0%} valid values "
@@ -445,6 +465,8 @@ class AnalysisMixin:
         df_stats['significance'] = pd.Categorical(df_stats['significance'], categories=['upregulated', 'downregulated', 'not significant', 'not comparable'], ordered=True)
 
         df_stats = df_stats.sort_values(by='significance')
+        if method == 'limma':
+            df_stats.attrs['limma'] = {k: lim[k] for k in ('s2_prior', 'df_prior', 'estimator')}
 
         # --- Store and return ---
         self._stats[comparison_string] = df_stats # type: ignore[attr-defined]
