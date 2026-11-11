@@ -13,7 +13,7 @@ from scpviz.utils.de_reporting import (
     print_de_result_summary,
     print_de_run_header,
 )
-from scpviz.utils.stats import bh_adjust_pvalues
+from scpviz.utils.stats import bh_adjust_pvalues, exclude_sparse_pvalues, mask_zeros_as_nan
 import warnings
 from scipy import sparse
 import gseapy as gp
@@ -90,7 +90,7 @@ class AnalysisMixin:
 
         self._history.append(f"{on}: Coefficient of Variation (CV) calculated for {layer} data by {classes}. CV stored in var['CV: {class_value}'].") # type: ignore[attr-defined]
 
-    def de(self, values=None, class_type=None, method='ttest', layer='X', threshold=0.05, log2fc=1.0, fold_change_mode='mean', correct_fdr=False, equal_var=True, pval=None):
+    def de(self, values=None, class_type=None, method='ttest', layer='X', threshold=0.05, log2fc=1.0, fold_change_mode='mean', correct_fdr=False, equal_var=True, pval=None, min_valid_fraction=0.5):
         """
         Perform differential expression (DE) analysis on proteins across sample groups.
 
@@ -119,6 +119,10 @@ class AnalysisMixin:
             equal_var (bool): Passed to :func:`scipy.stats.ttest_ind` when ``method='ttest'``.
                 ``True`` (default) uses Student's t-test; ``False`` uses Welch's t-test.
 
+            min_valid_fraction (float): Only used when ``correct_fdr=True``. Proteins with a
+                fraction of non-missing values below this in either group are excluded from
+                the BH correction (``adj_p_value`` is NaN; raw ``p_value`` is kept). Default 0.5.
+
             fold_change_mode (str): Strategy for computing fold change. Options:
 
                 - "mean": log2(mean(group1) / mean(group2))
@@ -127,6 +131,11 @@ class AnalysisMixin:
 
         Returns:
             pd.DataFrame: DataFrame with DE statistics including log2 fold change, p-values, and significance labels.
+
+        Note:
+            Zeros are treated as missing and set to NaN before testing and fold change. On a
+            ``log_transform`` layer, a zero maps to ``log_base(pseudocount)`` and is detected
+            from the layer provenance.
 
         Example:
             Legacy-style DE comparison using class types and value combinations:
@@ -208,6 +217,29 @@ class AnalysisMixin:
         data2 = np.asarray(data2)
 
         _layer_is_log = utils.infer_layer_is_log(layer, pdata_case1.prot)
+
+        # Find the log_transform record (base, pseudocount) in the layer's provenance chain
+        _log_rec = {}
+        if _layer_is_log:
+            _reg = pdata_case1.prot.uns.get("layer_provenance", {})
+            _cur = utils.resolve_input_layer(pdata_case1.prot, layer)
+            for _ in range(len(_reg)):
+                if _cur not in _reg:
+                    break
+                if _reg[_cur].get("op") == "log_transform":
+                    _log_rec = _reg[_cur]
+                    break
+                _cur = _reg[_cur].get("input_layer", "")
+        _base_val = str(_log_rec.get("base", "2"))
+        _log_base = np.e if _base_val == "e" else float(_base_val)
+
+        # Zeros are missing values: mask to NaN so tests, means and fold changes ignore them
+        _pseudocount = _log_rec.get("pseudocount", 1.0)
+        _n_nan_before = int(np.isnan(data1).sum() + np.isnan(data2).sum())
+        data1 = mask_zeros_as_nan(data1, _layer_is_log, _log_base, _pseudocount)
+        data2 = mask_zeros_as_nan(data2, _layer_is_log, _log_base, _pseudocount)
+        _n_zero = int(np.isnan(data1).sum() + np.isnan(data2).sum()) - _n_nan_before
+
         _finite_de = data1[np.isfinite(data1)]
         _median_val = float(np.nanmedian(_finite_de)) if _finite_de.size > 0 else 0.0
 
@@ -233,6 +265,11 @@ class AnalysisMixin:
             threshold=threshold,
             log2fc_thresh=log2fc,
         )
+        if _n_zero > 0:
+            print(
+                f"{format_log_prefix('info', 2)} {_n_zero} zero value(s) in the selected samples "
+                "treated as missing (NaN) for testing and fold change."
+            )
 
         # --- Compute fold change ---
         if fold_change_mode == 'mean':
@@ -246,8 +283,6 @@ class AnalysisMixin:
                 mask_invalid = (group1_mean == 0) | (group2_mean == 0) | np.isnan(group1_mean) | np.isnan(group2_mean)
 
                 if _layer_is_log:
-                    rec = pdata_case1.prot.uns.get("layer_provenance", {}).get(layer, {})
-                    _base_val = str(rec.get("base", "2"))
                     if _base_val in ("10",):
                         log2fc_vals = (group1_mean - group2_mean) / np.log10(2)
                         _base_label = "log10"
@@ -352,14 +387,16 @@ class AnalysisMixin:
         for i in range(data1.shape[1]):
             x1, x2 = data1[:, i], data2[:, i]
             try:
-                if method == 'ttest':
-                    res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
-                elif method == 'mannwhitneyu':
-                    res = mannwhitneyu(x1, x2, alternative='two-sided')
-                elif method == 'wilcoxon':
-                    res = wilcoxon(x1, x2)
-                else:
-                    raise ValueError(f"Unsupported test method: {method}")
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")  # all-NaN / tiny groups give NaN p-values
+                    if method == 'ttest':
+                        res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
+                    elif method == 'mannwhitneyu':
+                        res = mannwhitneyu(x1, x2, alternative='two-sided')
+                    elif method == 'wilcoxon':
+                        res = wilcoxon(x1, x2)
+                    else:
+                        raise ValueError(f"Unsupported test method: {method}")
                 pvals.append(res.pvalue)
                 stats.append(res.statistic)
             except Exception as e:
@@ -385,7 +422,14 @@ class AnalysisMixin:
         df_stats['significance_score'] = df_stats['-log10(p_value)'] * df_stats['log2fc']
 
         if correct_fdr:
-            df_stats['adj_p_value'] = bh_adjust_pvalues(np.asarray(pvals, dtype=float))
+            pvals_bh, n_sparse = exclude_sparse_pvalues(np.asarray(pvals, dtype=float), data1, data2, min_valid_fraction)
+            if n_sparse > 0:
+                print(
+                    f"{format_log_prefix('info', 2)} {n_sparse} proteins had <{min_valid_fraction:.0%} valid values "
+                    "in at least one group and were excluded from FDR correction (too sparse for a "
+                    "reliable test); adj_p_value is NaN for these."
+                )
+            df_stats['adj_p_value'] = bh_adjust_pvalues(pvals_bh)
             df_stats['-log10(adj_p_value)'] = -np.log10(
                 df_stats['adj_p_value'].replace(0, np.nan).astype(float)
             )

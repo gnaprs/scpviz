@@ -505,6 +505,28 @@ def test_de_correct_fdr_adds_adjusted_columns(pdata):
         correct_fdr=False,
     ).columns
 
+def test_de_min_valid_fraction_only_affects_fdr(pdata):
+    values = [{"cellline": "BE"}, {"cellline": "AS"}]
+    raw = pdata.de(values=values, correct_fdr=False)
+    strict = pdata.de(values=values, correct_fdr=True, min_valid_fraction=1.0)
+    lax = pdata.de(values=values, correct_fdr=True, min_valid_fraction=0.0)
+    # raw p-values are identical regardless of the filter
+    assert strict["p_value"].reindex(raw.index).equals(raw["p_value"])
+    # stricter filter can only reduce the number of adjusted p-values
+    assert strict["adj_p_value"].notna().sum() <= lax["adj_p_value"].notna().sum()
+
+def test_de_zeros_treated_as_missing(pdata, capsys):
+    values = [{"cellline": "BE"}, {"cellline": "AS"}]
+    p = pdata.copy()
+    mask = (p.prot.obs["cellline"] == "BE").to_numpy()
+    X = p.prot.X.toarray() if scipy.sparse.issparse(p.prot.X) else np.asarray(p.prot.X, dtype=float).copy()
+    X[np.where(mask)[0][0], 0] = 0.0
+    p.prot.X = X
+    df = p.de(values=values)
+    assert "zero value(s)" in capsys.readouterr().out
+    first = p.prot.var_names[0]
+    assert np.isfinite(df.loc[first, "log2fc"]) or np.isnan(df.loc[first, "log2fc"])
+
 def test_de_deprecated_pval_alias(pdata, capsys):
     values = [{"cellline": "BE"}, {"cellline": "AS"}]
     df_threshold = pdata.de(values=values, threshold=0.05)

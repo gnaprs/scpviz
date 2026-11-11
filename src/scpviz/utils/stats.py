@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, TYPE_CHECKING
 
 import anndata as ad
@@ -34,6 +35,68 @@ def bh_adjust_pvalues(pvals: np.ndarray | list[float]) -> np.ndarray:
     elif n_valid == 1:
         adj_pvals[valid_mask] = pvals_arr[valid_mask]
     return adj_pvals
+
+def mask_zeros_as_nan(
+    data: np.ndarray,
+    data_is_log: bool = False,
+    log_base: float = 2.0,
+    pseudocount: float = 1.0,
+) -> np.ndarray:
+    """
+    Return a copy of ``data`` with "zero" (missing-value) entries set to NaN.
+
+    On a linear layer a zero is ``0``. On a log layer produced by
+    ``log_transform`` (``log(x + pseudocount)``) an original zero maps to
+    ``log_base(pseudocount)`` (``0`` for the default pseudocount of 1).
+
+    Args:
+        data (numpy.ndarray): Abundance matrix.
+        data_is_log (bool): Whether ``data`` is log-transformed.
+        log_base (float): Log base of ``data`` when ``data_is_log``.
+        pseudocount (float): Pseudocount used in ``log(x + pseudocount)``.
+
+    Returns:
+        numpy.ndarray: Float copy of ``data`` with zero entries replaced by NaN.
+
+    Note:
+        Detection is exact for values straight out of ``log_transform``. If the
+        layer was modified after logging (e.g. normalized again), the zero
+        value shifts and is no longer detected.
+    """
+    out = np.array(data, dtype=float)
+    zero_val = np.log(pseudocount) / np.log(log_base) if data_is_log else 0.0
+    out[np.isclose(out, zero_val, rtol=0, atol=1e-12)] = np.nan
+    return out
+
+def exclude_sparse_pvalues(
+    pvals: np.ndarray,
+    data1: np.ndarray,
+    data2: np.ndarray,
+    min_valid_fraction: float,
+) -> tuple[np.ndarray, int]:
+    """
+    NaN the p-values of features too sparse for a reliable test (for FDR correction).
+
+    A feature is excluded when either group has a fraction of non-NaN values
+    below ``min_valid_fraction``.
+
+    Args:
+        pvals (numpy.ndarray): Raw p-values, shape ``(n_features,)``.
+        data1 (numpy.ndarray): Group 1 matrix, ``(n_samples1, n_features)``.
+        data2 (numpy.ndarray): Group 2 matrix, ``(n_samples2, n_features)``.
+        min_valid_fraction (float): Minimum fraction of valid values per group.
+
+    Returns:
+        tuple: ``(pvals_for_bh, n_excluded)``. Excluded features are NaN in
+        ``pvals_for_bh``; features that were already NaN are not counted.
+    """
+    sparse_mask = (
+        (np.mean(~np.isnan(data1), axis=0) < min_valid_fraction)
+        | (np.mean(~np.isnan(data2), axis=0) < min_valid_fraction)
+    )
+    pvals_arr = np.asarray(pvals, dtype=float)
+    n_excluded = int((sparse_mask & ~np.isnan(pvals_arr)).sum())
+    return np.where(sparse_mask, np.nan, pvals_arr), n_excluded
 
 def pairwise_log2fc(data1: np.ndarray, data2: np.ndarray) -> np.ndarray:
     """
@@ -98,6 +161,7 @@ def de_adata(
     log_base: float = 2.0,
     pseudocount: float = 1.0,
     gene_col: str | None = None,
+    min_valid_fraction: float = 0.5,
 ) -> pd.DataFrame:
     """
     Standalone DE analysis for AnnData. Produces a volcano-ready DataFrame identical to pdata.de().
@@ -137,9 +201,17 @@ def de_adata(
             - `adata.var['Genes']` by default,
             - `adata.var[<gene_col>]` if provided by the user, otherwise
             - `adata.var_names` if the above do not exist.
+        min_valid_fraction (float): Only used when ``correct_fdr=True``. Features
+            with a fraction of non-missing values below this in either group are
+            excluded from the BH correction (``adj_p_value`` is NaN; raw
+            ``p_value`` is kept). Default 0.5.
 
     Returns:
         pandas.DataFrame: DE results with volcano-ready columns.
+
+    Note:
+        Zeros are treated as missing and set to NaN before testing and fold
+        change (see :func:`mask_zeros_as_nan`).
     """
     if pval is not None:
         print(
@@ -232,8 +304,8 @@ def de_adata(
         X = adata.layers[layer]
 
     X = X.toarray() if sparse.issparse(X) else np.asarray(X)
-    data1 = X[idx1, :]
-    data2 = X[idx2, :]
+    data1 = mask_zeros_as_nan(X[idx1, :], data_is_log, log_base, pseudocount)
+    data2 = mask_zeros_as_nan(X[idx2, :], data_is_log, log_base, pseudocount)
 
     data1_fc = _unlog(data1, data_is_log=data_is_log, log_base=log_base, pseudocount=pseudocount)
     data2_fc = _unlog(data2, data_is_log=data_is_log, log_base=log_base, pseudocount=pseudocount)
@@ -241,7 +313,8 @@ def de_adata(
     # log2FC computation
 
     if fold_change_mode == 'mean':
-        with np.errstate(all='ignore'):
+        with np.errstate(all='ignore'), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             m1 = np.nanmean(data1_fc, axis=0)
             m2 = np.nanmean(data2_fc, axis=0)
             mask_invalid = (m1 == 0) | (m2 == 0) | np.isnan(m1) | np.isnan(m2)
@@ -268,18 +341,21 @@ def de_adata(
     pvals = []
     stats = []
 
+    if method not in {"ttest", "mannwhitneyu", "wilcoxon"}:
+        raise ValueError(f"Unsupported method '{method}'")
+
     for i in range(X.shape[1]):
         x1, x2 = data1[:, i], data2[:, i]
-        if method not in {"ttest", "mannwhitneyu", "wilcoxon"}:
-            raise ValueError(f"Unsupported method '{method}'")
 
         try:
-            if method == 'ttest':
-                res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
-            elif method == 'mannwhitneyu':
-                res = mannwhitneyu(x1, x2, alternative='two-sided')
-            elif method == 'wilcoxon':
-                res = wilcoxon(x1, x2)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # all-NaN / tiny groups give NaN p-values
+                if method == 'ttest':
+                    res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
+                elif method == 'mannwhitneyu':
+                    res = mannwhitneyu(x1, x2, alternative='two-sided')
+                elif method == 'wilcoxon':
+                    res = wilcoxon(x1, x2)
             pvals.append(res.pvalue)
             stats.append(res.statistic)
         except Exception:
@@ -290,8 +366,10 @@ def de_adata(
     pvals = np.array(pvals)
 
     # mean abundance
-    mean1 = np.nanmean(data1, axis=0)
-    mean2 = np.nanmean(data2, axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        mean1 = np.nanmean(data1, axis=0)
+        mean2 = np.nanmean(data2, axis=0)
 
     group1_label = format_de_group_label(group1_filters)
     group2_label = format_de_group_label(group2_filters)
@@ -324,7 +402,14 @@ def de_adata(
     df["significance_score"] = df["-log10(p_value)"] * df["log2fc"]
 
     if correct_fdr:
-        df["adj_p_value"] = bh_adjust_pvalues(pvals)
+        pvals_bh, n_sparse = exclude_sparse_pvalues(pvals, data1, data2, min_valid_fraction)
+        if n_sparse > 0:
+            print(
+                f"{format_log_prefix('info', 2)} {n_sparse} proteins had <{min_valid_fraction:.0%} "
+                "valid values in at least one group and were excluded from FDR correction "
+                "(too sparse for a reliable test); adj_p_value is NaN for these."
+            )
+        df["adj_p_value"] = bh_adjust_pvalues(pvals_bh)
         df["-log10(adj_p_value)"] = -np.log10(
             df["adj_p_value"].replace(0, np.nan).astype(float)
         )
