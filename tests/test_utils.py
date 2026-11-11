@@ -906,6 +906,28 @@ def test_de_adata_zeros_masked_and_sparse_excluded_from_fdr(capsys):
                          data_is_log=True, min_valid_fraction=0.0)
     assert np.isnan(df0.iloc[0]["p_value"]) or not np.isnan(df0.iloc[0]["adj_p_value"])
 
+def test_de_adata_matches_pdata_de_on_log_layer(pdata):
+    """On a log layer both entry points define log2fc as the log-scale mean difference (bug-14)."""
+    p = pdata.copy()
+    p.log_transform(base=2, pseudocount=1.0)
+    values = [{"cellline": "BE"}, {"cellline": "AS"}]
+    df_p = p.de(values=values, method="ttest")
+    df_a = utils.de_adata(p.prot, values=values, layer="X_log2", data_is_log=True, log_base=2.0, pseudocount=1.0)
+    df_p = df_p.reindex(df_a.index)
+    np.testing.assert_allclose(df_a["log2fc"].to_numpy(), df_p["log2fc"].to_numpy(), rtol=1e-9, equal_nan=True)
+    np.testing.assert_allclose(df_a["p_value"].to_numpy(), df_p["p_value"].to_numpy(), rtol=1e-9, equal_nan=True)
+
+def test_de_adata_log_base_does_not_change_log2fc_or_pvalues():
+    rng = np.random.default_rng(0)
+    log2 = rng.normal(12, 1, (8, 30))
+    obs = pd.DataFrame({"g": ["A"] * 4 + ["B"] * 4})
+    log2[:4, :5] += 2.0
+    kw = dict(values=[{"g": "A"}, {"g": "B"}], data_is_log=True)
+    d2 = utils.de_adata(AnnData(X=log2, obs=obs), log_base=2.0, **kw)
+    d10 = utils.de_adata(AnnData(X=log2 * np.log10(2.0), obs=obs), log_base=10.0, **kw)
+    np.testing.assert_allclose(d10["log2fc"].to_numpy(), d2["log2fc"].to_numpy(), rtol=1e-9)
+    np.testing.assert_allclose(d10["p_value"].to_numpy(), d2["p_value"].to_numpy(), rtol=1e-9)
+
 class DummyPDataMapping:
     def __init__(self, source):
         self.metadata = {"source": source}

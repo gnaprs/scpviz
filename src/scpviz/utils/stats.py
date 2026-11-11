@@ -124,8 +124,6 @@ def pairwise_log2fc(data1: np.ndarray, data2: np.ndarray) -> np.ndarray:
     Related Functions:
         - pAnnData.de: Differential expression analysis with multiple fold change strategies.
     """
-    n1, n2 = data1.shape[0], data2.shape[0]
-
     # data1[:, None, :] has shape (n1, 1, n_features)
     # data2[None, :, :] has shape (1, n2, n_features)
     # The result is an array of shape (n1, n2, n_features)
@@ -195,8 +193,10 @@ def de_adata(
             label significance using adjusted p-values.
         equal_var (bool): Passed to :func:`scipy.stats.ttest_ind` when ``method='ttest'``.
             ``True`` (default) uses Student's t-test; ``False`` uses Welch's t-test.
-        data_is_log (bool): If True, treat `layer` as log-transformed and
-            un-log to compute fold changes.
+        data_is_log (bool): If True, treat `layer` as log-transformed: with
+            ``fold_change_mode='mean'`` the log2FC is the difference of the log-scale group
+            means converted to log2 units (as in ``pdata.de``), and zeros (``log_base(pseudocount)``)
+            are treated as missing.
         log_base (float): Base of the log used in `layer`. Default 2.0.
         pseudocount (float): If data is log of (x + pseudocount), provide that
             here (e.g., 1.0 for log2(x+1)).
@@ -247,24 +247,6 @@ def de_adata(
 
         raise ValueError("Invalid legacy DE input format.")
 
-    def _unlog(data, data_is_log, log_base=2.0, pseudocount=0.0):
-        """Convert log-transformed data back to linear scale for FC calc."""
-        if not data_is_log:
-            return data
-
-        # data are log_base(x + pseudocount)
-        with np.errstate(over='ignore', invalid='ignore'):
-            if log_base == 2.0:
-                lin = np.power(2.0, data) - pseudocount
-            elif log_base == np.e:
-                lin = np.exp(data) - pseudocount
-            else:
-                lin = np.power(log_base, data) - pseudocount
-
-        # Clamp small negatives due to numerical noise
-        lin[lin < 0] = 0.0
-        return lin
-    
     # identify sample indices for each group
     def filter_indices(adata, filters):
         """Return sample indices matching a list of dict filters."""
@@ -312,18 +294,18 @@ def de_adata(
     data1 = mask_zeros_as_nan(X[idx1, :], data_is_log, log_base, pseudocount)
     data2 = mask_zeros_as_nan(X[idx2, :], data_is_log, log_base, pseudocount)
 
-    data1_fc = _unlog(data1, data_is_log=data_is_log, log_base=log_base, pseudocount=pseudocount)
-    data2_fc = _unlog(data2, data_is_log=data_is_log, log_base=log_base, pseudocount=pseudocount)
-
     # log2FC computation
 
     if fold_change_mode == 'mean':
         with np.errstate(all='ignore'), warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
-            m1 = np.nanmean(data1_fc, axis=0)
-            m2 = np.nanmean(data2_fc, axis=0)
+            m1 = np.nanmean(data1, axis=0)
+            m2 = np.nanmean(data2, axis=0)
             mask_invalid = (m1 == 0) | (m2 == 0) | np.isnan(m1) | np.isnan(m2)
-            log2fc_vals = np.log2(m1 / m2)
+            if data_is_log:  # difference of log-scale means (as pdata.de), converted to log2 units
+                log2fc_vals = (m1 - m2) * np.log2(log_base)
+            else:
+                log2fc_vals = np.log2(m1 / m2)
             log2fc_vals[mask_invalid] = np.nan
 
     elif fold_change_mode == 'pairwise_median':
