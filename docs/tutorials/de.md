@@ -38,6 +38,20 @@ pdata.de(values=comparison_values, fold_change_mode="pep_pairwise_median")
 
 ---
 
+## Test Methods
+
+```python
+pdata.log_transform(base=2)  # limma needs a log-transformed layer
+
+# Moderated t-test (limma-style empirical Bayes variance shrinkage)
+de_results = pdata.de(values=comparison_values, method="limma", correct_fdr=True)
+de_results.attrs["limma"]  # shared prior: s2_prior, df_prior, estimator
+```
+
+*Placeholder: limma shrinks each protein's variance toward a shared prior, which helps most with few replicates. Filter sparse proteins first (e.g. `filter_prot`), since the prior is fitted on whatever proteins are passed in. Other methods: `"ttest"` (default), `"mannwhitneyu"`, `"wilcoxon"`. Details to come.*
+
+---
+
 ## Donor-blocked mixed DE (`mixed_de`)
 
 Standard `de()` treats every cell/sample as independent. In many proteomics designs (especially **single-cell** or multi-sample assays) that overstates evidence:
