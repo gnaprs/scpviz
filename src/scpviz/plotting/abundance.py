@@ -449,7 +449,7 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
             plot_df = df[[x_col, y_col, 'class', 'facet']]
             g = sns.FacetGrid(plot_df, col='facet', height=height, aspect=aspect, sharey=True, dropna=False, legend_out=log)
             g.map_dataframe(sns.barplot, x=x_col, y=y_col, hue='class', **bar_kwargs)
-            g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
+            g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", r"$\mathrm{log}_{2}$(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
             if not log:
@@ -469,7 +469,7 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
             handles, labels = _ax.get_legend_handles_labels()
             by_label = dict(zip(labels, handles))
             _ax.legend(by_label.values(), by_label.keys(), title='Class', frameon=True)
-            _ax.set_ylabel("log2(Abundance)" if log else "Abundance")
+            _ax.set_ylabel(r"$\mathrm{log}_{2}$(Abundance)" if log else "Abundance")
             _ax.set_xlabel("Gene" if x_label == 'gene' else "Accession")
 
             return _ax
@@ -500,7 +500,7 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
                     alpha=0.5,
                     legend=False,
                 )
-            g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", "log2(Abundance)" if log else "Abundance")
+            g.set_axis_labels("Gene" if x_label == 'gene' else "Accession", r"$\mathrm{log}_{2}$(Abundance)" if log else "Abundance")
             g.set_titles("{col_name}")
             g.add_legend(title='Class', frameon=True)
             return g
@@ -516,7 +516,7 @@ def plot_abundance(ax: "plt.Axes | None", pdata: pAnnData, namelist: list[str] |
             handles, labels = _ax.get_legend_handles_labels()
             by_label = dict(zip(labels, handles))
             _ax.legend(by_label.values(), by_label.keys(), title='Class', frameon=True)
-            _ax.set_ylabel("log2(Abundance)" if log else "Abundance")
+            _ax.set_ylabel(r"$\mathrm{log}_{2}$(Abundance)" if log else "Abundance")
             _ax.set_xlabel("Gene" if x_label == 'gene' else "Accession")
             _ax.set_yscale("log") if not log else None
             return _ax
@@ -1521,7 +1521,7 @@ def plot_abundance_boxgrid(pdata: pAnnData, namelist: list[str] | None = None, a
             ymin, ymax = ax.get_ylim()
             ticks = np.arange(min(int(np.floor(ymin)), 0), int(np.ceil(ymax)) + 1)
             ax.set_yticks(ticks)
-            ylabel = "log10(Abundance)"
+            ylabel = r"$\mathrm{log}_{10}$(Abundance)"
         else:
             ylabel = "Abundance"
 

@@ -433,8 +433,8 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
     ax.axvline(log2fc, color='black', linestyle='--', linewidth=linewidth)
     ax.axvline(-log2fc, color='black', linestyle='--', linewidth=linewidth)
 
-    ax.set_xlabel('$log_{2}$ fold change')
-    ylabel = '-$log_{10}$ adjusted p value' if p_col == 'adj_p_value' else '-$log_{10}$ p value'
+    ax.set_xlabel(r'$\mathrm{log}_{2}$ fold change')
+    ylabel = r'-$\mathrm{log}_{10}$ adjusted p value' if p_col == 'adj_p_value' else r'-$\mathrm{log}_{10}$ p value'
     ax.set_ylabel(ylabel)
 
     log2fc_clean = volcano_df['log2fc'].replace([np.inf, -np.inf], np.nan).dropna()
@@ -748,8 +748,8 @@ def plot_volcano_adata(ax: "plt.Axes", adata: Any = None, values: Any = None, cl
     ax.axvline(log2fc, color='black', linestyle='--', linewidth=linewidth)
     ax.axvline(-log2fc, color='black', linestyle='--', linewidth=linewidth)
 
-    ax.set_xlabel('$log_{2}$ fold change')
-    ylabel = '-$log_{10}$ adjusted p value' if p_col == 'adj_p_value' else '-$log_{10}$ p value'
+    ax.set_xlabel(r'$\mathrm{log}_{2}$ fold change')
+    ylabel = r'-$\mathrm{log}_{10}$ adjusted p value' if p_col == 'adj_p_value' else r'-$\mathrm{log}_{10}$ p value'
     ax.set_ylabel(ylabel)
 
     # symmetric x-limits

@@ -1276,9 +1276,9 @@ def _plot_embedding_scatter(
             return colorbar_label
         name = str(color_key) if color_key is not None else "Abundance"
         if log_tick_base == 2:
-            return f"{name} Abundance (log2)"
+            return rf"{name} Abundance ($\mathrm{{log}}_{{2}}$)"
         if log_tick_base == 10:
-            return f"{name} Abundance (log10)"
+            return rf"{name} Abundance ($\mathrm{{log}}_{{10}}$)"
         return f"{name} Abundance (raw)"
 
     use_mapping = mapping is not None
@@ -3108,7 +3108,7 @@ def plot_pca_gsea_bubble(
     legend_neg_log = np.minimum(-np.log10(fdr_reference.clip(min=1e-300)), size_fdr_cap)
     legend_sizes = max_area * (legend_neg_log / size_fdr_cap)
     handles = [
-        ax.scatter([], [], s=s, facecolors="none", edgecolors="black", linewidths=0.6, label=f"-log10(FDR)={-np.log10(f):.1f}")
+        ax.scatter([], [], s=s, facecolors="none", edgecolors="black", linewidths=0.6, label=rf"-$\mathrm{{log}}_{{10}}$(FDR)={-np.log10(f):.1f}")
         for s, f in zip(legend_sizes, fdr_reference)
     ]
     ax.legend(

@@ -947,13 +947,13 @@ def _resolve_display_and_cluster(
         # Ensure log space without double-logging (prepare + infer policy)
         expr_log, _meta_log = _prepare_heatmap_expr(adata, layer, auto_log2=True)
         display, miss = _values_from_expr(expr_log)
-        return display, miss, cluster_z, miss_z, "log2 abundance", False, True
+        return display, miss, cluster_z, miss_z, r"$\mathrm{log}_{2}$ abundance", False, True
 
     # raw: layer values as stored, no in-memory log2
     expr_raw = np.asarray(get_adata_layer(adata, layer), dtype=float)
     display, miss = _values_from_expr(expr_raw)
     layer_is_log = infer_layer_is_log(layer, adata)
-    cbar_label = "log2 abundance" if layer_is_log else "abundance"
+    cbar_label = r"$\mathrm{log}_{2}$ abundance" if layer_is_log else "abundance"
     return display, miss, cluster_z, miss_z, cbar_label, False, layer_is_log
 
 def _composite_heatmap_rgba(
