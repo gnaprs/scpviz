@@ -161,8 +161,9 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
               - `"group2_xy"`: ``(0.02, 1.07)`` — left group label
               - `"up_xy"`: ``(0.98, 1.015)`` — upregulated ``n=`` count
               - `"down_xy"`: ``(0.02, 1.015)`` — downregulated ``n=`` count
-              - `"mixed_xy"`: ``(0.5, 1.25)`` — Mixed DE subtitle
-                (``"Mixed DE | …"``); only drawn for ``mixed_de`` results
+              - `"mixed_xy"`: ``(0.5, 1.25)`` — Mixed DE / Joint DE subtitle
+                (``"Mixed DE | …"`` / ``"Joint DE | method | contrast"``); only drawn
+                for ``mixed_de`` / ``joint_de`` results
 
             - `"bbox"`: Bounding-box dict for group labels, or ``None`` to
               disable the box.
@@ -433,11 +434,14 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
     ax.axvline(log2fc, color='black', linestyle='--', linewidth=linewidth)
     ax.axvline(-log2fc, color='black', linestyle='--', linewidth=linewidth)
 
-    ax.set_xlabel(r'$\mathrm{log}_{2}$ fold change')
+    joint_meta = getattr(volcano_df, "attrs", {}).get("joint_de")
+    # joint_de contrasts over more than two groups (e.g. interactions) are differences of fold changes
+    weighted = joint_meta is not None and len(joint_meta["contrasts"].get(joint_meta["contrast_label"], {})) > 2
+    ax.set_xlabel((r'$\Delta$ ' if weighted else '') + r'$\mathrm{log}_{2}$ fold change')
     ylabel = r'-$\mathrm{log}_{10}$ adjusted p value' if p_col == 'adj_p_value' else r'-$\mathrm{log}_{10}$ p value'
     ax.set_ylabel(ylabel)
 
-    log2fc_clean = volcano_df['log2fc'].replace([np.inf, -np.inf], np.nan).dropna()
+    log2fc_clean =volcano_df['log2fc'].replace([np.inf, -np.inf], np.nan).dropna()
     if log2fc_clean.empty:
         max_abs_log2fc = 1  # default range if nothing valid
     else:
@@ -482,6 +486,11 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
     if isinstance(values, list) and len(values) == 2:
         group1 = format_de_group_label(values[0], class_type=classes, style="slash")
         group2 = format_de_group_label(values[1], class_type=classes, style="slash")
+    elif joint_meta is not None:
+        # joint_de: a pair contrast shows its two groups (+1 right, -1 left); weighted contrasts none
+        spec = joint_meta["contrasts"].get(joint_meta["contrast_label"], {})
+        if len(spec) == 2:
+            group1, group2 = max(spec, key=spec.get), min(spec, key=spec.get)
     else:
         # de_data / stats_key path: recover labels from mixed_de / contrast column
         mixed_meta = getattr(volcano_df, "attrs", {}).get("mixed_de", {}) or {}
@@ -572,8 +581,10 @@ def plot_volcano(ax: "plt.Axes", pdata: pAnnData | None = None, values: Any = No
             n_donors_txt = volcano_df["n_donors_paired"].iloc[0]
         elif mixed_meta.get("n_donors_paired") is not None:
             n_donors_txt = mixed_meta["n_donors_paired"]
+        if joint_meta is not None:
+            de_method_txt, n_donors_txt = None, None
         if contrast_txt or de_method_txt or n_donors_txt is not None:
-            subtitle_parts = ["Mixed DE"]
+            subtitle_parts = ["Joint DE", str(joint_meta["method"])] if joint_meta is not None else ["Mixed DE"]
             if de_method_txt:
                 subtitle_parts.append(str(de_method_txt))
             if contrast_txt:

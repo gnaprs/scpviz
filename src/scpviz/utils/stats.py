@@ -69,6 +69,39 @@ def mask_zeros_as_nan(
     out[np.isclose(out, zero_val, rtol=0, atol=1e-12)] = np.nan
     return out
 
+def get_log_info(adata: Any, layer: str, layer_is_log: bool) -> tuple[str, float, float]:
+    """
+    Read the log base and pseudocount of a log-transformed layer from its provenance.
+
+    Walks ``adata.uns['layer_provenance']`` from ``layer`` back to the ``log_transform`` record.
+
+    Args:
+        adata (anndata.AnnData): Data holding the layer provenance.
+        layer (str): Layer name.
+        layer_is_log (bool): Whether the layer is log-transformed.
+
+    Returns:
+        tuple: ``(base_label, log_base, pseudocount)`` where ``base_label`` is ``"2"``, ``"10"``
+        or ``"e"`` (``"2"`` when no record is found), ``log_base`` the numeric base and
+        ``pseudocount`` the ``log(x + pseudocount)`` offset (``1.0`` by default).
+    """
+    from scpviz.utils.data import resolve_input_layer
+
+    rec: dict[str, Any] = {}
+    if layer_is_log:
+        reg = adata.uns.get("layer_provenance", {})
+        cur = resolve_input_layer(adata, layer)
+        for _ in range(len(reg)):
+            if cur not in reg:
+                break
+            if reg[cur].get("op") == "log_transform":
+                rec = reg[cur]
+                break
+            cur = reg[cur].get("input_layer", "")
+    base_label = str(rec.get("base", "2"))
+    log_base = np.e if base_label == "e" else float(base_label)
+    return base_label, log_base, rec.get("pseudocount", 1.0)
+
 def exclude_sparse_pvalues(
     pvals: np.ndarray,
     data1: np.ndarray,

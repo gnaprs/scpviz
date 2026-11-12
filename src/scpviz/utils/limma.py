@@ -96,6 +96,45 @@ def _fit_fdist_unequal_df(s2: np.ndarray, df: np.ndarray) -> tuple[float, float]
     d2 = q / (1.0 - q)
     return float(np.exp(emean - (np.log(d2) - digamma(d2)))), 2.0 * d2
 
+def squeeze_variance(
+    s2: np.ndarray,
+    df: np.ndarray,
+    legacy: bool | None = None,
+) -> tuple[np.ndarray, float, float, str, np.ndarray]:
+    """
+    Empirical Bayes shrinkage of per-feature residual variances (limma ``squeezeVar``).
+
+    Args:
+        s2 (numpy.ndarray): Residual variances per feature; NaN where ``df == 0``.
+        df (numpy.ndarray): Residual degrees of freedom per feature.
+        legacy (bool, optional): Prior estimator. ``None`` (default) follows limma:
+            moment estimator when all positive residual df are equal, otherwise the
+            unequal-df profile-likelihood estimator.
+
+    Returns:
+        tuple: ``(s2_post, s2_prior, df_prior, estimator, df_total)``. ``estimator`` is
+        ``"legacy"``, ``"unequal_df"`` or ``"none"`` (fewer than 3 features: variances unchanged).
+        ``df_total = min(df + df_prior, sum(df))``.
+
+    Note:
+        Features with ``df == 0`` carry no weight in the prior fit but still get a
+        posterior variance (the prior).
+    """
+    if df.size < 3:  # no benefit from moderation (matches limma)
+        s2_post, s0, d0, estimator = s2.copy(), np.nan, 0.0, "none"
+    else:
+        var = np.where(df == 0, 0.0, s2)
+        dfp = df[df > 0]
+        if legacy is None:
+            legacy = bool(dfp.min() == dfp.max())
+        s0, d0 = (_fit_fdist_legacy if legacy else _fit_fdist_unequal_df)(var, df)
+        estimator = "legacy" if legacy else "unequal_df"
+        if np.isfinite(d0):
+            s2_post = (df * var + d0 * s0) / (df + d0)
+        else:
+            s2_post = np.full(df.shape, s0)
+    return s2_post, s0, d0, estimator, np.minimum(df + d0, df.sum())
+
 def moderated_two_group_test(
     data1: np.ndarray,
     data2: np.ndarray,
@@ -173,23 +212,10 @@ def moderated_two_group_test(
             "(need at least 2 values in a group for some feature)."
         )
 
-    if df.size < 3:  # no benefit from moderation (matches limma)
-        s2_post, s0, d0, estimator = s2.copy(), np.nan, 0.0, "none"
-    else:
-        var = np.where(df == 0, 0.0, s2)
-        dfp = df[df > 0]
-        if legacy is None:
-            legacy = bool(dfp.min() == dfp.max())
-        s0, d0 = (_fit_fdist_legacy if legacy else _fit_fdist_unequal_df)(var, df)
-        estimator = "legacy" if legacy else "unequal_df"
-        if np.isfinite(d0):
-            s2_post = (df * var + d0 * s0) / (df + d0)
-        else:
-            s2_post = np.full(df.shape, s0)
+    s2_post, s0, d0, estimator, df_total = squeeze_variance(s2, df, legacy=legacy)
 
     with np.errstate(divide="ignore", invalid="ignore"):
         t = beta / sd_unscaled / np.sqrt(s2_post)
-    df_total = np.minimum(df + d0, df.sum())
     p_value = 2.0 * t_dist.sf(np.abs(t), df_total)
     return {"beta": beta, "stdev_unscaled": sd_unscaled, "s2": s2, "df_residual": df,
             "s2_post": s2_post, "t": t, "df_total": df_total, "p_value": p_value,
