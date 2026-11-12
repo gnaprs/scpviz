@@ -1665,7 +1665,7 @@ def test_plot_pca_colorbar_norm_log10_label(pdata):
     gene = pdata.prot.var["Genes"].dropna().iloc[0]
     scplt.plot_pca(ax, pdata, color=gene, colorbar_norm="log10", force=True)
     ylabels = [a.get_ylabel() for a in fig.axes if a.get_ylabel()]
-    assert any(f"{gene} Abundance (log10)" in lab for lab in ylabels)
+    assert any(f"{gene} Abundance (" in lab and r"\mathrm{log}_{10}" in lab for lab in ylabels)
 
 def test_plot_pca_negative_abundance_warns(pdata, capsys):
     fig, ax = plt.subplots()
