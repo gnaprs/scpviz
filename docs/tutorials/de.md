@@ -52,6 +52,55 @@ de_results.attrs["limma"]  # shared prior: s2_prior, df_prior, estimator
 
 ---
 
+## Joint multi-group DE (`joint_de`)
+
+`de()` compares two groups. When you have several conditions (e.g. vehicle plus three doses, or two detergents with and without drug), `joint_de()` fits one linear model per protein across **all** groups and tests any number of contrasts. Every contrast uses the residual variance pooled over all groups, so it has more degrees of freedom than separate two-group tests (assuming a similar within-group variance in every group).
+
+```python
+pdata.log_transform(base=2)
+
+# Several doses against one vehicle (limma-moderated by default)
+res = pdata.joint_de(
+    groupby="condition", reference="vehicle", comparisons=["low", "mid", "high"],
+)
+res["contrasts"]     # {label: DataFrame} with the same columns as de() (+ se, n_<group>)
+res["diagnostics"]   # per protein: group counts, df_residual, s2, s2_post, df_total
+
+# Plain pooled-variance t-tests instead of limma moderation
+pdata.joint_de(groupby="condition", reference="vehicle", comparisons=["low"], method="lm")
+```
+
+**Different controls per detergent.** Pass named `(test, ref)` pairs; with several columns the group label is the values joined by `_`:
+
+```python
+pdata.joint_de(
+    groupby=["detergent", "treatment"],
+    contrasts={
+        "NP40 drug vs vehicle": ("NP40_drug", "NP40_vehicle"),
+        "DDM drug vs vehicle": ("DDM_drug", "DDM_vehicle"),
+    },
+)
+```
+
+**Does the drug act differently in the two detergents?** Give a weight for each group. Groups with `+1` are added, groups with `-1` are subtracted, and the weights must sum to zero. This one computes "drug change in NP40" minus "drug change in DDM" in a single test:
+
+```python
+pdata.joint_de(
+    groupby=["detergent", "treatment"],
+    contrasts={"drug effect: NP40 minus DDM": {
+        "NP40_drug": +1, "NP40_vehicle": -1, "DDM_drug": -1, "DDM_vehicle": +1,
+    }},
+)
+```
+
+`log2fc` is then (change in NP40) − (change in DDM): near 0 means the drug acts the same in both detergents. A protein that is significant in one detergent but not the other does *not* show the detergents differ; only this contrast tests that.
+
+Plot one contrast with `plot_volcano(ax, de_data=res["contrasts"][label], correct_fdr=True)`.
+
+*Notes: samples are treated as independent (use `mixed_de` for paired or repeated measurements); restrict the samples first if some groups are unrelated or much noisier, since they all share one variance estimate; filter sparse proteins upstream (`filter_prot`). `method="limma"` is the no-trend, non-robust moderation, checked against R limma (`lmFit(~0 + group)`, `contrasts.fit`, `eBayes`).*
+
+---
+
 ## Donor-blocked mixed DE (`mixed_de`)
 
 Standard `de()` treats every cell/sample as independent. In many proteomics designs (especially **single-cell** or multi-sample assays) that overstates evidence:
