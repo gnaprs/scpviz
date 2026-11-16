@@ -1835,13 +1835,13 @@ def test_resolve_hatch_patterns_none(dummy_adata):
 def test_resolve_hatch_patterns_default_list_dict(dummy_adata):
     hatches, legend, hmap = scplt.resolve_hatch_patterns(dummy_adata, "treatment")
     assert len(hatches) == 4 and len(set(hatches)) == 2
-    assert hmap == {"ctrl": "", "drug": "//"}  # first level unhatched, then sparsest hatch
-    assert [h.get_label() for h in legend] == ["ctrl", "drug"]
-    assert [h.get_hatch() for h in legend] in ([None, "//"], ["", "//"])
-    _, _, hmap_list = scplt.resolve_hatch_patterns(dummy_adata, "treatment", hatch_cmap=["//", "xx"])
-    assert hmap_list == {"ctrl": "//", "drug": "xx"}
-    _, _, hmap_dict = scplt.resolve_hatch_patterns(dummy_adata, ["cellline"], hatch_cmap={"A": "..", "B": "--"})
-    assert hmap_dict == {"A": "..", "B": "--"}
+    assert hmap == {"ctrl": "", "drug": "\\"}  # first level unhatched, then a single backslash line
+    assert [h[0].get_label() for h in legend] == ["ctrl", "drug"]
+    assert len(legend[0]) == 1 and len(legend[1]) == 2  # unhatched: ring only; hatched: ring + symbol
+    _, _, hmap_list = scplt.resolve_hatch_patterns(dummy_adata, "treatment", hatch_cmap=["+", "x"])
+    assert hmap_list == {"ctrl": "+", "drug": "x"}
+    _, _, hmap_dict = scplt.resolve_hatch_patterns(dummy_adata, ["cellline"], hatch_cmap={"A": ".", "B": "|"})
+    assert hmap_dict == {"A": ".", "B": "|"}
 
 def test_resolve_hatch_patterns_invalid(dummy_adata):
     with pytest.raises(ValueError):
@@ -1850,7 +1850,7 @@ def test_resolve_hatch_patterns_invalid(dummy_adata):
         scplt.resolve_hatch_patterns(dummy_adata, "treatment", hatch_cmap=3)
 
 def _hatch_collections(ax):
-    return [c for c in ax.collections if c.get_hatch()]
+    return [c for c in ax.collections if c.get_gid() == "hatch_overlay"]
 
 _HATCH_COLS = [("pdata", "treatment", "cellline"), ("pdata_diann", "region", "gradient")]
 
@@ -1858,11 +1858,16 @@ _HATCH_COLS = [("pdata", "treatment", "cellline"), ("pdata_diann", "region", "gr
 def test_plot_pca_hatch_pattern_smoke(request, fixture_name, color_col, hatch_col):
     pd_ = request.getfixturevalue(fixture_name)
     fig, ax = plt.subplots()
-    scplt.plot_pca(ax, pd_, color=color_col, hatch_pattern=hatch_col, s=80, force=True)
-    hatched = _hatch_collections(ax)
-    assert len(hatched) == pd_.prot.obs[hatch_col].nunique() - 1  # first level is unhatched
-    # edge defaults to black when hatching without edge_color
-    assert np.allclose(hatched[0].get_edgecolor()[0][:3], (0, 0, 0))
+    scplt.plot_pca(ax, pd_, color=color_col, hatch_pattern=hatch_col, s=30, force=True)
+    overlays = _hatch_collections(ax)
+    assert len(overlays) == pd_.prot.obs[hatch_col].nunique() - 1  # first level is unhatched
+    # symbols are black when edge_color is unset, and sit exactly on the points they decorate
+    assert np.allclose(overlays[0].get_edgecolor()[0][:3], (0, 0, 0))
+    base = [c for c in ax.collections if c.get_gid() != "hatch_overlay"]
+    base_xy = np.vstack([c.get_offsets() for c in base])
+    for c in overlays:
+        for xy in np.asarray(c.get_offsets()):
+            assert np.any(np.all(np.isclose(base_xy, xy), axis=1))
     titles = [a.get_title().get_text() for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
     assert hatch_col.capitalize() in titles
     plt.close(fig)
@@ -1872,15 +1877,19 @@ def test_plot_umap_hatch_pattern_smoke(request, fixture_name, color_col, hatch_c
     pd_ = request.getfixturevalue(fixture_name)
     fig, ax = plt.subplots()
     scplt.plot_umap(ax, pd_, color=color_col, hatch_pattern=hatch_col,
-                    s=80, force=True, umap_params={"n_neighbors": 3})
+                    s=30, force=True, umap_params={"n_neighbors": 3})
     assert len(_hatch_collections(ax)) >= 1
     plt.close(fig)
 
-def test_plot_pca_hatch_with_edge_color_and_marker(pdata):
+def test_plot_pca_hatch_uses_edge_color(pdata):
     fig, ax = plt.subplots()
     scplt.plot_pca(ax, pdata, color="treatment", edge_color="cellline", marker_shape="cellline",
-                   hatch_pattern="treatment", s=80, force=True)
-    assert _hatch_collections(ax)
+                   hatch_pattern="treatment", hatch_cmap={"kd": "+", "sc": "x"}, s=30, force=True)
+    overlays = _hatch_collections(ax)
+    assert overlays
+    # symbols take the edge colors (not all black)
+    cols = np.vstack([c.get_edgecolor() for c in overlays])
+    assert len({tuple(np.round(r, 3)) for r in cols}) > 1
     plt.close(fig)
 
 def test_plot_pca_hatch_legend_and_shift_legend(pdata):
@@ -1918,19 +1927,31 @@ def test_plot_pca_mapping_hatch(pdata):
     mapping_keys, mapping = _combo_mapping_literal(pdata)
     for i, v in enumerate(mapping.values()):
         v.pop("edge_color")
-        v["hatch"] = ["//", "xx"][i % 2]
-    scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, s=80, force=True)
-    hatched = _hatch_collections(ax)
-    assert {c.get_hatch() for c in hatched} == {"//", "xx"}
-    # edge defaults to black for entries with hatch and no edge_color
-    assert np.allclose(hatched[0].get_edgecolor()[0][:3], (0, 0, 0))
+        v["hatch"] = ["/", "x"][i % 2]
+    scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, s=30, force=True)
+    overlays = _hatch_collections(ax)
+    assert len(overlays) == 2  # one overlay per distinct symbol
+    # symbol is black for entries with hatch and no edge_color
+    assert np.allclose(overlays[0].get_edgecolor()[0][:3], (0, 0, 0))
+    plt.close(fig)
+
+def test_plot_pca_mapping_hatch_legend_lists_unhatched(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys, mapping = _combo_mapping_literal(pdata)
+    for i, v in enumerate(mapping.values()):
+        v.pop("edge_color")
+        if i == 0:
+            v["hatch"] = "x"
+    scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, s=30, force=True)
+    legs = [a for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert len(legs[-1].get_texts()) == len(mapping)  # unhatched combinations are listed too
     plt.close(fig)
 
 def test_plot_pca_mapping_rejects_hatch_pattern_kw(pdata):
     fig, ax = plt.subplots()
     mapping_keys, mapping = _combo_mapping_literal(pdata)
     for v in mapping.values():
-        v["hatch"] = "//"
+        v["hatch"] = "/"
     with pytest.raises(ValueError, match="hatch_pattern"):
         scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping,
                        hatch_pattern="treatment", force=True)

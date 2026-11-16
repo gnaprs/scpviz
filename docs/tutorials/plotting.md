@@ -537,13 +537,13 @@ Each visual channel pairs a data argument (which `.obs` key to encode) with a st
 
 For each style argument, `"default"` uses the built-in cycle, a list is assigned to the sorted class labels, and a dict is `{label: value}`. Channels can be combined freely.
 
-**Hatching.** `hatch_pattern` fills points with a pattern, which is useful for a second categorical variable on top of color (and survives grayscale printing). Hatch lines are drawn in the edge color, so edges default to black when `edge_color` is not set; `edge_lw` sets the line width. The default `hatch_cmap` leaves the first level unhatched and then cycles `//`, `xx`, `--`, `||`, `++`, `..`, `oo`, `**` (repeat a character, e.g. `"///"`, to make it denser). Hatching is only legible at larger marker sizes, so use `s` of roughly 60 or more. The hatch gets its own legend, and `shift_legend` stacks it with the others.
+**Hatching.** `hatch_pattern` marks each point with a small symbol for a second categorical variable on top of color (and survives grayscale printing). The symbol is drawn exactly at the center of the point, in the edge color (black when `edge_color` is not set), at about 70% of the marker size `s`. This is deliberately not matplotlib's hatch fill: matplotlib anchors a hatch pattern to the canvas rather than to each marker, so on small points the lines land off-center and differ from point to point. Symbols are matplotlib markers (`"x"`, `"+"`, `"|"`, `"_"`, `"."`, `"*"`, ...), plus `"/"` and `"\\"` for a single diagonal line; `""` means no symbol. The default `hatch_cmap` leaves the first level blank and then cycles `\`, `x`, `|`, `_`, `/`, `+`, `.`, `*`, alternating orientation so successive levels look as different as possible. The symbols get their own legend, and `shift_legend` stacks it with the others.
 
 === "Color + hatch"
 
     ```python
     fig, ax = plt.subplots(figsize=(4, 4))
-    scplt.plot_pca(ax, pdata_norm, color="cellline", hatch_pattern="condition", s=80)
+    scplt.plot_pca(ax, pdata_norm, color="cellline", hatch_pattern="condition", s=30)
     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
     plt.show()
     ```
@@ -558,7 +558,7 @@ For each style argument, `"default"` uses the built-in cycle, a list is assigned
     fig, ax = plt.subplots(figsize=(4, 4))
     scplt.plot_pca(
         ax, pdata_norm, color="cellline", marker_shape="cellline",
-        hatch_pattern="condition", hatch_cmap={"kd": "///", "sc": "xxx"}, s=80,
+        hatch_pattern="condition", hatch_cmap={"kd": "+", "sc": "x"}, s=30,
     )
     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
     plt.show()
@@ -611,19 +611,19 @@ For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a
 
 === "Hatch per combination (bulk)"
 
-    Entries with `"hatch"` and no `edge_color` get a black edge so the hatch lines show. Combining `hatch` entries with `hatch_pattern=` raises a `ValueError`.
+    The `"hatch"` symbol is drawn in the entry's `edge_color` (black if omitted); all combinations are listed in the hatch legend, including unhatched ones. Combining `hatch` entries with `hatch_pattern=` raises a `ValueError`.
 
     ```python
     mapping_keys = ["cellline", "condition"]
     mapping = {
-        ("AS", "kd"): {"color": "#F4A261", "hatch": "///"},
+        ("AS", "kd"): {"color": "#F4A261", "hatch": "/"},
         ("AS", "sc"): {"color": "#F4A261"},
-        ("BE", "kd"): {"color": "#D0D0D0", "hatch": "///", "edge_color": "#C0392B"},
+        ("BE", "kd"): {"color": "#D0D0D0", "hatch": "/", "edge_color": "#C0392B"},
         ("BE", "sc"): {"color": "#D0D0D0"},
     }
 
     fig, ax = plt.subplots(figsize=(4, 4))
-    scplt.plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, s=80, force=True)
+    scplt.plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, s=30, force=True)
     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
     plt.show()
     ```
@@ -759,7 +759,7 @@ plt.show()
     fig, ax = plt.subplots(figsize=(4, 4))
     scplt.plot_umap(
         ax, pdata_norm, color="cellline", marker_shape="cellline",
-        hatch_pattern="condition", s=80, umap_params={"n_neighbors": 5},
+        hatch_pattern="condition", s=30, umap_params={"n_neighbors": 5},
     )
     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
     plt.show()
@@ -772,13 +772,13 @@ plt.show()
     ```python
     mapping_keys = ["region"]
     mapping = {
-        "Cortex": {"color": "#D19DCB", "hatch": "///"},
+        "Cortex": {"color": "#D19DCB", "hatch": "/"},
         "SNpc": {"color": "#85BE9E"},
     }
 
     fig, ax = plt.subplots(figsize=(4.5, 4))
     scplt.plot_umap(
-        ax, pdata_sc, mapping_keys=mapping_keys, mapping=mapping, s=40,
+        ax, pdata_sc, mapping_keys=mapping_keys, mapping=mapping, s=30,
         umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
         force=True,
     )

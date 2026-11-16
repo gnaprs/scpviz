@@ -183,27 +183,27 @@ def _zero_gene_for_figure(pdata_in: pAnnData, gene: str, n_zero: int) -> pAnnDat
 def _hatch_figures(pdata_norm: pAnnData, classes_2: list[str], g2: str) -> None:
     """Bulk hatch_pattern figures for plot_pca / plot_umap docstrings (needs ``pca`` already run)."""
     fig, ax = plt.subplots(figsize=(4, 4))
-    scplt.plot_pca(ax, pdata_norm, color="cellline", hatch_pattern=g2, s=80, force=True)
+    scplt.plot_pca(ax, pdata_norm, color="cellline", hatch_pattern=g2, s=30, force=True)
     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
     save_current_fig("plot_pca_hatch")
 
     fig, ax = plt.subplots(figsize=(4, 4))
     scplt.plot_pca(
         ax, pdata_norm, color="cellline", marker_shape="cellline",
-        hatch_pattern=g2, hatch_cmap={"kd": "///", "sc": "xxx"}, s=80,
+        hatch_pattern=g2, hatch_cmap={"kd": "+", "sc": "x"}, s=30,
     )
     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
     save_current_fig("plot_pca_hatch_marker")
 
     mapping_hatch = {
-        ("AS", "kd"): {"color": "#F4A261", "hatch": "///"},
+        ("AS", "kd"): {"color": "#F4A261", "hatch": "/"},
         ("AS", "sc"): {"color": "#F4A261"},
-        ("BE", "kd"): {"color": "#D0D0D0", "hatch": "///", "edge_color": "#C0392B"},
+        ("BE", "kd"): {"color": "#D0D0D0", "hatch": "/", "edge_color": "#C0392B"},
         ("BE", "sc"): {"color": "#D0D0D0"},
     }
     fig, ax = plt.subplots(figsize=(4, 4))
     scplt.plot_pca(
-        ax, pdata_norm, mapping_keys=classes_2, mapping=mapping_hatch, s=80, force=True
+        ax, pdata_norm, mapping_keys=classes_2, mapping=mapping_hatch, s=30, force=True
     )
     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
     save_current_fig("plot_pca_mapping_hatch")
@@ -211,7 +211,7 @@ def _hatch_figures(pdata_norm: pAnnData, classes_2: list[str], g2: str) -> None:
     fig, ax = plt.subplots(figsize=(4, 4))
     scplt.plot_umap(
         ax, pdata_norm, color="cellline", marker_shape="cellline", hatch_pattern=g2,
-        s=80, umap_params={"n_neighbors": 5}, force=True,
+        s=30, umap_params={"n_neighbors": 5}, force=True,
     )
     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
     save_current_fig("plot_umap_hatch")
@@ -790,12 +790,12 @@ def main(*, skip_umap: bool = False) -> None:
             pdata_umap,
             mapping_keys=map_keys_lit,
             mapping={
-                str(k): ({"color": v["color"], "hatch": "///"} if i == 0 else {"color": v["color"]})
+                str(k): ({"color": v["color"], "hatch": "/"} if i == 0 else {"color": v["color"]})
                 for i, (k, v) in enumerate(map_lit.items())
             },
             force=False,
             umap_params=umap_kw.get("umap_params", {}),
-            s=umap_kw.get("s", 20) * 4,
+            s=umap_kw.get("s", 20) * 3,
             alpha=umap_kw.get("alpha", 0.8),
         )
         scplt.shift_legend(ax)
