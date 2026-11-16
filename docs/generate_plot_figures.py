@@ -25,6 +25,8 @@ Also writes abundance-colored PCA/UMAP examples:
 ``plot_umap_abundance_log10.png``.
 Also writes ``plot_pca_mapping.png`` (bulk tuple-key mapping) and PCA-GSEA figures
 ``plot_pca_gsea_pathway_vectors.png``, ``plot_pca_gsea_bubble.png``, ``plot_pca_gsea_heatmap.png``.
+Also writes hatch examples ``plot_pca_hatch.png``, ``plot_pca_hatch_marker.png``,
+``plot_pca_mapping_hatch.png``, ``plot_umap_hatch.png`` and (single-cell only) ``plot_umap_mapping_hatch.png``.
 Also writes ``plot_grouped_heatmap.png``, ``plot_grouped_heatmap_spacing.png``,
 ``plot_clustered_heatmap.png``, ``plot_clustered_heatmap_spacing.png``,
 ``plot_clustered_heatmap_de.png`` (DE hits via ``stats_key`` after volcano), and
@@ -176,6 +178,43 @@ def _zero_gene_for_figure(pdata_in: pAnnData, gene: str, n_zero: int) -> pAnnDat
     vidx = int(np.where(hit)[0][0])
     adata.X[: min(n_zero, adata.n_obs), vidx] = 0.0
     return out
+
+
+def _hatch_figures(pdata_norm: pAnnData, classes_2: list[str], g2: str) -> None:
+    """Bulk hatch_pattern figures for plot_pca / plot_umap docstrings (needs ``pca`` already run)."""
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(ax, pdata_norm, color="cellline", hatch_pattern=g2, s=80, force=True)
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    save_current_fig("plot_pca_hatch")
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax, pdata_norm, color="cellline", marker_shape="cellline",
+        hatch_pattern=g2, hatch_cmap={"kd": "///", "sc": "xxx"}, s=80,
+    )
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    save_current_fig("plot_pca_hatch_marker")
+
+    mapping_hatch = {
+        ("AS", "kd"): {"color": "#F4A261", "hatch": "///"},
+        ("AS", "sc"): {"color": "#F4A261"},
+        ("BE", "kd"): {"color": "#D0D0D0", "hatch": "///", "edge_color": "#C0392B"},
+        ("BE", "sc"): {"color": "#D0D0D0"},
+    }
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax, pdata_norm, mapping_keys=classes_2, mapping=mapping_hatch, s=80, force=True
+    )
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    save_current_fig("plot_pca_mapping_hatch")
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_umap(
+        ax, pdata_norm, color="cellline", marker_shape="cellline", hatch_pattern=g2,
+        s=80, umap_params={"n_neighbors": 5}, force=True,
+    )
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    save_current_fig("plot_umap_hatch")
 
 
 def load_bulk():
@@ -621,6 +660,8 @@ def main(*, skip_umap: bool = False) -> None:
     scplt.shift_legend(ax)
     save_current_fig("plot_pca_mapping")
 
+    _hatch_figures(pdata_norm, classes_2, g2)
+
     gene_abund = _resolve_abundance_gene(pdata_norm, ("GAPDH", "Gapdh", "TUBB", "ACTB"))
     pdata_abund = _zero_gene_for_figure(
         pdata_norm, gene_abund, max(2, pdata_norm.prot.n_obs // 4)
@@ -743,6 +784,23 @@ def main(*, skip_umap: bool = False) -> None:
         scplt.shift_legend(ax)
         save_current_fig("plot_umap_mapping")
 
+        fig, ax = plt.subplots(figsize=umap_kw.get("figsize", (3, 3)))
+        scplt.plot_umap(
+            ax,
+            pdata_umap,
+            mapping_keys=map_keys_lit,
+            mapping={
+                str(k): ({"color": v["color"], "hatch": "///"} if i == 0 else {"color": v["color"]})
+                for i, (k, v) in enumerate(map_lit.items())
+            },
+            force=False,
+            umap_params=umap_kw.get("umap_params", {}),
+            s=umap_kw.get("s", 20) * 4,
+            alpha=umap_kw.get("alpha", 0.8),
+        )
+        scplt.shift_legend(ax)
+        save_current_fig("plot_umap_mapping_hatch")
+
         pdata_umap_ab = _zero_gene_for_figure(
             pdata_umap,
             gene_sc,
@@ -812,7 +870,7 @@ def main(*, skip_umap: bool = False) -> None:
         text_size=7,
         show_row_labels=False,
         header_spacing=0.06,
-        header_height=0.35,
+        header_height="square",
     )
     fig_cm.savefig(OUT / "plot_clustermap.png", dpi=DPI, bbox_inches="tight")
     plt.close("all")
@@ -938,8 +996,8 @@ def main(*, skip_umap: bool = False) -> None:
                 classes=classes_2,
                 stats_key=slim_key,
                 sort_by=hm_sort,
-                figsize=(7, 6),
-                text_size=7,
+                figsize=(4, 4),
+                show_row_labels=False,
             )
             fig_de.savefig(OUT / "plot_clustered_heatmap_de.png", dpi=DPI, bbox_inches="tight")
             plt.close("all")

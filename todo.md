@@ -35,6 +35,7 @@ Quick view of what to work on. Full tables below.
 | L | [ ] | viz-1 | Dot plot: expression of indicated genes in three clusters (dot size = % cells per cluster; color = cluster average normalized expression). Partially doable w scanpy. |
 | M | [ ] | viz-2 | Compare two comparisons: log(fc) vs log(fc) with significance coloring |
 | H | [x] | viz-3 | Add gsea — one for PCA, one for ssGSEA |
+| M | [x] | viz-6 | `plot_pca` / `plot_umap` hatching: `hatch_pattern` + `hatch_cmap` (categorical `.obs`; default cycle leaves the first level unhatched, then `//`, `xx`, ...), hatch lines use the edge color (black by default), own legend, `mapping` entries accept `"hatch"`; `color` + `marker_shape` on the same key now share one legend. Not done: hatch as an `ellipse_group` fallback, hatch on 1D/3D scatter (unverified), a runtime warning for small `s`, merging hatch into the combined legend |
 | M | [x] | viz-4 | Hypothesis testing — ANOVA with Tukey and BH correction |
 | M | [x] | viz-5 | plot_grouped_heatmap + plot_clustered_heatmap (publication heatmaps) |
 | M | [ ] | enr-1 | String DB values rank API — check API key; per-user or local copy in package? [API help](https://string-db.org/cgi/help?subpage=api%23valuesranks-enrichment-api) |
@@ -101,6 +102,7 @@ Quick view of what to work on. Full tables below.
 | M | [x] | bug-12 | `pAnnData(prot=..., pep=..., rs=...)` leaves `.summary` as an empty DataFrame (`pAnnData.py:74`), so the first `copy()` (any `return_copy=True` filter, `de` with `pep_pairwise_median`) raises `Mismatch: .summary and .prot.obs have different sample indices`. Build the summary in `__init__` when `prot`/`pep` is given; workaround: `pdata.update_summary()` |
 | M | [ ] | bug-13 | `pAnnData.load()` crashes with `TypeError: string operation on non-string array` (`serialization._read_strings` via `read_value` → `_read_index(elem["columns"])`) when a saved DataFrame has empty columns (e.g. `.var` with no columns, as in a synthetic `AnnData` built with `var=pd.DataFrame(index=[...])`). Repro: build a tiny pdata, `save()`, `load()`. Likely an empty string array is written/read with a non-string dtype |
 | M | [x] | bug-14 | `de_adata` and `pdata.de` disagreed on `log2fc` for the same log-scale layer (`pdata.de`: log-scale mean difference; `de_adata`: un-logged ratio of means, up to ~0.9 log2 units apart on data with missing values). Fixed: `de_adata` now uses `pdata.de`'s definition (log-scale mean difference converted to log2 units); removed the `_unlog` helper; tests in `tests/test_utils.py`. `pairwise_median` on a log layer still operates on the log values in both functions (not addressed) |
+| M | [ ] | bug-15 | Clustered heatmap spacing is off across all clustered heatmaps (`plot_clustered_heatmap`, `plot_clustermap`, grouped/spacing variants in `plotting/clustering.py`): the recent cluster/spacing changes shifted the layout. Review the regenerated `docs/assets/plots/plot_clustered_heatmap*.png`, `plot_grouped_heatmap*.png` and `plot_clustermap.png`, fix gaps/dendrogram/colorbar spacing, then regenerate the figures |
 
 
 
@@ -123,7 +125,7 @@ Quick view of what to work on. Full tables below.
 
 | Priority | Status | ID | Description |
 |----------|--------|----|-------------|
-|  | [ ] | maint-1 | Todo for maintenance goes here |
+| M | [ ] | maint-1 | Move test data files (`test_pd_*`, `test_diann*`, `test_spectronaut_*`, `peptide_matrix.aq_reformat.*`, etc.) from `tests/` into `tests/data/`; update paths in tests/fixtures |
 
 ---
 

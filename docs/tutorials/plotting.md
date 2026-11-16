@@ -438,7 +438,7 @@ plt.show()
 
 [`plot_pca` API ↗](../reference/plotting.md#src.scpviz.plotting.plot_pca) · [`plot_pca_protein_vectors` API ↗](../reference/plotting.md#src.scpviz.plotting.plot_pca_protein_vectors)
 
-[`plot_pca`](#pca-code) runs PCA (or reuses cached results) and renders a scatter. Supports categorical and continuous coloring, edge colors, marker shapes, 3D projections, confidence ellipses, and tuple-key mapping.
+[`plot_pca`](#pca-code) runs PCA (or reuses cached results) and renders a scatter. Supports categorical and continuous coloring, edge colors, marker shapes, hatch patterns, 3D projections, confidence ellipses, and tuple-key mapping.
 
 ```python
 import matplotlib.pyplot as plt
@@ -524,9 +524,51 @@ scplt.plot_pca(
 
 The same parameters apply to [`plot_umap`](#umap-code).
 
+#### Style channels: color, edge, marker, hatch { #style-channels }
+
+Each visual channel pairs a data argument (which `.obs` key to encode) with a style argument (how to encode it). The same pairing applies to [`plot_umap`](#umap-code):
+
+| Channel | Data argument | Style argument | Accepts |
+|---|---|---|---|
+| Face color | `color` | `cmap` | `.obs` key(s) or gene/protein (continuous); palette list/dict or colormap |
+| Edge color | `edge_color` | `edge_cmap` | `.obs` key(s), categorical only; palette list/dict |
+| Marker shape | `marker_shape` | `shape_cmap` | `.obs` key(s), categorical only; marker list/dict |
+| Hatch | `hatch_pattern` | `hatch_cmap` | `.obs` key(s), categorical only; hatch list/dict |
+
+For each style argument, `"default"` uses the built-in cycle, a list is assigned to the sorted class labels, and a dict is `{label: value}`. Channels can be combined freely.
+
+**Hatching.** `hatch_pattern` fills points with a pattern, which is useful for a second categorical variable on top of color (and survives grayscale printing). Hatch lines are drawn in the edge color, so edges default to black when `edge_color` is not set; `edge_lw` sets the line width. The default `hatch_cmap` leaves the first level unhatched and then cycles `//`, `xx`, `--`, `||`, `++`, `..`, `oo`, `**` (repeat a character, e.g. `"///"`, to make it denser). Hatching is only legible at larger marker sizes, so use `s` of roughly 60 or more. The hatch gets its own legend, and `shift_legend` stacks it with the others.
+
+=== "Color + hatch"
+
+    ```python
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(ax, pdata_norm, color="cellline", hatch_pattern="condition", s=80)
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    plt.show()
+    ```
+
+    ![Plot PCA hatch](../assets/plots/plot_pca_hatch.png)
+
+=== "Color + marker + hatch"
+
+    When `color` and `marker_shape` use the same key, their legends are merged into one (colored markers). Pass a dict to `hatch_cmap` to choose the patterns:
+
+    ```python
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax, pdata_norm, color="cellline", marker_shape="cellline",
+        hatch_pattern="condition", hatch_cmap={"kd": "///", "sc": "xxx"}, s=80,
+    )
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    plt.show()
+    ```
+
+    ![Plot PCA hatch with marker shape](../assets/plots/plot_pca_hatch_marker.png)
+
 #### Tuple-key mapping
 
-For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a `mapping` dict keyed by metadata combinations. Multi-column keys are tuples; a single column may use string keys. This assigns colors, edge colors, and marker shapes without pre-encoding a combined column:
+For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a `mapping` dict keyed by metadata combinations. Multi-column keys are tuples; a single column may use string keys. This assigns colors, edge colors, marker shapes (`"marker"`), and hatch patterns (`"hatch"`) without pre-encoding a combined column:
 
 === "Literal face + edge colors (bulk)"
 
@@ -566,6 +608,27 @@ For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a
     ```
 
     ![Plot PCA mapping abundance (single-cell)](../assets/plots/plot_pca_mapping_abundance_sc.png)
+
+=== "Hatch per combination (bulk)"
+
+    Entries with `"hatch"` and no `edge_color` get a black edge so the hatch lines show. Combining `hatch` entries with `hatch_pattern=` raises a `ValueError`.
+
+    ```python
+    mapping_keys = ["cellline", "condition"]
+    mapping = {
+        ("AS", "kd"): {"color": "#F4A261", "hatch": "///"},
+        ("AS", "sc"): {"color": "#F4A261"},
+        ("BE", "kd"): {"color": "#D0D0D0", "hatch": "///", "edge_color": "#C0392B"},
+        ("BE", "sc"): {"color": "#D0D0D0"},
+    }
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, s=80, force=True)
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    plt.show()
+    ```
+
+    ![Plot PCA mapping hatch](../assets/plots/plot_pca_mapping_hatch.png)
 
 Combinations missing from `mapping` default to grey face with no edge. Pass `mapping_on_missing="raise"` to require all combinations to be present.
 
@@ -686,6 +749,45 @@ plt.show()
 ![UMAP colored by abundance (log10)](../assets/plots/plot_umap_abundance_log10.png)
 </figure>
 
+#### Hatching
+
+`plot_umap` takes the same `hatch_pattern` / `hatch_cmap` arguments and `mapping` `"hatch"` entries as PCA — see [Style channels](#style-channels):
+
+=== "Color + marker + hatch (bulk)"
+
+    ```python
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_umap(
+        ax, pdata_norm, color="cellline", marker_shape="cellline",
+        hatch_pattern="condition", s=80, umap_params={"n_neighbors": 5},
+    )
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    plt.show()
+    ```
+
+    ![Plot UMAP hatch](../assets/plots/plot_umap_hatch.png)
+
+=== "Mapping hatch (single-cell)"
+
+    ```python
+    mapping_keys = ["region"]
+    mapping = {
+        "Cortex": {"color": "#D19DCB", "hatch": "///"},
+        "SNpc": {"color": "#85BE9E"},
+    }
+
+    fig, ax = plt.subplots(figsize=(4.5, 4))
+    scplt.plot_umap(
+        ax, pdata_sc, mapping_keys=mapping_keys, mapping=mapping, s=40,
+        umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
+        force=True,
+    )
+    scplt.shift_legend(ax)
+    plt.show()
+    ```
+
+    ![Plot UMAP mapping hatch](../assets/plots/plot_umap_mapping_hatch.png)
+
 ---
 
 ## Correlation and clustering
@@ -768,7 +870,7 @@ Same approach on single-cell data (align `classes` with your UMAP coloring):
 
 [`plot_grouped_heatmap`](#grouped-heatmap-code) draws curated protein groups as spatial blocks (with optional gaps), sample header strips from `classes`, and a right-hand group colour bar. Proteins missing from the object still keep a grey row so block sizes stay stable.
 
-Horizontal white gaps between sample leaf blocks (same full `classes` combination) default on via `column_spacing=True` (half a content cell). Vertical gaps between protein groups use the same scale via `row_spacing=True`. Use `False`/`0` for none, or a float to scale that default (`0.5` = half, `2` = double). Header-to-heatmap space is `header_spacing` (default `0.06`). Header band thickness is `header_height` (default `0.35`, relative GridSpec height). Grouped side-bar thickness is `group_bar_width` (default `0.4`, sample-column units; pair with `group_bar_pad`).
+Horizontal white gaps between sample leaf blocks (same full `classes` combination) default on via `column_spacing=True` (half a content cell). Vertical gaps between protein groups use the same scale via `row_spacing=True`. Use `False`/`0` for none, or a float to scale that default (`0.5` = half, `2` = double). Header-to-heatmap space is `header_spacing` (default `0.06`). Header sizing is `header_height` (default `"square"` — one sample-column width per strip; use `"square:N"` or a float for the legacy GridSpec ratio). Grouped side-bar thickness is `group_bar_width` (default `0.4`, sample-column units; pair with `group_bar_pad`).
 
 ```python
 from scpviz import plotting as scplt
@@ -923,8 +1025,8 @@ fig = scplt.plot_clustered_heatmap(
     classes=["cellline", "condition"],
     stats_key=slim_key,
     sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
-    figsize=(7, 6),
-    text_size=7,
+    figsize=(4, 4),
+    show_row_labels=False,
 )
 ```
 
