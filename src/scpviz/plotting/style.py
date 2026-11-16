@@ -215,11 +215,18 @@ def shift_legend(
                     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
             ```
     """
-    legends = ax.get_figure().legends or []
-    # ax.get_legend() returns only the last; collect all via ax.artists
-
+    # ax.get_legend() returns only the last; collect all via ax children
     ax_legends = [a for a in ax.get_children()
                   if isinstance(a, plt.matplotlib.legend.Legend)]
+    if not ax_legends:
+        # Legends hosted on a sibling axis (e.g. plot_pairwise_correlation's
+        # legend column): move them, anchored in `ax` coordinates.
+        ax_legends = [a for other in ax.get_figure().axes if other is not ax
+                      for a in other.get_children()
+                      if isinstance(a, plt.matplotlib.legend.Legend)]
+
+    # The last ax.legend() is listed both as ax.legend_ and as an artist
+    ax_legends = list(dict.fromkeys(ax_legends))
 
     if not ax_legends:
         return
@@ -227,7 +234,7 @@ def shift_legend(
     if len(ax_legends) == 1:
         leg = ax_legends[0]
         leg.set_clip_on(False)
-        leg.set_bbox_to_anchor(anchor_pos)
+        leg.set_bbox_to_anchor(anchor_pos, transform=ax.transAxes)
         leg.set_loc(loc)
         return
 
@@ -242,7 +249,7 @@ def shift_legend(
         leg.set_clip_on(False)
         leg_height_px = leg.get_window_extent(renderer).height
         leg_height_ax = leg_height_px / ax_height_px
-        leg.set_bbox_to_anchor((x, y_cursor))
+        leg.set_bbox_to_anchor((x, y_cursor), transform=ax.transAxes)
         leg.set_loc("upper left")
         y_cursor -= leg_height_ax + 0.02
 
