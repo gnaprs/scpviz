@@ -34,6 +34,7 @@ Functions:
     plot_umap: UMAP projection for nonlinear dimensionality reduction.
     resolve_plot_colors: Helper function for resolving PCA/UMAP colors.
     resolve_marker_shapes: Helper function for resolving marker shapes from categorical groupings.
+    resolve_hatch_patterns: Helper function for resolving hatch patterns from categorical groupings.
 
 ## PCA overlays (loadings + GSEA)
 

@@ -1828,6 +1828,121 @@ def test_plot_pca_mapping_rejects_string_key_for_multi_column(pdata):
         )
 
 
+# tests for hatch_pattern (plot_pca / plot_umap)
+def test_resolve_hatch_patterns_none(dummy_adata):
+    assert scplt.resolve_hatch_patterns(dummy_adata, None) == (None, None, None)
+
+def test_resolve_hatch_patterns_default_list_dict(dummy_adata):
+    hatches, legend, hmap = scplt.resolve_hatch_patterns(dummy_adata, "treatment")
+    assert len(hatches) == 4 and len(set(hatches)) == 2
+    assert hmap == {"ctrl": "", "drug": "//"}  # first level unhatched, then sparsest hatch
+    assert [h.get_label() for h in legend] == ["ctrl", "drug"]
+    assert [h.get_hatch() for h in legend] in ([None, "//"], ["", "//"])
+    _, _, hmap_list = scplt.resolve_hatch_patterns(dummy_adata, "treatment", hatch_cmap=["//", "xx"])
+    assert hmap_list == {"ctrl": "//", "drug": "xx"}
+    _, _, hmap_dict = scplt.resolve_hatch_patterns(dummy_adata, ["cellline"], hatch_cmap={"A": "..", "B": "--"})
+    assert hmap_dict == {"A": "..", "B": "--"}
+
+def test_resolve_hatch_patterns_invalid(dummy_adata):
+    with pytest.raises(ValueError):
+        scplt.resolve_hatch_patterns(dummy_adata, "NotAColumn")
+    with pytest.raises(ValueError):
+        scplt.resolve_hatch_patterns(dummy_adata, "treatment", hatch_cmap=3)
+
+def _hatch_collections(ax):
+    return [c for c in ax.collections if c.get_hatch()]
+
+_HATCH_COLS = [("pdata", "treatment", "cellline"), ("pdata_diann", "region", "gradient")]
+
+@pytest.mark.parametrize("fixture_name,color_col,hatch_col", _HATCH_COLS)
+def test_plot_pca_hatch_pattern_smoke(request, fixture_name, color_col, hatch_col):
+    pd_ = request.getfixturevalue(fixture_name)
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pd_, color=color_col, hatch_pattern=hatch_col, s=80, force=True)
+    hatched = _hatch_collections(ax)
+    assert len(hatched) == pd_.prot.obs[hatch_col].nunique() - 1  # first level is unhatched
+    # edge defaults to black when hatching without edge_color
+    assert np.allclose(hatched[0].get_edgecolor()[0][:3], (0, 0, 0))
+    titles = [a.get_title().get_text() for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert hatch_col.capitalize() in titles
+    plt.close(fig)
+
+@pytest.mark.parametrize("fixture_name,color_col,hatch_col", _HATCH_COLS)
+def test_plot_umap_hatch_pattern_smoke(request, fixture_name, color_col, hatch_col):
+    pd_ = request.getfixturevalue(fixture_name)
+    fig, ax = plt.subplots()
+    scplt.plot_umap(ax, pd_, color=color_col, hatch_pattern=hatch_col,
+                    s=80, force=True, umap_params={"n_neighbors": 3})
+    assert len(_hatch_collections(ax)) >= 1
+    plt.close(fig)
+
+def test_plot_pca_hatch_with_edge_color_and_marker(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="treatment", edge_color="cellline", marker_shape="cellline",
+                   hatch_pattern="treatment", s=80, force=True)
+    assert _hatch_collections(ax)
+    plt.close(fig)
+
+def test_plot_pca_hatch_legend_and_shift_legend(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="treatment", marker_shape="cellline", hatch_pattern="treatment", force=True)
+    legs = [a for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert len(legs) == 3
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    boxes = [leg.get_window_extent(renderer) for leg in legs]
+    # stacked top-to-bottom without overlap
+    for upper, lower in zip(boxes[:-1], boxes[1:]):
+        assert lower.y1 <= upper.y0 + 1
+    plt.close(fig)
+
+def test_plot_pca_same_key_color_and_marker_merge_legend(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="cellline", marker_shape="cellline", force=True)
+    legs = [a for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert len(legs) == 1
+    markers = [h.get_marker() for h in legs[0].legend_handles]
+    faces = [h.get_markerfacecolor() for h in legs[0].legend_handles]
+    assert len(set(markers)) == len(markers) == 2 and len(set(map(str, faces))) == 2
+    plt.close(fig)
+    # different keys keep separate legends
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="treatment", marker_shape="cellline", force=True)
+    legs = [a for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert len(legs) == 2
+    plt.close(fig)
+
+def test_plot_pca_mapping_hatch(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys, mapping = _combo_mapping_literal(pdata)
+    for i, v in enumerate(mapping.values()):
+        v.pop("edge_color")
+        v["hatch"] = ["//", "xx"][i % 2]
+    scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, s=80, force=True)
+    hatched = _hatch_collections(ax)
+    assert {c.get_hatch() for c in hatched} == {"//", "xx"}
+    # edge defaults to black for entries with hatch and no edge_color
+    assert np.allclose(hatched[0].get_edgecolor()[0][:3], (0, 0, 0))
+    plt.close(fig)
+
+def test_plot_pca_mapping_rejects_hatch_pattern_kw(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys, mapping = _combo_mapping_literal(pdata)
+    for v in mapping.values():
+        v["hatch"] = "//"
+    with pytest.raises(ValueError, match="hatch_pattern"):
+        scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping,
+                       hatch_pattern="treatment", force=True)
+    plt.close(fig)
+
+def test_plot_pca_hatch_pattern_invalid_key(pdata):
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="hatch_pattern"):
+        scplt.plot_pca(ax, pdata, hatch_pattern="NotAColumn", force=True)
+    plt.close(fig)
+
+
 # tests for plot_umap
 def test_plot_umap_runs_without_error(pdata):
     fig, ax = plt.subplots()

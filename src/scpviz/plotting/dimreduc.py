@@ -44,8 +44,8 @@ from ._pca_gsea_data import (
 if TYPE_CHECKING:
     from scpviz.pAnnData.pAnnData import pAnnData
 
-def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marker_shape=None, classes=None, 
-             layer="X", on='protein', cmap='default', edge_cmap="default", shape_cmap="default", edge_lw=0.8,
+def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marker_shape=None, hatch_pattern=None, classes=None, 
+             layer="X", on='protein', cmap='default', edge_cmap="default", shape_cmap="default", hatch_cmap="default", edge_lw=0.8,
              s=20, alpha=.8, plot_pc=[1, 2], pca_params=None, subset_mask=None,
              force=False, basis='X_pca', text_size=9, show_labels=False, label_column=None,
              add_ellipses=False, ellipse_group=None, ellipse_cmap='default', ellipse_kwargs=None, 
@@ -57,7 +57,8 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
 
     Computes (or reuses) PCA coordinates and plots samples in 2D or 3D, with
     flexible styling via face color (`color`), edge color (`edge_color`), marker
-    shapes (`marker_shape`), labels, and optional confidence ellipses.
+    shapes (`marker_shape`), hatch patterns (`hatch_pattern`), labels, and optional
+    confidence ellipses.
 
     Args:
         ax (matplotlib.axes.Axes): Axis to plot on. Must be 3D if plotting 3 PCs.
@@ -80,6 +81,14 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         marker_shape (str or list of str or None): Marker shapes for points (categorical only).
 
             - None: use a single marker (`"o"`).
+            - str: an `.obs` key (categorical).
+            - list of str: combine multiple `.obs` keys into a single categorical label.
+
+        hatch_pattern (str or list of str or None): Hatch patterns for points (categorical only).
+            Hatch lines are drawn in the edge color; if `edge_color` is None, edges default to
+            black. Hatches are only legible at larger marker sizes (roughly `s >= 60`).
+
+            - None: no hatching.
             - str: an `.obs` key (categorical).
             - list of str: combine multiple `.obs` keys into a single categorical label.
 
@@ -112,11 +121,19 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
             - list: markers assigned to sorted class labels.
             - dict: `{label: marker}` mapping.
 
-        edge_lw (float): Edge linewidth when `edge_color` is used (default: 0.8).
+        hatch_cmap (str, list, or dict): Hatch mapping for `hatch_pattern` (categorical only).
+
+            - `"default"`: cycles hatches in this order (first level unhatched, then
+              sparse to dense; repeat a character, e.g. `"///"`, to densify):
+              `["", "//", "xx", "--", "||", "++", "..", "oo", "**"]`
+            - list: hatches assigned to sorted class labels.
+            - dict: `{label: hatch}` mapping.
+
+        edge_lw (float): Edge linewidth when `edge_color` or `hatch_pattern` is used (default: 0.8).
         s (float): Marker size (default: 20).
         alpha (float): Marker opacity (default: 0.8).
 
-        plot_pc (list of int): Principal components to plot, e.g. `[1, 2]` or `[1, 2, 3]`.
+        plot_pc(list of int): Principal components to plot, e.g. `[1, 2]` or `[1, 2, 3]`.
         pca_params (dict, optional): Additional parameters for the PCA computation.
         subset_mask (array-like or pandas.Series, optional): Boolean mask to subset samples.
             If a Series is provided, it will be aligned to `adata.obs.index`.
@@ -160,8 +177,10 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         mapping (dict, optional): Keys match observed metadata combinations: use a tuple when
             ``mapping_keys`` has multiple columns, or a scalar/string (or 1-tuple) when it has a
             single column. Values are dicts with optional ``color`` (literal or abundance feature),
-            ``edge_color`` (literal only), and ``marker``. Cannot be combined with ``edge_color`` /
-            ``edge_cmap``. When ``color=`` is an abundance feature, mapping entries must not include
+            ``edge_color`` (literal only), ``marker``, and ``hatch`` (a matplotlib hatch string; the
+            edge defaults to black when an entry has ``hatch`` but no ``edge_color``). Cannot be
+            combined with ``edge_color`` / ``edge_cmap``; ``hatch`` entries cannot be combined with
+            ``hatch_pattern=``. When ``color=`` is an abundance feature, mapping entries must not include
             ``color``.
 
         mapping_on_missing (str): ``"warn"`` (default) prints a log-prefixed message and uses grey
@@ -193,11 +212,31 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
         AssertionError: If 3 PCs are requested and `ax` is not 3D.
         ValueError: If `edge_color` is continuous (use `color=` for abundance instead).
         ValueError: If `marker_shape` is not a categorical `.obs` key.
+        ValueError: If `hatch_pattern` is not a categorical `.obs` key, or is combined with
+            `mapping` entries that contain `hatch`.
         ValueError: If `add_ellipses=True` but no categorical grouping is available.
 
     Note:
-        - `edge_color` and `marker_shape` are categorical only.
+        Each visual channel has a data argument (what to encode) and a style argument
+        (how to encode it). The same pairing applies to ``plot_umap``:
+
+        | Channel | Data argument | Style argument | Accepts |
+        |---|---|---|---|
+        | Face color | `color` | `cmap` | `.obs` key(s) or gene/protein (continuous); palette list/dict or colormap |
+        | Edge color | `edge_color` | `edge_cmap` | `.obs` key(s), categorical only; palette list/dict |
+        | Marker shape | `marker_shape` | `shape_cmap` | `.obs` key(s), categorical only; marker list/dict |
+        | Hatch | `hatch_pattern` | `hatch_cmap` | `.obs` key(s), categorical only; hatch list/dict |
+
+        For each style argument, `"default"` uses the built-in cycle, a list is assigned to
+        sorted class labels, and a dict is `{label: value}`. Use `edge_lw` for edge linewidth
+        (also applied to hatched points). With `mapping=`, set `color`, `edge_color`, `marker`
+        and `hatch` per combination inside the mapping instead.
+
+    Note:
+        - `edge_color`, `marker_shape` and `hatch_pattern` are categorical only.
         - If `color` is continuous (abundance), a colorbar is shown automatically.
+        - If `color` and `marker_shape` use the same `.obs` key, their legends are merged into one
+          (colored markers).
         - Use `classes=` only for backwards compatibility; prefer `color=`.
         - PCA results are cached in `pdata.uns["pca"]` and reused across plotting calls.
         - To force recalculation (e.g., after filtering or normalization), set `force=True`.
@@ -303,6 +342,26 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
             plot_pca(ax, pdata, color="treatment", marker_shape="genotype", shape_cmap=shape_map)
             ```
 
+        Hatch patterns by a categorical key, combined with face color (hatch lines are drawn in the
+        edge color, black by default; use a larger ``s`` so the hatch is legible):
+            ```python
+            plot_pca(ax, pdata, color="cellline", hatch_pattern="condition", s=80)
+            ```
+
+        ![Plot PCA hatch](../../assets/plots/plot_pca_hatch.png)
+
+        Hatch patterns combined with marker shapes and a custom hatch mapping:
+            ```python
+            hatch_map = {"kd": "///", "sc": "xxx"}
+            plot_pca(
+                ax, pdata, color="cellline", marker_shape="cellline",
+                hatch_pattern="condition", hatch_cmap=hatch_map, s=80,
+            )
+            scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+            ```
+
+        ![Plot PCA hatch with marker shape](../../assets/plots/plot_pca_hatch_marker.png)
+
         Add ellipses (auto-grouping by categorical `color`):
             ```python
             plot_pca(ax, pdata, color="treatment", add_ellipses=True)
@@ -340,6 +399,21 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
             ```
 
         ![Plot PCA mapping](../../assets/plots/plot_pca_mapping.png)
+
+        Tuple-key ``mapping`` with hatching (``hatch`` per combination; the edge, and so the hatch
+        lines, defaults to black when ``edge_color`` is omitted):
+            ```python
+            mapping_keys = ["cellline", "condition"]
+            mapping = {
+                ("AS", "kd"): {"color": "#F4A261", "hatch": "///"},
+                ("AS", "sc"): {"color": "#F4A261"},
+                ("BE", "kd"): {"color": "#D0D0D0", "hatch": "///", "edge_color": "#C0392B"},
+                ("BE", "sc"): {"color": "#D0D0D0"},
+            }
+            plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, s=80, force=True)
+            ```
+
+        ![Plot PCA mapping hatch](../../assets/plots/plot_pca_mapping_hatch.png)
 
         Single-column string-key ``mapping`` on the large single-cell cohort: ``Gapdh`` abundance
         face color with ``region`` edge colors (``mapping`` must not set ``color`` when ``color=`` is abundance):
@@ -479,6 +553,7 @@ def plot_pca(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marke
     ax = _plot_embedding_scatter(ax=ax, adata=adata, Xt=X_pca, mask=mask, obs_names_plot=obs_names_plot,
         color=color, edge_color=edge_color, marker_shape=marker_shape, layer=layer,
         cmap=cmap, edge_cmap=edge_cmap, shape_cmap=shape_cmap, edge_lw=edge_lw, s=s, alpha=alpha, text_size=text_size,
+        hatch_pattern=hatch_pattern, hatch_cmap=hatch_cmap,
         axis_prefix="PC", dim_labels=dim_labels, pc_idx=pc_idx, 
         show_labels=show_labels, label_series=label_series, add_ellipses=add_ellipses, ellipse_kwargs=ellipse_kwargs, ellipse_group=ellipse_group, ellipse_cmap=ellipse_cmap,
         plot_confidence_ellipse=_plot_confidence_ellipse,
@@ -722,6 +797,64 @@ def resolve_marker_shapes(
     return markers, shape_legend, shape_map
 
 
+def resolve_hatch_patterns(
+    adata: ad.AnnData, hatch_pattern: Any, hatch_cmap: Any = "default"
+) -> Any:
+    """
+    Resolve hatch patterns for categorical sample groupings.
+
+    Args:
+        adata (anndata.AnnData): AnnData object.
+        hatch_pattern (str, list of str, or None): `.obs` column(s) used to assign hatches.
+            - None: return None (no hatching).
+            - str: categorical `.obs` key.
+            - list: combine multiple `.obs` columns into a single categorical label.
+        hatch_cmap (str, list, or dict): Hatch assignment.
+            - "default": uses an internal default hatch list.
+            - list: hatches assigned to sorted class labels.
+            - dict: {label: hatch} mapping.
+
+    Returns:
+        hatches (list[str] or None): Hatch per observation (len = n_obs), or None.
+        hatch_legend (list[Patch] or None): Legend handles for hatch patterns.
+        hatch_map (dict or None): Mapping {label: hatch}.
+    """
+    if hatch_pattern is None:
+        return None, None, None
+
+    if isinstance(hatch_pattern, str) and hatch_pattern in adata.obs.columns:
+        labels = utils.get_samplenames(adata, hatch_pattern)
+    elif isinstance(hatch_pattern, list) and all(c in adata.obs.columns for c in hatch_pattern):
+        labels = utils.get_samplenames(adata, hatch_pattern)
+    else:
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} hatch_pattern must be an `.obs` categorical key (str) or list of keys."
+        )
+
+    class_labels = sorted(set(labels))
+
+    if isinstance(hatch_cmap, str) and hatch_cmap == "default":
+        hatch_list = ["", "//", "xx", "--", "||", "++", "..", "oo", "**"]  # first level: no hatch; sparse first
+        hatch_map = {c: hatch_list[i % len(hatch_list)] for i, c in enumerate(class_labels)}
+        if len(class_labels) > len(hatch_list):
+            print(f"{utils.format_log_prefix('warn')} hatch_pattern has {len(class_labels)} levels; cycling hatches.")
+    elif isinstance(hatch_cmap, list):
+        hatch_map = {c: hatch_cmap[i % len(hatch_cmap)] for i, c in enumerate(class_labels)}
+    elif isinstance(hatch_cmap, dict):
+        hatch_map = dict(hatch_cmap)
+    else:
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} hatch_cmap must be 'default', a list of hatches, or a dict mapping labels to hatches."
+        )
+
+    hatches = [hatch_map[v] for v in labels]
+    hatch_legend = [
+        mpatches.Patch(facecolor="white", edgecolor="black", hatch=hatch_map[c], label=str(c))
+        for c in class_labels
+    ]
+    return hatches, hatch_legend, hatch_map
+
+
 def _hollow_edge_legend_handles(legend_elements: list[Any] | None) -> list[Any] | None:
     """Convert filled categorical color legend handles to hollow (edge-only) markers."""
     if not legend_elements:
@@ -762,6 +895,8 @@ def _resolve_embedding_style_mapping(
     marker_shape: Any,
     shape_cmap: Any = "default",
     edge_lw: float = 0.8,
+    hatch_pattern: Any = None,
+    hatch_cmap: Any = "default",
 ) -> dict[str, Any]:
     """
     Build face / edge / marker arrays for ``mapping_keys`` + ``mapping`` embedding plots.
@@ -822,6 +957,11 @@ def _resolve_embedding_style_mapping(
     mapping_has_marker = any("marker" in v for v in mapping.values())
     if mapping_has_marker and marker_shape is not None:
         raise ValueError("Use either mapping entries with 'marker' or marker_shape=, not both.")
+    mapping_has_hatch = any("hatch" in v for v in mapping.values())
+    if mapping_has_hatch and hatch_pattern is not None:
+        raise ValueError(
+            f"{utils.format_log_prefix('error')} Use either mapping entries with 'hatch' or hatch_pattern=, not both."
+        )
 
     if color is not None:
         color_is_cat_obs = (
@@ -977,7 +1117,7 @@ def _resolve_embedding_style_mapping(
     edge_list: list[Any] = []
     for i in range(n_obs):
         st = styles_plot[i]
-        ec = st.get("edge_color", "none")
+        ec = st.get("edge_color", "black" if st.get("hatch") else "none")
         if ec is None:
             ec = "none"
         if isinstance(ec, str) and ec.lower() == "none":
@@ -1060,6 +1200,25 @@ def _resolve_embedding_style_mapping(
             adata, marker_shape, shape_cmap=shape_cmap
         )
 
+    # --- hatches ---
+    hatches_all = None
+    hatch_legend = None
+    if mapping_has_hatch:
+        hatches_all = np.array([styles_plot[i].get("hatch") for i in range(n_obs)], dtype=object)
+        hatch_map_m: dict[tuple, str] = {}
+        for i in range(n_obs):
+            if hatches_all[i]:
+                hatch_map_m.setdefault(keys_series.iloc[i], hatches_all[i])
+        hatch_legend = [
+            mpatches.Patch(
+                facecolor="white", edgecolor="black", hatch=hatch_map_m[c],
+                label=", ".join(str(x) for x in c),
+            )
+            for c in sorted(hatch_map_m.keys(), key=str)
+        ]
+    elif hatch_pattern is not None:
+        hatches_all, hatch_legend, _ = resolve_hatch_patterns(adata, hatch_pattern, hatch_cmap=hatch_cmap)
+
     legend_title = " / ".join(str(k) for k in mapping_keys)
 
     return {
@@ -1070,6 +1229,8 @@ def _resolve_embedding_style_mapping(
         "edge_legend": edge_legend,
         "markers_all": markers_all,
         "shape_legend": shape_legend,
+        "hatches_all": hatches_all,
+        "hatch_legend": hatch_legend,
         "legend_title": legend_title,
         "color_key_legend": None,
         "combined_mapping_legend": combined_mapping_legend,
@@ -1106,6 +1267,7 @@ def _plot_embedding_scatter(
     obs_names_plot: pd.Index,
     color=None, edge_color=None, marker_shape=None, layer="X",
     cmap="default", edge_cmap="default", shape_cmap="default",
+    hatch_pattern=None, hatch_cmap="default",
     edge_lw=0.8, s=20, alpha=0.8, text_size=10,
     colorbar_norm: Any = None,
     nan_color: str = "lightgrey",
@@ -1172,7 +1334,11 @@ def _plot_embedding_scatter(
             if face_norm_resolved is not None:
                 kw["norm"] = face_norm_resolved
 
-        if edge_key is None:
+        if edge_key is None and hatches_all is not None:
+            # hatch lines are drawn in the edge color; default to black
+            kw["edgecolors"] = "black"
+            kw["linewidths"] = edge_lw
+        elif edge_key is None:
             kw["edgecolors"] = "none"
         else:
             kw["edgecolors"] = edge_plot
@@ -1304,7 +1470,11 @@ def _plot_embedding_scatter(
             marker_shape=marker_shape,
             shape_cmap=shape_cmap,
             edge_lw=edge_lw,
+            hatch_pattern=hatch_pattern,
+            hatch_cmap=hatch_cmap,
         )
+        hatches_all = mp["hatches_all"]
+        hatch_legend = mp["hatch_legend"]
         face_mapped = mp["face_mapped"]
         face_cmap_resolved = mp["face_cmap_resolved"]
         face_legend = mp["face_legend"]
@@ -1312,6 +1482,7 @@ def _plot_embedding_scatter(
         edge_legend = mp["edge_legend"]
         markers_all = mp["markers_all"]
         shape_legend = mp["shape_legend"]
+        shape_map = None
         mapping_legend_title = mp["legend_title"]
         combined_mapping_legend = mp.get("combined_mapping_legend")
         scatter_color_key = color if color is not None else tuple(mapping_keys)
@@ -1336,8 +1507,11 @@ def _plot_embedding_scatter(
                 )
             edge_legend = _hollow_edge_legend_handles(edge_legend)
 
-        markers_all, shape_legend, _ = resolve_marker_shapes(
+        markers_all, shape_legend, shape_map = resolve_marker_shapes(
             adata, marker_shape, shape_cmap=shape_cmap
+        )
+        hatches_all, hatch_legend, _ = resolve_hatch_patterns(
+            adata, hatch_pattern, hatch_cmap=hatch_cmap
         )
         scatter_color_key = color
         scatter_edge_key = edge_color
@@ -1350,6 +1524,7 @@ def _plot_embedding_scatter(
     face_plot = None if face_mapped is None else np.asarray(face_mapped)[mask]
     edge_plot = None if edge_mapped is None else np.asarray(edge_mapped)[mask]
     markers_plot = None if markers_all is None else np.asarray(markers_all)[mask]
+    hatches_plot = None if hatches_all is None else np.asarray(hatches_all, dtype=object)[mask]
 
     base_kwargs = dict(s=s, alpha=alpha, **kwargs)
 
@@ -1384,10 +1559,12 @@ def _plot_embedding_scatter(
     if n_dim not in (1, 2, 3):
         raise ValueError("pc_idx must specify 1, 2, or 3 dimensions.")
 
-    def _run_scatter(m, kw, marker=None):
+    def _run_scatter(m, kw, marker=None, hatch=None):
         if not np.any(m):
             return
         kw = _slice_scatter_kwargs(kw, m)
+        if hatch:
+            kw["hatch"] = hatch
         mk = marker or "o"
         if n_dim == 1:
             x = Xt_plot[m, pc_idx[0]]
@@ -1409,7 +1586,7 @@ def _plot_embedding_scatter(
                 **kw,
             )
 
-    def _scatter_call(sel, marker=None):
+    def _scatter_call(sel, marker=None, hatch=None):
         if is_abundance_continuous:
             nan_sel = sel & abundance_nan_plot
             if np.any(nan_sel):
@@ -1425,7 +1602,7 @@ def _plot_embedding_scatter(
                     n=n_plot,
                     fixed_color=nan_color,
                 )
-                _run_scatter(nan_sel, kw_nan, marker=marker)
+                _run_scatter(nan_sel, kw_nan, marker=marker, hatch=hatch)
             if face_norm_resolved is not None:
                 pos_sel = sel & ~abundance_nan_plot
                 if np.any(pos_sel):
@@ -1440,7 +1617,7 @@ def _plot_embedding_scatter(
                         edge_lw=edge_lw,
                         n=n_plot,
                     )
-                    _run_scatter(pos_sel, kw_pos, marker=marker)
+                    _run_scatter(pos_sel, kw_pos, marker=marker, hatch=hatch)
         else:
             kw = _build_scatter_kwargs(
                 base_kwargs=base_kwargs,
@@ -1453,13 +1630,15 @@ def _plot_embedding_scatter(
                 edge_lw=edge_lw,
                 n=n_plot,
             )
-            _run_scatter(sel, kw, marker=marker)
+            _run_scatter(sel, kw, marker=marker, hatch=hatch)
 
-    if markers_plot is None:
-        _scatter_call(np.ones(n_plot, dtype=bool), marker=None)
-    else:
-        for mk in np.unique(markers_plot):
-            _scatter_call(markers_plot == mk, marker=mk)
+    # one scatter call per (marker, hatch) combination
+    mk_list = [None] * n_plot if markers_plot is None else markers_plot.tolist()
+    ht_list = [None] * n_plot if hatches_plot is None else hatches_plot.tolist()
+    pair_keys = list(zip(mk_list, ht_list))
+    for mk, ht in sorted(set(pair_keys), key=str):
+        sel = np.fromiter((p == (mk, ht) for p in pair_keys), dtype=bool, count=n_plot)
+        _scatter_call(sel, marker=mk, hatch=ht)
 
     # axes labels
     if dim_labels is None:
@@ -1658,7 +1837,30 @@ def _plot_embedding_scatter(
         leg.set_clip_on(False)  # ax.add_artist sets clip_path to axes boundary; undo it
         return leg
 
-    if use_mapping and combined_mapping_legend:
+    # color and marker_shape on the same categorical key: one legend with colored markers
+    merge_color_shape = (
+        not use_mapping and marker_shape is not None and marker_shape == color
+        and face_legend and shape_map
+        and all(h.get_label() in {str(k) for k in shape_map} for h in face_legend)
+    )
+    if merge_color_shape:
+        shape_str = {str(k): v for k, v in shape_map.items()}
+        legends.append(
+            _make_legend(
+                [
+                    mlines.Line2D(
+                        [], [], linestyle="none", marker=shape_str[h.get_label()],
+                        markerfacecolor=h.get_markerfacecolor(),
+                        markeredgecolor=h.get_markeredgecolor(), markersize=7,
+                        label=h.get_label(),
+                    )
+                    for h in face_legend
+                ],
+                _legend_title_from_key(color),
+            )
+        )
+        shape_legend = None
+    elif use_mapping and combined_mapping_legend:
         legends.append(_make_legend(combined_mapping_legend, mapping_legend_title))
     elif face_legend:
         legends.append(
@@ -1678,6 +1880,15 @@ def _plot_embedding_scatter(
 
     if shape_legend:
         legends.append(_make_legend(shape_legend, _legend_title_from_key(marker_shape)))
+
+    if hatch_legend:
+        legends.append(
+            _make_legend(
+                hatch_legend,
+                mapping_legend_title if use_mapping and hatch_pattern is None
+                else _legend_title_from_key(hatch_pattern),
+            )
+        )
 
     # Stack legends vertically: render once to get heights, then reposition
     if legends:
@@ -1707,8 +1918,8 @@ def _plot_embedding_scatter(
 
     return ax
 
-def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marker_shape=None, classes = None, 
-              layer = "X", on = 'protein', cmap='default', edge_cmap="default", shape_cmap="default", show_labels=False, label_column=None,
+def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, marker_shape=None, hatch_pattern=None, classes = None, 
+              layer = "X", on = 'protein', cmap='default', edge_cmap="default", shape_cmap="default", hatch_cmap="default", show_labels=False, label_column=None,
               s=20, alpha=.8, umap_params={}, text_size = 10, edge_lw=0.8, 
               add_ellipses=False, ellipse_group=None, ellipse_cmap='default', ellipse_kwargs=None, 
               force = False, return_fit=False, subset_mask=None,
@@ -1720,7 +1931,8 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
 
     Computes (or reuses) a UMAP embedding and visualizes samples in 1D/2D/3D, with
     flexible styling via face color (`color`), edge color (`edge_color`), marker
-    shapes (`marker_shape`), labels, and optional confidence ellipses.
+    shapes (`marker_shape`), hatch patterns (`hatch_pattern`), labels, and optional
+    confidence ellipses.
 
     Args:
         ax (matplotlib.axes.Axes): Axis to plot on. Must be 3D if `n_components=3`.
@@ -1745,6 +1957,9 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
             - None: use a single marker (`"o"`).
             - str: an `.obs` key (categorical).
             - list of str: combine multiple `.obs` keys into a single categorical label.
+
+        hatch_pattern (str or list of str or None): Hatch patterns for points (categorical only);
+            see ``plot_pca``. Hatch lines use the edge color (black if `edge_color` is None).
 
         classes (str or list of str or None): Deprecated alias for `color`.
 
@@ -1774,6 +1989,8 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
               `["o", "s", "^", "D", "v", "P", "X", "<", ">", "h", "*"]`
             - list: markers assigned to sorted class labels.
             - dict: `{label: marker}` mapping.
+
+        hatch_cmap (str, list, or dict): Hatch mapping for `hatch_pattern`; see ``plot_pca``.
 
         show_labels (bool or list): Whether to label points.
 
@@ -1849,11 +2066,13 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
         AssertionError: If `n_components=3` and the axis is not 3D.
         ValueError: If `edge_color` is continuous (use `color=` for abundance instead).
         ValueError: If `marker_shape` is not a categorical `.obs` key.
+        ValueError: If `hatch_pattern` is not a categorical `.obs` key, or is combined with
+            `mapping` entries that contain `hatch`.
         ValueError: If `add_ellipses=True` but no categorical grouping is available.
 
     Note:
         - If `color` is continuous (abundance), a colorbar is shown automatically.
-        - `edge_color` and `marker_shape` are categorical only.
+        - `edge_color`, `marker_shape` and `hatch_pattern` are categorical only.
         - Use `classes=` only for backwards compatibility; prefer `color=`.
 
     Example:
@@ -1923,6 +2142,19 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
             plot_umap(ax, pdata, color="treatment", marker_shape="genotype", shape_cmap=shape_map)
             ```
 
+        Hatch patterns by a categorical key, combined with face color and marker shape
+        (hatch lines use the edge color, black by default; use a larger ``s``):
+            ```python
+            plot_umap(
+                ax, pdata, color="cellline", marker_shape="cellline",
+                hatch_pattern="condition", s=80,
+                umap_params={"n_neighbors": 5},
+            )
+            scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+            ```
+
+        ![Plot UMAP hatch](../../assets/plots/plot_umap_hatch.png)
+
         Add ellipses grouped explicitly (useful when `color` is continuous):
             ```python
             ellipse_colors = {"WT": "#000000", "MUT": "#377EB8"}
@@ -1961,6 +2193,26 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
             ```
 
         ![Plot UMAP mapping](../../assets/plots/plot_umap_mapping.png)
+
+        String-key ``mapping`` with hatching (``hatch`` per ``region``; edge defaults to black):
+            ```python
+            mapping_keys = ["region"]
+            mapping = {
+                "Cortex": {"color": "#D19DCB", "hatch": "///"},
+                "SNpc": {"color": "#85BE9E"},
+            }
+            plot_umap(
+                ax, pdata_sc,
+                mapping_keys=mapping_keys,
+                mapping=mapping,
+                s=40,
+                umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
+                force=True,
+            )
+            scplt.shift_legend(ax)
+            ```
+
+        ![Plot UMAP mapping hatch](../../assets/plots/plot_umap_mapping_hatch.png)
 
         ``Gapdh`` abundance face color with ``region`` edge colors:
             ```python
@@ -2027,7 +2279,8 @@ def plot_umap(ax: "plt.Axes", pdata: pAnnData, color=None, edge_color=None, mark
 
     ax = _plot_embedding_scatter(ax=ax, adata=adata, Xt=Xt, mask=mask, obs_names_plot=obs_names_plot,
         color=color, edge_color=edge_color, marker_shape=marker_shape, layer=layer, cmap=cmap, edge_cmap=edge_cmap, shape_cmap=shape_cmap,
-        edge_lw=edge_lw, s=s, alpha=alpha, text_size=text_size, 
+        edge_lw=edge_lw, s=s, alpha=alpha, text_size=text_size,
+        hatch_pattern=hatch_pattern, hatch_cmap=hatch_cmap,
         axis_prefix="UMAP", dim_labels=dim_labels, pc_idx=pc_idx, y_1d=y_1d,
         show_labels=show_labels, label_series=label_series,
         add_ellipses=add_ellipses, ellipse_kwargs=ellipse_kwargs, ellipse_group=ellipse_group, ellipse_cmap=ellipse_cmap, plot_confidence_ellipse=_plot_confidence_ellipse,
