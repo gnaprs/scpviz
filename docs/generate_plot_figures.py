@@ -627,6 +627,39 @@ def main(*, skip_umap: bool = False) -> None:
     )
     save_current_fig("mark_rankquant")
 
+    rq_class = class_list[:1]
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_rankquant(ax, pdata, classes=classes_2)
+    scplt.mark_rankquant(
+        ax, pdata, mark_df=mark_df, class_values=rq_class,
+        color="crimson", arrow_color="gray", text_style="box",
+        fontsize=7, label_type="gene", category="housekeeping",
+    )
+    save_current_fig("mark_rankquant_styled")
+
+    # second group: next few proteins not already in mark_df
+    var = pdata.prot.var
+    acc_b = [a for a in var.index if a not in set(mark_df["accession"])][:3]
+    mark_df_b = pd.DataFrame({"accession": acc_b})
+    if "Genes" in var.columns:
+        mark_df_b["gene_primary"] = var.loc[acc_b, "Genes"].astype(str).values
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_rankquant(ax, pdata, classes=classes_2)
+    rq_texts = []
+    for group_df, group_color, cat in [
+        (mark_df, "crimson", "housekeeping"), (mark_df_b, "navy", "top abundant"),
+    ]:
+        ax, t = scplt.mark_rankquant(
+            ax, pdata, mark_df=group_df, class_values=rq_class,
+            color=group_color, label_type="gene", category=cat,
+            text_style="outline", return_texts=True,
+        )
+        rq_texts.extend(t)
+    scplt.adjust_and_outline_texts(
+        rq_texts, arrowprops=dict(arrowstyle="-", color="gray", lw=0.8)
+    )
+    save_current_fig("mark_rankquant_groups")
+
     fig, ax = plt.subplots(figsize=(5, 4))
     scplt.plot_raincloud(ax, pdata, classes=classes_2, color=rain_colors)
     save_current_fig("plot_raincloud")
@@ -1032,6 +1065,22 @@ def main(*, skip_umap: bool = False) -> None:
     scplt.mark_volcano(ax, volcano_df, label=ok[:3])
     save_current_fig("mark_volcano")
 
+    for style in ("box", "outline"):
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax, volcano_df = scplt.plot_volcano(
+            ax, pdata_norm, values=comparison_values, return_df=True, no_marks=True
+        )
+        # significance_score is signed: most up = largest, most down = most negative
+        sig = volcano_df.sort_values("significance_score", ascending=False)
+        up_top = sig[sig["significance"] == "upregulated"].head(3).index.tolist()
+        down_top = sig[sig["significance"] == "downregulated"].tail(3).index.tolist()
+        scplt.mark_volcano(
+            ax, volcano_df, label=[up_top, down_top],
+            label_color=["crimson", "navy"], category=["top up", "top down"],
+            text_style=style, s=20,
+        )
+        save_current_fig(f"mark_volcano_{style}")
+
     fig, ax = plt.subplots(figsize=(4, 4))
     ax, volcano_df = scplt.plot_volcano(
         ax,
@@ -1101,7 +1150,7 @@ def main(*, skip_umap: bool = False) -> None:
             show_names=False,
         )
     if texts:
-        scplt.volcano_adjust_and_outline_texts(texts, expand=(2, 2))
+        scplt.adjust_and_outline_texts(texts, expand=(2, 2))
     plt.savefig(
         OUT / "volcano_adjust_and_outline_texts.png", dpi=DPI, bbox_inches="tight"
     )
