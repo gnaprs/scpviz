@@ -2572,6 +2572,74 @@ def test_mark_rankquant_adds_points(pdata):
 
     plt.close(fig)
 
+@pytest.mark.parametrize("adjust_labels", [True, False])
+def test_mark_rankquant_label_options(pdata, adjust_labels):
+    """Label styling options and adjust_text path run and return text artists."""
+    fig, ax = plt.subplots(figsize=(4, 3))
+    cv = pdata.prot.obs["cellline"].unique()[0]
+    ax = scplt.plot_rankquant(ax, pdata, classes="cellline", on="protein", alpha=0.1)
+    mark_df = pd.DataFrame({"accession": list(pdata.prot.var_names[:5])})
+
+    out = scplt.mark_rankquant(
+        ax, pdata, mark_df=mark_df, class_values=[cv], text_color="blue",
+        fontsize=7, text_style="box", arrow_color="gray", adjust_labels=adjust_labels,
+        adjust_text_kwargs={"expand": (1.5, 1.5)}, return_texts=True,
+    )
+    ax_out, texts = out
+    assert ax_out is ax
+    assert len(texts) > 0
+    for t in texts:
+        assert t.get_color() == "blue"
+        assert t.get_bbox_patch() is not None
+    plt.close(fig)
+
+def test_mark_rankquant_text_style_and_legend(pdata):
+    """outline style has no box; category entries merge into one legend beside the plot legend."""
+    fig, ax = plt.subplots(figsize=(4, 3))
+    cv = pdata.prot.obs["cellline"].unique()[0]
+    ax = scplt.plot_rankquant(ax, pdata, classes="cellline", on="protein", alpha=0.1)
+    n_plot_legend_entries = len(ax.get_legend().get_texts())
+    ids = list(pdata.prot.var_names)
+    texts = []
+    for grp, col, cat in [(ids[:2], "red", "A"), (ids[2:4], "blue", "B")]:
+        _, t = scplt.mark_rankquant(
+            ax, pdata, mark_df=pd.DataFrame({"accession": grp}), class_values=[cv],
+            color=col, category=cat, text_style="outline", return_texts=True,
+        )
+        texts.extend(t)
+    assert all(t.get_bbox_patch() is None for t in texts)
+    scplt.adjust_and_outline_texts(texts)
+    legends = [c for c in ax.get_children() if isinstance(c, matplotlib.legend.Legend)]
+    assert len(legends) == 2
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ["A", "B"]
+    assert any(len(l.get_texts()) == n_plot_legend_entries for l in legends)
+    with pytest.raises(ValueError):
+        scplt.mark_rankquant(ax, pdata, mark_df=pd.DataFrame({"accession": ids[:1]}),
+                             class_values=[cv], text_style="bogus")
+    plt.close(fig)
+
+def test_mark_volcano_text_style_and_category():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    scplt.plot_volcano(ax, de_data=df, no_marks=True)
+    ax, texts = scplt.mark_volcano(ax, df, label=[["G1"], ["G2"]], label_color=["red", "blue"],
+                                   text_style="outline", category=["one", "two"], return_texts=True)
+    assert all(t.get_bbox_patch() is None for t in texts)
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ["one", "two"]
+    with pytest.raises(ValueError):
+        scplt.mark_volcano(ax, df, label=[["G1"], ["G2"]], category=["only one"])
+    plt.close(fig)
+
+def test_volcano_adjust_and_outline_texts_deprecated(capsys):
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    scplt.plot_volcano(ax, de_data=df, no_marks=True)
+    _, texts = scplt.mark_volcano(ax, df, label=["G1"], return_texts=True)
+    out = scplt.volcano_adjust_and_outline_texts(texts)
+    assert out is texts
+    assert "adjust_and_outline_texts" in capsys.readouterr().out
+    plt.close(fig)
+
 def test_plot_rankquant_debug_mode_runs(pdata, capsys):
     """Ensure plot_rankquant runs in debug mode without errors or warnings."""
     fig, ax = plt.subplots(figsize=(3, 2))

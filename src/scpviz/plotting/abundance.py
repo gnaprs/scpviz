@@ -9,6 +9,7 @@ from itertools import combinations
 
 import matplotlib.pyplot as plt
 import numpy as np
+from adjustText import adjust_text
 import pandas as pd
 import seaborn as sns
 from scipy.stats import mannwhitneyu, ttest_ind, wilcoxon
@@ -16,7 +17,7 @@ from scipy.stats import mannwhitneyu, ttest_ind, wilcoxon
 from scpviz import utils
 from scpviz.utils.formatting import format_log_prefix
 
-from .style import get_color, plot_significance
+from .style import _apply_text_style, _update_mark_legend, get_color, plot_significance
 
 if TYPE_CHECKING:
     from scpviz.pAnnData.pAnnData import pAnnData
@@ -1796,7 +1797,7 @@ def plot_rankquant(ax: "plt.Axes", pdata: pAnnData, classes: str | list[str] | N
     ax.legend(title=legend_title, loc='best', frameon=True, fontsize='small')
     return ax
 
-def mark_rankquant(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, class_values: list[str], layer: str = "X", on: str = "protein", color: str = "red", s: float = 10, alpha: float = 1, show_label: bool = True, label_type: str = "accession") -> Any:
+def mark_rankquant(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, class_values: list[str], layer: str = "X", on: str = "protein", color: str = "red", s: float = 10, alpha: float = 1, show_label: bool = True, label_type: str = "accession", text_color: str | None = None, fontsize: int = 8, text_style: str = "outline", arrow_color: str | None = None, adjust_labels: bool = True, adjust_text_kwargs: dict | None = None, return_texts: bool = False, category: str | None = None, legend_loc: str = "lower left") -> Any:
     """
     Highlight specific features on a rank abundance plot.
 
@@ -1833,9 +1834,34 @@ def mark_rankquant(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, cla
         label_type (str): Label type. Options:
             - `"accession"`: show accession IDs.
             - `"gene"`: map to gene names using `"Gene Names"` in `mark_df`.
+        text_color (str, optional): Label text color. Defaults to `color`.
+        fontsize (int): Label font size. Default is 8.
+        text_style (str): Label look. Options:
+
+            - `"outline"`: colored text with a white outline (default).
+            - `"box"`: colored text in a rounded white box with an edge in
+              `text_color`.
+
+        arrow_color (str, optional): Color of the connector lines drawn from
+            labels to points. Defaults to `text_color`.
+        adjust_labels (bool): If True, run `adjust_text` once over all labels to
+            reduce overlap and draw connector lines. If False, labels are placed
+            at a fixed offset from each point. Default is True.
+        adjust_text_kwargs (dict, optional): Extra keyword arguments for
+            `adjust_text` (e.g. `{"expand": (1.5, 1.5)}`); overrides defaults.
+        return_texts (bool): If True, create the labels but skip the internal
+            `adjust_text` call and return `(ax, texts)`. Use this when marking
+            several groups, then run one adjustment at the end with
+            `adjust_and_outline_texts(texts)`. Default is False.
+        category (str, optional): Legend entry for this call (marker `color` +
+            this name). Entries from repeated calls on the same axis are merged
+            into one legend, separate from the `plot_rankquant` legend.
+            Default None adds no entry.
+        legend_loc (str): Location of the marks legend. Default is `"lower left"`.
 
     Returns:
-        ax (matplotlib.axes.Axes): Axis with highlighted features.
+        ax (matplotlib.axes.Axes): Axis with highlighted features. If
+            `return_texts=True`, returns `(ax, texts)`.
 
     !!! tip 
     
@@ -1873,6 +1899,41 @@ def mark_rankquant(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, cla
             ```
 
         ![Mark rankquant](../../assets/plots/mark_rankquant.png)
+
+        Boxed labels with connector lines and a legend entry (`text_style="outline"`
+        gives colored text with a white outline instead):
+            ```python
+            fig, ax = plt.subplots(figsize=(4, 4))
+            scplt.plot_rankquant(ax, pdata, classes=classes_2)
+            scplt.mark_rankquant(
+                ax, pdata, mark_df=mark_df, class_values=class_list[:1],
+                color="crimson", arrow_color="gray", text_style="box",
+                fontsize=7, label_type="gene", category="housekeeping",
+            )
+            plt.show()
+            ```
+
+        ![Mark rankquant styled](../../assets/plots/mark_rankquant_styled.png)
+
+        Mark several groups, then adjust all labels once at the end. Each
+        `category` becomes one entry in a single marks legend:
+            ```python
+            texts = []
+            for group_df, group_color, cat in [
+                (mark_df_a, "crimson", "housekeeping"), (mark_df_b, "navy", "top abundant"),
+            ]:
+                ax, t = scplt.mark_rankquant(
+                    ax, pdata, mark_df=group_df, class_values=class_list[:1],
+                    color=group_color, label_type="gene", category=cat,
+                    text_style="outline", return_texts=True,
+                )
+                texts.extend(t)
+            scplt.adjust_and_outline_texts(
+                texts, arrowprops=dict(arrowstyle="-", color="gray", lw=0.8)
+            )
+            ```
+
+        ![Mark rankquant groups](../../assets/plots/mark_rankquant_groups.png)
 
     See Also:
         plot_rankquant: Generate rank abundance plots with statistics stored in `.var`.
@@ -1912,9 +1973,12 @@ def mark_rankquant(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, cla
     # TEST: check if names are in the data
     pdata._check_rankcol(on, class_values)
 
+    txt_color = text_color if text_color is not None else color
+    texts, xs, ys = [], [], []
+
     for j, class_value in enumerate(class_values):
         print('Class: ', class_value)
-        
+
         for i, txt in enumerate(names):
             try:
                 avg = adata.var[f"Average: {class_value}"].loc[txt]
@@ -1933,8 +1997,28 @@ def mark_rankquant(plot: "plt.Axes", pdata: pAnnData, mark_df: pd.DataFrame, cla
                         if not match.empty:
                             label_txt = str(match.values[0])
 
-                plot.annotate(label_txt, (rank, avg), xytext=(rank+10,avg*1.1), fontsize=8)
+                fixed_offset = not (adjust_labels or return_texts)
+                t = plot.text(rank + 10 if fixed_offset else rank,
+                              avg * 1.1 if fixed_offset else avg,
+                              label_txt, fontsize=fontsize, color=txt_color)
+                _apply_text_style(t, txt_color, text_style)
+                texts.append(t)
+                xs.append(rank)
+                ys.append(avg)
             plot.scatter(rank, avg, marker='o', color=color, s=s, alpha=alpha)
+
+    if category is not None:
+        _update_mark_legend(plot, category, color, legend_loc)
+
+    if texts and adjust_labels and not return_texts:
+        adjust_cfg = {"expand": (2, 2), "x": xs, "y": ys,
+                      "arrowprops": dict(arrowstyle='-', color=arrow_color or txt_color, lw=0.8, zorder=5)}
+        if adjust_text_kwargs:
+            adjust_cfg.update(adjust_text_kwargs)
+        adjust_text(texts, ax=plot, **adjust_cfg)
+
+    if return_texts:
+        return plot, texts
     return plot
 
 def plot_abundance_2D(ax: "plt.Axes", data: pd.DataFrame, cases: list[list[str]], genes: str | list[str] = "all", cmap: str = "Blues", color: list[str] = ["blue"], s: float = 20, alpha: list[float] = [0.2, 1], calpha: float = 1) -> "plt.Axes":
