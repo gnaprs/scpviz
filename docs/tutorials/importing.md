@@ -2,16 +2,18 @@
 [![Download Notebook](https://img.shields.io/badge/download-importing__tutorial-blue?logo=icloud&style=flat-square)](https://github.com/gnaprs/scpviz/raw/main/docs/tutorials/importing.ipynb)
 [![Open In Colab](https://img.shields.io/badge/open%20in-colab-yellow?logo=googlecolab&style=flat-square)](https://colab.research.google.com/github/gnaprs/scpviz/blob/main/docs/tutorials/importing.ipynb)
 
-This tutorial shows how to import **DIA-NN** or **Proteome Discoverer (PD)** outputs into a `pAnnData` object.
+This tutorial shows how to import **DIA-NN**, **Spectronaut** or **Proteome Discoverer (PD)** outputs into a `pAnnData` object.
 
 `scpviz` currently supports:
 
 - **Proteome Discoverer** (tested on versions 2.5 and 3.2)
 - **DIA-NN** (tested on versions 1.8.1, 2.0, and 2.1)
+- **Spectronaut** (tested on version 21; tab-separated wide "Run Pivot" reports)
 
 `pAnnData` objects integrate **protein** and **peptide** level data:
 
 - **DIA-NN** reports contain everything required.
+- **Spectronaut** protein and/or peptide pivot reports; give both for the protein-peptide mapping.
 - **PD** protein exports are required; peptide exports are optional but recommended for peptide-level filtering and analysis.
 
 During import, missing values in `.prot.var["Genes"]` are filled from UniProt by default (`fetch_uniprot=True`). If you are offline or want to avoid API calls, pass `fetch_uniprot=False`; missing gene names stay as `NA` until you call `pdata.update_missing_genes()` later:
@@ -242,6 +244,37 @@ Proteins without gene names after UniProt lookup are assigned as `UNKNOWN_<acces
 
 ---
 
+## Loading Spectronaut reports
+
+Spectronaut exports are read from **tab-separated, wide ("Run Pivot")** reports: one row per protein group (protein report) or precursor (peptide report), with one `[n] <run>.<metric>` column per run. Either file can be imported alone; give both to get the protein-peptide mapping (RS matrix).
+
+| Report | Required columns | Quantity (default) | Q-value |
+|:-------|:-----------------|:-------------------|:--------|
+| **Protein** | `PG.ProteinGroups` (`PG.Genes` optional; if absent, gene names are filled from UniProt) | `PG.Quantity` (`prot_value`) | `PG.QValue (Run-Wise)` |
+| **Peptide** | `PG.ProteinGroups`, `EG.PrecursorId` (`PG.Genes`, `EG.IonMobility` optional) | `EG.TotalQuantity` (`pep_value`) | `EG.Qvalue` |
+
+```py title="Import Spectronaut data"
+from scpviz import pAnnData
+
+pdata = pAnnData.import_spectronaut(
+    prot_file="Protein_Report.tsv",
+    pep_file="Peptide_Report.tsv",
+    obs_columns=["date", "sample", "well", "replicate", "run_id"],
+)
+```
+
+Run names are taken from the column headers (the `[n] ` prefix and the `.d` / `.raw` extension are removed) and split by `delimiter` (default `_`) into `obs_columns`, as for DIA-NN. Use `None` placeholders to drop tokens, or call `import_data(source_type="spectronaut", ...)`.
+
+!!! note
+    - Protein groups (`PG.ProteinGroups`, `;`-joined) are split into **individual accessions**, as for DIA-NN: each member carries its group's quantity and q-value, and the original group string is kept in `.prot.var["Protein.Group"]`. `protein_count` therefore counts accessions, not groups, and the group-level `Genes` string is shared by all members.
+    - Spectronaut values are already normalized (local cross-run normalization by default).
+    - `Filtered` entries in the peptide report are imported as missing. Protein q-values are set to missing where the protein was not quantified.
+    - Runs without any quantified feature are **kept**, with a warning; remove them with `filter_sample()` if needed.
+    - Peptide IDs (`.pep.var_names`) are the Spectronaut precursor IDs (e.g. `_AAC[Carbamidomethyl (C)]LK_.2`). `Modified.Sequence`, `Stripped.Sequence` and `Precursor.Charge` are derived from them, and `Ion.Mobility` (1/K0, one value per precursor) is kept in `.pep.var`.
+    - Long-format and parquet exports are not supported yet.
+
+---
+
 ## Mapping accessions and peptides
 
 After import, `pAnnData` stores three linked objects:
@@ -276,6 +309,7 @@ By default, `sequence` is taken from `.pep.var_names` (`sequence_from="index"`):
 |:-------|:-----------------|:--------------------------|
 | **Proteome Discoverer** | Annotated sequence (+ optional modifications) | Same as `peptide_id` |
 | **DIA-NN** | `Precursor.Id` | Same as `peptide_id` (precursor ID, not amino acids) |
+| **Spectronaut** | `EG.PrecursorId` | Same as `peptide_id` (precursor ID, not amino acids) |
 
 For DIA-NN, request amino-acid strings explicitly:
 
@@ -373,6 +407,25 @@ pdata = pAnnData.import_data(
         obs_columns=obs_columns,
 )
 ```
+
+### Dropping tokens you don't need
+
+`obs_columns` needs one entry per filename token, but you don't have to keep them all. Use `None` at a position to parse that token and discard it. For example, to drop the constant `Sample` token and the `RA` token from the PD filenames above:
+
+```py title="Discard filename tokens with None"
+obs_columns = [None, "cellline", None, "condition", "day"]
+pdata = pAnnData.import_data(
+        source_type="pd",
+        prot_file=prot_file_path,
+        pep_file=pep_file_path,
+        obs_columns=obs_columns,
+)
+```
+
+The dropped tokens are removed from `.prot.obs`, `.pep.obs` and `.summary` together, so they do not reappear after `pdata.update_summary()`. This works for DIA-NN and PD imports alike.
+
+!!! note
+    The list must still match the number of tokens in the filenames (including the `None` placeholders), otherwise the import raises an error.
 
 If filenames follow multiple formats, use `parse_filename_index` to handle different token lengths.
 

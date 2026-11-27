@@ -75,6 +75,22 @@ def pdata_diann():
     """DIA-NN–based fixture for tests requiring per-sample q-value data."""
     return create_diann_pAnnData()
 
+def create_spectronaut_pAnnData():
+    """Creates a Spectronaut pAnnData object (protein + peptide; run 40 is empty)."""
+    test_dir = Path(__file__).parent
+    return pAnnData.import_data(
+        source_type="spectronaut",
+        prot_file=str(test_dir / "test_spectronaut_prot.tsv"),
+        pep_file=str(test_dir / "test_spectronaut_pep.tsv"),
+        obs_columns=["date", "sample", "well", "replicate", "run_id"],
+        fetch_uniprot=False,
+    )
+
+@pytest.fixture
+def pdata_spectronaut():
+    """Spectronaut-based fixture (explodes protein groups; includes an empty sample)."""
+    return create_spectronaut_pAnnData()
+
 # helper for plotting tests
 def _is_axes_container(obj):
     """

@@ -72,7 +72,7 @@ def plot_pairwise_correlation(
     force: bool = False,
     subset_mask: np.ndarray | pd.Series | list | None = None,
     show_annotation_legend: bool = True,
-    legend_anchor_x: float = 0.3,
+    legend_anchor_x: float | None = None,
     show_ticklabels: bool | None = None,
     ticklabels_auto_max_samples: int = 20,
 ) -> "tuple[Figure, plt.Axes]":
@@ -135,9 +135,10 @@ def plot_pairwise_correlation(
             names also appear on the left vertical bar axes; top bars stay unlabeled).
         legend_anchor_x: Horizontal anchor for annotation legends inside the legend
             column, in axes coordinates (``0`` = left edge of that column, ``1`` = right).
-            Larger values shift legends to the **right**, away from the colorbar, which
-            helps if they overlap the colorbar. Typical values to try: about ``0.15`` to
-            ``0.45`` (default ``0.3``). Ignored when ``show_annotation_legend`` is False.
+            Larger values shift legends to the **right**. ``None`` (default) auto-sizes
+            the column from the legend text and clears the colorbar labels. Ignored when
+            ``show_annotation_legend`` is False. To move legends relative to the heatmap
+            afterwards, use :func:`shift_legend` on the returned axis.
         show_ticklabels: When ``show_samples=True``, controls sample names on the
             **x-axis** only (y-axis stays unlabeled to avoid clashing with annotation
             bars). ``None`` (default) shows ticks if ``n_samples <= ticklabels_auto_max_samples``
@@ -420,12 +421,22 @@ def plot_pairwise_correlation(
     else:
         _show_ticks = True
 
+    # Legend column width (inches) from the longest label/title, plus clearance
+    # for the colorbar tick labels + label so legends never overlap the colorbar.
+    legend_col_in = 0.0
+    if show_annotation_legend:
+        n_chars = max(
+            max(len(c) for c in classes_list),
+            max(len(v) for c in classes_list for v in adata.obs[c].astype(str).unique()),
+        )
+        cbar_pad_in = 0.8
+        legend_col_in = cbar_pad_in + 0.4 + n_chars * text_size * 0.6 / 72
+
     if figsize is None:
         side = max(5.0, n_groups * 0.55)
         ann_width = n_ann * 0.3
         cbar_width = 0.5
-        legend_width = 1.5 if show_annotation_legend else 0.0
-        fig_w = side + ann_width * 2 + cbar_width + legend_width
+        fig_w = side + ann_width * 2 + cbar_width + legend_col_in
         fig_h = side + ann_width * 2
         figsize = (fig_w, fig_h)
         print(
@@ -436,7 +447,8 @@ def plot_pairwise_correlation(
     fig = plt.figure(figsize=figsize)
     height_ratios = [0.04] * n_ann + [1.0]
     if show_annotation_legend:
-        legend_col_ratio = 0.25
+        heatmap_in = max(figsize[0] - legend_col_in - 0.4, 1.0)
+        legend_col_ratio = legend_col_in / heatmap_in
         width_ratios = [0.04] * n_ann + [1.0, 0.04, legend_col_ratio]
         ncols_gs = n_ann + 3
     else:
@@ -617,6 +629,7 @@ def plot_pairwise_correlation(
 
     if show_annotation_legend and ax_leg_col is not None:
         n_leg = len(classes_list)
+        anchor_x = legend_anchor_x if legend_anchor_x is not None else cbar_pad_in / legend_col_in
         for i, col in enumerate(classes_list):
             handles = [
                 mpatches.Patch(color=ann_color_dicts[i][v], label=v)
@@ -627,12 +640,14 @@ def plot_pairwise_correlation(
                 handles=handles,
                 title=col,
                 loc="center left",
-                bbox_to_anchor=(legend_anchor_x, y_frac),
+                bbox_to_anchor=(anchor_x, y_frac),
                 bbox_transform=ax_leg_col.transAxes,
                 borderaxespad=0.0,
                 fontsize=text_size - 1,
                 title_fontsize=text_size,
                 frameon=False,
+                handlelength=1.0,
+                handleheight=1.0,
             )
             ax_leg_col.add_artist(leg)
 
@@ -947,13 +962,13 @@ def _resolve_display_and_cluster(
         # Ensure log space without double-logging (prepare + infer policy)
         expr_log, _meta_log = _prepare_heatmap_expr(adata, layer, auto_log2=True)
         display, miss = _values_from_expr(expr_log)
-        return display, miss, cluster_z, miss_z, "log2 abundance", False, True
+        return display, miss, cluster_z, miss_z, r"$\mathrm{log}_{2}$ abundance", False, True
 
     # raw: layer values as stored, no in-memory log2
     expr_raw = np.asarray(get_adata_layer(adata, layer), dtype=float)
     display, miss = _values_from_expr(expr_raw)
     layer_is_log = infer_layer_is_log(layer, adata)
-    cbar_label = "log2 abundance" if layer_is_log else "abundance"
+    cbar_label = r"$\mathrm{log}_{2}$ abundance" if layer_is_log else "abundance"
     return display, miss, cluster_z, miss_z, cbar_label, False, layer_is_log
 
 def _composite_heatmap_rgba(

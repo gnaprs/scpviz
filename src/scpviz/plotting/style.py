@@ -7,11 +7,15 @@ import warnings
 
 import anndata as ad
 import matplotlib as mpl
+import matplotlib.lines as mlines
+import matplotlib.patheffects as PathEffects
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import seaborn as sns
+
+from scpviz.utils.formatting import format_log_prefix
 
 if TYPE_CHECKING:
     from scpviz.pAnnData.pAnnData import pAnnData
@@ -175,6 +179,132 @@ def get_color(resource_type: str, n: int | None = None) -> Any:
     else:
         raise ValueError("Invalid resource_type. Options are 'colors', 'cmap', and 'palette'")
 
+def _apply_text_style(txt: Any, color: str, text_style: str) -> None:
+    """Style a mark label: ``"outline"`` (white stroke) or ``"box"`` (rounded white box + stroke)."""
+    if text_style not in ("outline", "box"):
+        raise ValueError(
+            f"{format_log_prefix('error')} text_style must be 'outline' or 'box', got {text_style!r}."
+        )
+    if text_style == "box":
+        txt.set_bbox(dict(facecolor="white", edgecolor=color, boxstyle="round"))
+    txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground="w")])
+
+
+def _update_mark_legend(ax: "plt.Axes", category: str, color: str, loc: str) -> None:
+    """Add/replace a ``category`` entry in a single marks legend on ``ax``.
+
+    Repeated calls on the same axis merge into one legend. Any pre-existing
+    legend (e.g. from ``plot_rankquant``) is kept as a separate artist.
+    """
+    reg = getattr(ax, "_scpviz_mark_legend", None)
+    if reg is None:
+        reg = ax._scpviz_mark_legend = {"entries": {}, "legend": None}
+    reg["entries"][category] = color
+    if reg["legend"] is not None and reg["legend"].axes is ax:
+        reg["legend"].remove()
+    elif ax.get_legend() is not None:
+        ax.add_artist(ax.get_legend())
+    handles = [
+        mlines.Line2D([], [], marker="o", linestyle="none", color=c, label=k)
+        for k, c in reg["entries"].items()
+    ]
+    reg["legend"] = ax.legend(handles=handles, loc=loc, frameon=True, fontsize="small")
+
+
+def adjust_and_outline_texts(
+    texts: list[Any],
+    expand: tuple[float, float] = (2, 2),
+    arrowprops: dict[str, Any] | None = dict(arrowstyle="->", color="k", lw=0.8),
+    linewidth: float = 3,
+    outline_color: str = "w",
+) -> Any:
+    """
+    Adjust text labels to reduce overlap and apply a white outline for readability.
+
+    Runs `adjust_text()` on a list of text artists while temporarily removing
+    their path effects to ensure stable label placement. A white outline is
+    re-applied after adjustment to improve legibility on dense plots. Works with
+    labels from any `mark_*` function called with `return_texts=True`
+    (e.g. `mark_volcano`, `mark_volcano_by_significance`, `mark_rankquant`).
+
+    Args:
+        texts (list): List of `matplotlib.text.Text` objects, typically returned
+            from a `mark_*` function with `return_texts=True`.
+        expand (tuple): Expansion parameters passed to `adjust_text()`.
+            Default is `(2, 2)`.
+        arrowprops (dict or None): Arrow properties passed to `adjust_text()`.
+            Set to `None` to disable arrow drawing. Default draws black arrows.
+        linewidth (float): Line width of the outline applied after adjustment.
+            Default is 3.
+        outline_color (str): Color of the outline stroke. Default is `"w"`.
+
+    Returns:
+        list: The same list of text objects (modified in place).
+
+    Example:
+        Adjust and outline labels for multiple marked volcano groups:
+
+            ```python
+            ax, volcano_df = scplt.plot_volcano(
+                ax, pdata_6mo_snpc_norm, values=case_values,
+                return_df=True, no_marks=True
+            )
+
+            rps_dict={'downregulated': '#5166FF'}
+            rpl_dict={'downregulated': '#1F2CCF'}
+
+            # in this case, two sets of texts from mark_volcano or mark_volcano_by_significance (return_texts=True)
+            texts = []
+            ax, t = scplt.mark_volcano(
+                ax, volcano_df, label=rpl_top5, label_color='#1F2CCF',return_texts=True
+            )
+            texts.extend(t)
+
+            ax, t = scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rps_top5, color=rps_dict, return_texts=True
+            )
+            texts.extend(t)
+
+            # and for others, use show_names=False to not show any names/arrows
+            scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rpl_others, color=rpl_dict, show_names=False
+            )
+            scplt.mark_volcano_by_significance(
+                ax, volcano_df, label=rps_others, color=rps_dict, show_names=False
+            )
+
+            scplt.adjust_and_outline_texts(texts, expand=(2, 2))
+            ```
+
+        ![Adjust and outline texts](../../assets/plots/volcano_adjust_and_outline_texts.png)
+
+    Note:
+        Collect labels from several `mark_*(..., return_texts=True)` calls and
+        run this once; a single global adjustment gives cleaner layouts than
+        per-group adjustments. `volcano_adjust_and_outline_texts` is a
+        deprecated alias of this function.
+    """
+    from adjustText import adjust_text
+
+    orig_effects = []
+    for txt in texts:
+        orig_effects.append(txt.get_path_effects())
+        txt.set_path_effects([])
+
+    adjust_kwargs = {"expand": expand}
+    if arrowprops is not None:
+        adjust_kwargs["arrowprops"] = arrowprops
+
+    adjust_text(texts, **adjust_kwargs)
+
+    for txt in texts:
+        txt.set_path_effects([
+            PathEffects.withStroke(linewidth=linewidth, foreground=outline_color)
+        ])
+
+    return texts
+
+
 def shift_legend(
     ax: "plt.Axes",
     anchor_pos: tuple[float, float] = (1.05, 1),
@@ -215,11 +345,18 @@ def shift_legend(
                     scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
             ```
     """
-    legends = ax.get_figure().legends or []
-    # ax.get_legend() returns only the last; collect all via ax.artists
-
+    # ax.get_legend() returns only the last; collect all via ax children
     ax_legends = [a for a in ax.get_children()
                   if isinstance(a, plt.matplotlib.legend.Legend)]
+    if not ax_legends:
+        # Legends hosted on a sibling axis (e.g. plot_pairwise_correlation's
+        # legend column): move them, anchored in `ax` coordinates.
+        ax_legends = [a for other in ax.get_figure().axes if other is not ax
+                      for a in other.get_children()
+                      if isinstance(a, plt.matplotlib.legend.Legend)]
+
+    # The last ax.legend() is listed both as ax.legend_ and as an artist
+    ax_legends = list(dict.fromkeys(ax_legends))
 
     if not ax_legends:
         return
@@ -227,7 +364,7 @@ def shift_legend(
     if len(ax_legends) == 1:
         leg = ax_legends[0]
         leg.set_clip_on(False)
-        leg.set_bbox_to_anchor(anchor_pos)
+        leg.set_bbox_to_anchor(anchor_pos, transform=ax.transAxes)
         leg.set_loc(loc)
         return
 
@@ -242,7 +379,7 @@ def shift_legend(
         leg.set_clip_on(False)
         leg_height_px = leg.get_window_extent(renderer).height
         leg_height_ax = leg_height_px / ax_height_px
-        leg.set_bbox_to_anchor((x, y_cursor))
+        leg.set_bbox_to_anchor((x, y_cursor), transform=ax.transAxes)
         leg.set_loc("upper left")
         y_cursor -= leg_height_ax + 0.02
 

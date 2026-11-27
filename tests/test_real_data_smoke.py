@@ -111,6 +111,46 @@ def test_pd_de_correct_fdr(pdata_pd_sample_column):
     assert "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in pdata_pd_sample_column.stats
 
 
+def test_pd_de_min_valid_fraction_strict(pdata_pd_sample_column):
+    """``de(correct_fdr=True, min_valid_fraction=1.0)`` on PD: sparse proteins drop out of BH only."""
+    values = [{"cellline": "BE"}, {"cellline": "AS"}]
+    lax = pdata_pd_sample_column.de(values=values, correct_fdr=True, min_valid_fraction=0.0)
+    strict = pdata_pd_sample_column.de(values=values, correct_fdr=True, min_valid_fraction=1.0)
+    assert strict["adj_p_value"].notna().sum() <= lax["adj_p_value"].notna().sum()
+    assert strict["p_value"].notna().sum() == lax["p_value"].notna().sum()
+
+
+def test_pd_de_zero_masked_as_missing(pdata_pd_sample_column, capsys):
+    """``de()`` on PD: an injected zero is reported and treated as missing."""
+    p = pdata_pd_sample_column.copy()
+    X = p.prot.X.toarray() if sparse.issparse(p.prot.X) else np.array(p.prot.X, dtype=float)
+    row = int(np.where(p.prot.obs["cellline"].to_numpy() == "BE")[0][0])
+    X[row, 0] = 0.0
+    p.prot.X = X
+    df = p.de(values=[{"cellline": "BE"}, {"cellline": "AS"}])
+    assert "treated as missing" in capsys.readouterr().out
+    assert "p_value" in df.columns and "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in p.stats
+
+
+def test_pd_de_limma_log_layer(pdata_pd_sample_column):
+    """``de(method='limma')`` on PD after ``log_transform`` (values sugar, BH correction)."""
+    p = pdata_pd_sample_column.copy()
+    p.log_transform(base=2)
+    df = p.de(values=[{"cellline": "BE"}, {"cellline": "AS"}], method="limma", correct_fdr=True)
+    assert np.isfinite(df["p_value"]).any() and np.isfinite(df["adj_p_value"]).any()
+    assert df.attrs["limma"]["estimator"] in {"legacy", "unequal_df"}
+    assert "[{'cellline': 'BE'}] vs [{'cellline': 'AS'}]" in p.stats
+
+
+def test_pd_de_limma_legacy_values_and_pvalue_only(pdata_pd_sample_column):
+    """``de(method='limma')`` on PD via legacy ``class_type`` + values, raw p-values."""
+    p = pdata_pd_sample_column.copy()
+    p.log_transform(base=2)
+    df = p.de(class_type="cellline", values=["BE", "AS"], method="limma")
+    assert "adj_p_value" not in df.columns
+    assert df["test_statistic"].notna().any()
+
+
 def test_pd_mixed_de_cellline_explicit_contrast(pdata_pd_sample_column):
     """``mixed_de()`` simple path on PD (``Sample`` column + summary merge)."""
     df = pdata_pd_sample_column.mixed_de(
@@ -281,6 +321,46 @@ def test_diann_de_values_correct_fdr(pdata_diann):
     key = "[{'gradient': '30min'}] vs [{'gradient': '60min'}]"
     assert key in pdata_diann.stats
     assert "[{'gradient': '30min'}]" in df.columns
+
+
+def test_diann_de_min_valid_fraction_strict(pdata_diann):
+    """``de(correct_fdr=True, min_valid_fraction=1.0)`` on DIA-NN: sparse proteins drop out of BH only."""
+    values = [{"gradient": "30min"}, {"gradient": "60min"}]
+    lax = pdata_diann.de(values=values, correct_fdr=True, min_valid_fraction=0.0)
+    strict = pdata_diann.de(values=values, correct_fdr=True, min_valid_fraction=1.0)
+    assert strict["adj_p_value"].notna().sum() <= lax["adj_p_value"].notna().sum()
+    assert strict["p_value"].notna().sum() == lax["p_value"].notna().sum()
+
+
+def test_diann_de_log_layer_zero_masked(pdata_diann, capsys):
+    """``de()`` on a DIA-NN log2 layer: log-zeros (pseudocount 1) are reported and treated as missing."""
+    p = pdata_diann.copy()
+    p.log_transform(base=2, pseudocount=1.0)
+    X = p.prot.X.toarray() if sparse.issparse(p.prot.X) else np.array(p.prot.X, dtype=float)
+    X[0, 0] = 0.0  # log2(0 + 1)
+    p.prot.X = X
+    df = p.de(values=[{"gradient": "30min"}, {"gradient": "60min"}], layer="X", correct_fdr=True)
+    assert "treated as missing" in capsys.readouterr().out
+    assert np.isfinite(df["p_value"]).any()
+
+
+def test_diann_de_limma_log_layer(pdata_diann):
+    """``de(method='limma')`` on DIA-NN (high missingness -> unequal-df prior path) after log_transform."""
+    p = pdata_diann.copy()
+    p.log_transform(base=2)
+    df = p.de(values=[{"gradient": "30min"}, {"gradient": "60min"}], method="limma", correct_fdr=True)
+    assert np.isfinite(df["p_value"]).any() and np.isfinite(df["adj_p_value"]).any()
+    assert df.attrs["limma"]["df_prior"] > 0
+    assert "[{'gradient': '30min'}] vs [{'gradient': '60min'}]" in p.stats
+
+
+def test_diann_de_limma_legacy_values(pdata_diann):
+    """``de(method='limma')`` on DIA-NN via legacy ``class_type`` + values."""
+    p = pdata_diann.copy()
+    p.log_transform(base=2)
+    df = p.de(class_type="gradient", values=["30min", "60min"], method="limma")
+    assert np.isfinite(df["p_value"]).any()
+    assert np.isfinite(df["test_statistic"]).any()
 
 
 def test_diann_mixed_de_gradient_replicate(pdata_diann):
@@ -708,3 +788,87 @@ def test_diann_export_h5ad(pdata_diann, tmp_path):
     adata = ad.read_h5ad(pdata.export_h5ad(tmp_path / "diann_prot", on="protein"))
     assert adata.shape == pdata.prot.shape
     assert len(adata.uns["scpviz"]["stats"]) == len(pdata.stats)
+
+
+# ---------------------------------------------------------------------------
+# Spectronaut smoke tests
+# ---------------------------------------------------------------------------
+
+SN_OBS_COLUMNS = ["date", "sample", "well", "replicate", "run_id"]
+SN_PROT = str(TEST_DIR / "test_spectronaut_prot.tsv")
+SN_PEP = str(TEST_DIR / "test_spectronaut_pep.tsv")
+
+
+def test_spectronaut_import_prot_pep(capsys):
+    """Protein + peptide import: shapes, RS, q-values, metadata, empty run kept and warned."""
+    pdata = pAnnData.import_spectronaut(
+        prot_file=SN_PROT, pep_file=SN_PEP, obs_columns=SN_OBS_COLUMNS, fetch_uniprot=False
+    )
+    out = capsys.readouterr().out
+    assert pdata.validate(verbose=False)
+    assert pdata.metadata["source"] == "spectronaut"
+    assert pdata.prot.n_obs == pdata.pep.n_obs == 8
+    assert pdata.rs.shape == (pdata.prot.n_vars, pdata.pep.n_vars)
+    # groups exploded into accessions; groups quantified in no run are dropped on import
+    raw = pd.read_csv(SN_PROT, sep="	")
+    quant = raw[[c for c in raw.columns if c.endswith("PG.Quantity")]]
+    expected = {a for g in raw.loc[quant.notna().any(axis=1), "PG.ProteinGroups"] for a in g.split(";")}
+    assert set(pdata.prot.var_names) == expected
+    assert pdata.prot.layers["X_qval"].shape == pdata.prot.shape
+    assert pdata.pep.layers["X_qval"].shape == pdata.pep.shape
+    assert pd.api.types.is_float_dtype(pdata.pep.var["Ion.Mobility"])
+    assert pdata.pep.var["Precursor.Charge"].between(1, 8).all()
+    assert pdata.prot.var["Protein.Group"].str.contains(";").any()
+    assert "no quantified proteins" in out and "no quantified peptides" in out
+    assert (pdata.prot.obs["protein_count"] == 0).sum() == 1  # empty run kept
+
+
+def test_spectronaut_import_prot_only():
+    pdata = pAnnData.import_spectronaut(prot_file=SN_PROT, obs_columns=SN_OBS_COLUMNS, fetch_uniprot=False)
+    assert pdata.pep is None and pdata.rs is None
+    assert pdata.prot.n_obs == 8 and pdata.validate(verbose=False)
+
+
+def test_spectronaut_import_pep_only():
+    pdata = pAnnData.import_spectronaut(pep_file=SN_PEP, obs_columns=SN_OBS_COLUMNS, fetch_uniprot=False)
+    assert pdata.prot is None and pdata.pep.n_obs == 8
+
+
+def test_spectronaut_import_data_obs_columns_none_placeholder():
+    pdata = pAnnData.import_data(
+        source_type="sn", prot_file=SN_PROT, obs_columns=["date", None, "well", None, "run_id"], fetch_uniprot=False
+    )
+    assert {"date", "well", "run_id"} <= set(pdata.prot.obs.columns)
+    assert not {"sample", "replicate"} & set(pdata.prot.obs.columns)
+
+
+def test_spectronaut_resolve_peptides(pdata_spectronaut):
+    pdata = pdata_spectronaut
+    acc, _ = _accession_with_peptides(pdata)
+    # expected precursors come from the peptide TSV (any group listing the accession), not from RS
+    raw = pd.read_csv(SN_PEP, sep="	", usecols=["EG.PrecursorId", "PG.ProteinGroups"])
+    expected = set(raw.loc[raw["PG.ProteinGroups"].str.split(";").apply(lambda m: acc in m), "EG.PrecursorId"])
+    assert set(utils.resolve_peptides(pdata, [acc], quiet=True)) == expected
+    df = utils.get_peptides_for_accessions(pdata, [acc])
+    assert set(df["peptide_id"]) == expected and (df["accession"] == acc).all()
+
+
+def test_spectronaut_get_peptide_properties(pdata_spectronaut):
+    acc, n_peps = _accession_with_peptides(pdata_spectronaut)
+    df = utils.get_peptide_properties(pdata_spectronaut, accessions=[acc], return_copy=True)
+    assert len(df) == n_peps and df["gravy"].notna().any()
+    assert "[" not in df["peptide_sequence"].iloc[0]
+
+
+def test_spectronaut_log_transform_provenance(pdata_spectronaut):
+    pdata = pdata_spectronaut.copy()
+    pdata.log_transform(set_X=False)
+    assert pdata.prot.uns["layer_provenance"]["X_log2"]["op"] == "log_transform"
+
+
+def test_spectronaut_save_load_roundtrip(pdata_spectronaut, tmp_path):
+    path = tmp_path / "sn.pdata"
+    pdata_spectronaut.save(path)
+    loaded = pAnnData.load(path, verbose=False)
+    assert loaded.metadata["source"] == "spectronaut"
+    assert loaded.prot.shape == pdata_spectronaut.prot.shape and loaded.rs.shape == pdata_spectronaut.rs.shape

@@ -12,8 +12,10 @@ from scpviz.utils.de_reporting import (
     format_de_group_label,
     print_de_result_summary,
     print_de_run_header,
+    print_limma_summary,
 )
-from scpviz.utils.stats import bh_adjust_pvalues
+from scpviz.utils.limma import moderated_two_group_test
+from scpviz.utils.stats import bh_adjust_pvalues, exclude_sparse_pvalues, get_log_info, mask_zeros_as_nan
 import warnings
 from scipy import sparse
 import gseapy as gp
@@ -90,7 +92,7 @@ class AnalysisMixin:
 
         self._history.append(f"{on}: Coefficient of Variation (CV) calculated for {layer} data by {classes}. CV stored in var['CV: {class_value}'].") # type: ignore[attr-defined]
 
-    def de(self, values=None, class_type=None, method='ttest', layer='X', threshold=0.05, log2fc=1.0, fold_change_mode='mean', correct_fdr=False, equal_var=True, pval=None):
+    def de(self, values=None, class_type=None, method='ttest', layer='X', threshold=0.05, log2fc=1.0, fold_change_mode='mean', correct_fdr=False, equal_var=True, pval=None, min_valid_fraction=0.5):
         """
         Perform differential expression (DE) analysis on proteins across sample groups.
 
@@ -105,7 +107,10 @@ class AnalysisMixin:
                 - Legacy-style (if `class_type` is provided): [['HCT116', 'DMSO'], ['HCT116', 'DrugX']]
 
             class_type (str or list of str, optional): Legacy-style class label(s) to interpret `values`.
-            method (str): Statistical test to use. Options: "ttest", "mannwhitneyu", "wilcoxon".
+            method (str): Statistical test to use. Options: "ttest", "mannwhitneyu", "wilcoxon", "limma".
+                ``"limma"`` is a moderated t-test (empirical Bayes variance shrinkage, validated against R limma;
+                see ``scpviz.utils.limma``). It needs a log-transformed layer and
+                ``fold_change_mode="mean"``; ``test_statistic`` is the moderated t, and ``equal_var`` is ignored.
             layer (str): Name of the data layer to use (default is "X").
             threshold (float): Significance cutoff. Applied to raw ``p_value`` when
                 ``correct_fdr=False``, and to ``adj_p_value`` when ``correct_fdr=True``. Defaults to 0.05.
@@ -119,6 +124,11 @@ class AnalysisMixin:
             equal_var (bool): Passed to :func:`scipy.stats.ttest_ind` when ``method='ttest'``.
                 ``True`` (default) uses Student's t-test; ``False`` uses Welch's t-test.
 
+            min_valid_fraction (float): Only used when ``correct_fdr=True``. Proteins with a
+                fraction of non-missing values below this in either group are excluded from
+                the BH correction (``adj_p_value`` is NaN; raw ``p_value`` is kept). Default 0.5.
+                Ignored for ``method='limma'`` (filter sparse proteins upstream, e.g. with ``filter_prot``).
+
             fold_change_mode (str): Strategy for computing fold change. Options:
 
                 - "mean": log2(mean(group1) / mean(group2))
@@ -127,6 +137,11 @@ class AnalysisMixin:
 
         Returns:
             pd.DataFrame: DataFrame with DE statistics including log2 fold change, p-values, and significance labels.
+
+        Note:
+            Zeros are treated as missing and set to NaN before testing and fold change. On a
+            ``log_transform`` layer, a zero maps to ``log_base(pseudocount)`` and is detected
+            from the layer provenance.
 
         Example:
             Legacy-style DE comparison using class types and value combinations:
@@ -172,6 +187,9 @@ class AnalysisMixin:
                 )
             threshold = pval
 
+        if method not in ('ttest', 'mannwhitneyu', 'wilcoxon', 'limma'):
+            raise ValueError(f"{format_log_prefix('error')} Unsupported test method '{method}'. Choose 'ttest', 'mannwhitneyu', 'wilcoxon' or 'limma'.")
+
         # --- Handle legacy input ---
         if values is None:
             raise ValueError("Please provide `values` (new format) or both `class_type` and `values` (legacy format).")
@@ -208,6 +226,21 @@ class AnalysisMixin:
         data2 = np.asarray(data2)
 
         _layer_is_log = utils.infer_layer_is_log(layer, pdata_case1.prot)
+        if method == 'limma':
+            if not _layer_is_log:
+                raise ValueError(f"{format_log_prefix('error')} method='limma' needs a log-transformed layer; run log_transform() first.")
+            if fold_change_mode != 'mean':
+                raise ValueError(f"{format_log_prefix('error')} method='limma' requires fold_change_mode='mean' (log2fc is the modeled group difference).")
+
+        # Log base and pseudocount from the layer's provenance chain
+        _base_val, _log_base, _pseudocount = get_log_info(pdata_case1.prot, layer, _layer_is_log)
+
+        # Zeros are missing values: mask to NaN so tests, means and fold changes ignore them
+        _n_nan_before = int(np.isnan(data1).sum() + np.isnan(data2).sum())
+        data1 = mask_zeros_as_nan(data1, _layer_is_log, _log_base, _pseudocount)
+        data2 = mask_zeros_as_nan(data2, _layer_is_log, _log_base, _pseudocount)
+        _n_zero = int(np.isnan(data1).sum() + np.isnan(data2).sum()) - _n_nan_before
+
         _finite_de = data1[np.isfinite(data1)]
         _median_val = float(np.nanmedian(_finite_de)) if _finite_de.size > 0 else 0.0
 
@@ -233,6 +266,11 @@ class AnalysisMixin:
             threshold=threshold,
             log2fc_thresh=log2fc,
         )
+        if _n_zero > 0:
+            print(
+                f"{format_log_prefix('info', 2)} {_n_zero} zero value(s) in the selected samples "
+                "treated as missing (NaN) for testing and fold change."
+            )
 
         # --- Compute fold change ---
         if fold_change_mode == 'mean':
@@ -246,8 +284,6 @@ class AnalysisMixin:
                 mask_invalid = (group1_mean == 0) | (group2_mean == 0) | np.isnan(group1_mean) | np.isnan(group2_mean)
 
                 if _layer_is_log:
-                    rec = pdata_case1.prot.uns.get("layer_provenance", {}).get(layer, {})
-                    _base_val = str(rec.get("base", "2"))
                     if _base_val in ("10",):
                         log2fc_vals = (group1_mean - group2_mean) / np.log10(2)
                         _base_label = "log10"
@@ -347,24 +383,29 @@ class AnalysisMixin:
             raise ValueError(f"Unsupported fold_change_mode: {fold_change_mode}")
 
         # --- Statistical test ---
-        pvals = []
-        stats = []
-        for i in range(data1.shape[1]):
-            x1, x2 = data1[:, i], data2[:, i]
-            try:
-                if method == 'ttest':
-                    res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
-                elif method == 'mannwhitneyu':
-                    res = mannwhitneyu(x1, x2, alternative='two-sided')
-                elif method == 'wilcoxon':
-                    res = wilcoxon(x1, x2)
-                else:
-                    raise ValueError(f"Unsupported test method: {method}")
-                pvals.append(res.pvalue)
-                stats.append(res.statistic)
-            except Exception as e:
-                pvals.append(np.nan)
-                stats.append(np.nan)
+        if method == 'limma':
+            lim = moderated_two_group_test(data1, data2)
+            pvals, stats = lim['p_value'], lim['t']
+            print_limma_summary(lim)
+        else:
+            pvals = []
+            stats = []
+            for i in range(data1.shape[1]):
+                x1, x2 = data1[:, i], data2[:, i]
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")  # all-NaN / tiny groups give NaN p-values
+                        if method == 'ttest':
+                            res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
+                        elif method == 'mannwhitneyu':
+                            res = mannwhitneyu(x1, x2, alternative='two-sided')
+                        elif method == 'wilcoxon':
+                            res = wilcoxon(x1, x2)
+                    pvals.append(res.pvalue)
+                    stats.append(res.statistic)
+                except Exception as e:
+                    pvals.append(np.nan)
+                    stats.append(np.nan)
 
         # --- Compile results ---
         var = self.prot.var.copy()
@@ -385,7 +426,17 @@ class AnalysisMixin:
         df_stats['significance_score'] = df_stats['-log10(p_value)'] * df_stats['log2fc']
 
         if correct_fdr:
-            df_stats['adj_p_value'] = bh_adjust_pvalues(np.asarray(pvals, dtype=float))
+            if method == 'limma':  # the prior is fitted on the supplied proteins; filter upstream (filter_prot)
+                pvals_bh, n_sparse = np.asarray(pvals, dtype=float), 0
+            else:
+                pvals_bh, n_sparse = exclude_sparse_pvalues(np.asarray(pvals, dtype=float), data1, data2, min_valid_fraction)
+            if n_sparse > 0:
+                print(
+                    f"{format_log_prefix('info', 2)} {n_sparse} proteins had <{min_valid_fraction:.0%} valid values "
+                    "in at least one group and were excluded from FDR correction (too sparse for a "
+                    "reliable test); adj_p_value is NaN for these."
+                )
+            df_stats['adj_p_value'] = bh_adjust_pvalues(pvals_bh)
             df_stats['-log10(adj_p_value)'] = -np.log10(
                 df_stats['adj_p_value'].replace(0, np.nan).astype(float)
             )
@@ -401,6 +452,8 @@ class AnalysisMixin:
         df_stats['significance'] = pd.Categorical(df_stats['significance'], categories=['upregulated', 'downregulated', 'not significant', 'not comparable'], ordered=True)
 
         df_stats = df_stats.sort_values(by='significance')
+        if method == 'limma':
+            df_stats.attrs['limma'] = {k: lim[k] for k in ('s2_prior', 'df_prior', 'estimator')}
 
         # --- Store and return ---
         self._stats[comparison_string] = df_stats # type: ignore[attr-defined]
@@ -963,6 +1016,143 @@ class AnalysisMixin:
         )
         if return_diagnostics:
             return collection
+        return collection
+
+    def joint_de(
+        self,
+        groupby,
+        *,
+        reference=None,
+        comparisons=None,
+        contrasts=None,
+        method="limma",
+        layer="X",
+        correct_fdr=True,
+        fdr_scope="per_contrast",
+        threshold=0.05,
+        log2fc=1.0,
+        store=True,
+        stats_key=None,
+    ):
+        """
+        Joint multi-group differential expression with one linear model per protein.
+
+        Fits ``abundance ~ 0 + group`` once across **all** groups of ``groupby`` (ordinary
+        least squares, independent samples), then tests any number of contrasts of the
+        group means. Every contrast uses the residual variance pooled over all groups, so
+        it has more degrees of freedom than separate two-group tests (assuming a similar
+        within-group variance in every group). Use :meth:`de` for a single pairwise test and
+        :meth:`mixed_de` for repeated measures / random effects.
+
+        Args:
+            groupby (str or list of str): Column(s) in ``.obs`` / ``.summary`` defining the groups.
+                With a list the values are joined with ``"_"`` (e.g. ``"NP40_drug"``). Samples
+                with a missing value are left out of the fit.
+            reference (str, optional): Shared control group. Use with ``comparisons``.
+            comparisons (str or list of str, optional): Groups tested against ``reference``;
+                ``log2fc = comparison - reference``.
+            contrasts (dict, optional): ``{name: (test, ref)}`` for a pair or
+                ``{name: {group: weight}}`` for a weighted contrast. Weights must be non-zero and
+                sum to 0; ``effect = sum(weight * group mean)``. Exclusive with
+                ``reference`` / ``comparisons``.
+            method (str): ``"limma"`` (default; moderated variance, empirical Bayes prior fitted
+                once over all proteins, see :func:`scpviz.utils.limma.squeeze_variance`) or ``"lm"``
+                (ordinary t-test with the pooled residual variance). Both give identical ``log2fc``.
+            layer (str): Log-transformed layer (``log_transform`` first). Zeros are treated as missing.
+            correct_fdr (bool): Benjamini-Hochberg correction. Default True.
+            fdr_scope (str): ``"per_contrast"`` (default; proteins within each contrast),
+                ``"global"`` (``adj_p_value`` is BH over all protein x contrast p-values) or
+                ``"both"`` (per-contrast ``adj_p_value`` plus ``adj_p_value_global``).
+            threshold (float): Significance cutoff (on ``adj_p_value`` if ``correct_fdr``).
+            log2fc (float): Minimum ``|log2fc|`` for up/down labels.
+            store (bool): Store the result in ``pdata.stats``.
+            stats_key (str, optional): Override the auto-generated ``.stats`` key.
+
+        Returns:
+            dict: ``{"contrasts": {label: DataFrame}, "meta": dict, "diagnostics": DataFrame}``.
+            Each contrast table follows the :meth:`de` columns (``log2fc``, ``p_value``,
+            ``adj_p_value``, ``significance``, ...) plus ``se`` and per-group counts ``n_<group>``;
+            proteins where a group in the contrast is unobserved have NaN results and are labelled
+            ``"not comparable"``. ``diagnostics`` has per-protein group counts, ``df_residual``,
+            ``s2`` and (limma) ``s2_post``, ``df_total``.
+
+        Note:
+            - Samples are assumed independent. For paired / repeated measurements use :meth:`mixed_de`.
+            - Pooling assumes a similar residual variance in every group; restrict the samples
+              (e.g. ``filter_sample``) if some groups are unrelated or much noisier.
+            - Proteins with fewer observations than needed simply get NaN (never silently dropped);
+              filter sparse proteins upstream (``filter_prot``), as for ``de(method='limma')``.
+            - ``limma`` is the no-trend, non-robust moderation validated against R limma
+              (``lmFit(~0+group)`` + ``contrasts.fit`` + ``eBayes``).
+
+        Example:
+            Several doses against one vehicle, moderated (default) and with plain pooled t-tests:
+                ```python
+                res = pdata.joint_de(
+                    groupby="condition",
+                    reference="vehicle",
+                    comparisons=["low", "mid", "high"],
+                )
+                res_lm = pdata.joint_de(
+                    groupby="condition", reference="vehicle",
+                    comparisons=["low", "mid", "high"], method="lm",
+                )
+                label = list(res["contrasts"])[0]
+                scplt.plot_volcano(ax, de_data=res["contrasts"][label], correct_fdr=True)
+                ```
+
+            Each detergent has its own vehicle, so name the pairs yourself:
+                ```python
+                pdata.joint_de(
+                    groupby=["detergent", "treatment"],
+                    contrasts={
+                        "NP40 drug vs vehicle": ("NP40_drug", "NP40_vehicle"),
+                        "DDM drug vs vehicle": ("DDM_drug", "DDM_vehicle"),
+                    },
+                )
+                ```
+
+            Does the drug work differently in the two detergents? (difference in differences):
+                ```python
+                pdata.joint_de(
+                    groupby=["detergent", "treatment"],
+                    contrasts={
+                        "drug effect: NP40 minus DDM": {
+                            "NP40_drug": +1, "NP40_vehicle": -1,
+                            "DDM_drug": -1, "DDM_vehicle": +1,
+                        },
+                    },
+                )
+                ```
+                In plain terms: first measure how much the drug changes a protein in NP40
+                (``NP40_drug - NP40_vehicle``), then how much it changes it in DDM
+                (``DDM_drug - DDM_vehicle``). The weights are just the plus/minus signs that
+                perform "NP40 change minus DDM change" in one step: groups with ``+1`` are added,
+                groups with ``-1`` are subtracted, and unlisted groups are ignored. The weights must
+                add up to zero so that only differences, never overall levels, are compared.
+                ``log2fc`` is then (change in NP40) - (change in DDM): near 0 means the drug acts
+                the same in both detergents, positive means it raises the protein more in NP40.
+                A protein that is significant in NP40 but not in DDM does *not* prove the
+                detergents differ (one test may just be noisier); only this contrast tests that.
+        """
+        from scpviz.utils import joint_de as joint_de_utils
+
+        if self.prot is None:
+            raise ValueError(f"{format_log_prefix('error')} No .prot data available.")
+        collection = joint_de_utils.run_joint_de(
+            self.prot,
+            getattr(self, "_summary", None),
+            groupby=groupby, reference=reference, comparisons=comparisons, contrasts=contrasts,
+            method=method, layer=layer, correct_fdr=correct_fdr, fdr_scope=fdr_scope,
+            threshold=threshold, log2fc=log2fc,
+        )
+        key = stats_key or joint_de_utils.build_stats_key(groupby, reference, contrasts, method)
+        if store:
+            self._stats[key] = collection  # type: ignore[attr-defined]
+            self._append_history(  # type: ignore[attr-defined]
+                f"prot: joint_de ({method}) groupby={groupby!r}, {len(collection['contrasts'])} contrast(s) stored in .stats[{key!r}]."
+            )
+        joint_de_utils.print_joint_de_summary(collection, stats_location=f'.stats["{key}"]', correct_fdr=correct_fdr)
         return collection
 
     # TODO: Need to figure out how to make this interface with plot functions, probably do reordering by each class_value within the loop?

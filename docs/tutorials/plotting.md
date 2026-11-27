@@ -329,14 +329,16 @@ plt.show()
 
 ![Plot rankquant (single-cell)](../assets/plots/plot_rankquant_sc.png)
 
-[`mark_rankquant`](../reference/plotting.md#src.scpviz.plotting.mark_rankquant) overlays specific proteins. `mark_df` requires an `accession` column and optionally `gene_primary`:
+[`mark_rankquant`](../reference/plotting.md#src.scpviz.plotting.mark_rankquant) overlays specific proteins on top of a `plot_rankquant` axis. `mark_df` requires an `accession` column and optionally `gene_primary` (used when `label_type="gene"`).
+
+**Choose which classes to mark with `class_values`.** Each protein sits at a different rank in every group, so a protein is marked (and labelled) once per entry in `class_values`. The entries are the group names shown in the `plot_rankquant` legend (the `classes` columns joined by `_`, e.g. `"AS_kd"`). Pass only the groups you care about; marking all of them repeats every label:
 
 ```python
 import pandas as pd
 from scpviz import utils as scu
 
 classes_2 = ["cellline", "condition"]
-class_list = scu.get_classlist(pdata.prot, classes_2)
+class_list = scu.get_classlist(pdata.prot, classes_2)   # e.g. ["AS_kd", "AS_sc", "BE_kd", "BE_sc"]
 
 acc = list(pdata.prot.var_names[:3])
 mark_df = pd.DataFrame({"accession": acc})
@@ -347,13 +349,50 @@ fig, ax = plt.subplots(figsize=(4, 4))
 scplt.plot_rankquant(ax, pdata, classes=classes_2)
 scplt.mark_rankquant(
     ax, pdata, mark_df=mark_df,
-    class_values=class_list[:4],
-    color="black", label_type="gene",
+    class_values=["AS_kd"],                 # only mark on this group
+    color="crimson", arrow_color="gray",
+    text_style="box",                       # boxed labels; "outline" = colored text + white outline
+    fontsize=7, label_type="gene",
+    category="housekeeping",                # adds an entry to a separate "marks" legend
 )
 plt.show()
 ```
 
-![Mark rankquant](../assets/plots/mark_rankquant.png)
+![Mark rankquant (boxed labels)](../assets/plots/mark_rankquant_styled.png)
+
+Labels are moved apart automatically (`adjust_text`) and joined to their points by thin lines. Useful options:
+
+| Option | What it does |
+|---|---|
+| `text_style` | `"outline"` (default): colored text with a white outline. `"box"`: rounded white box with a colored edge. |
+| `text_color`, `fontsize`, `arrow_color` | Label color (defaults to `color`), size, and connector-line color. |
+| `category`, `legend_loc` | Name for the legend entry and its location (default `"lower left"`, separate from the rankquant legend). |
+| `adjust_labels`, `adjust_text_kwargs` | Turn the automatic spreading off, or pass options such as `{"expand": (1.5, 1.5)}` to `adjust_text`. |
+
+**Marking several groups.** Call `mark_rankquant` once per group with `return_texts=True`, collect the labels, and run one adjustment at the end so labels from different groups also avoid each other. Each `category` becomes one entry in a single marks legend:
+
+```python
+texts = []
+for group_df, group_color, cat in [
+    (mark_df_a, "crimson", "housekeeping"),
+    (mark_df_b, "navy", "top abundant"),
+]:
+    ax, t = scplt.mark_rankquant(
+        ax, pdata, mark_df=group_df, class_values=["AS_kd"],
+        color=group_color, label_type="gene", category=cat,
+        text_style="outline", return_texts=True,
+    )
+    texts.extend(t)
+
+scplt.adjust_and_outline_texts(
+    texts, arrowprops=dict(arrowstyle="-", color="gray", lw=0.8)
+)
+plt.show()
+```
+
+![Mark rankquant (several groups)](../assets/plots/mark_rankquant_groups.png)
+
+[`adjust_and_outline_texts`](../reference/plotting.md#src.scpviz.plotting.adjust_and_outline_texts) works the same way for [`mark_volcano`](#volcano-mark).
 
 You can also build `mark_df` from a set-intersection query — see [Set operations](#upset-code).
 
@@ -438,7 +477,7 @@ plt.show()
 
 [`plot_pca` API ↗](../reference/plotting.md#src.scpviz.plotting.plot_pca) · [`plot_pca_protein_vectors` API ↗](../reference/plotting.md#src.scpviz.plotting.plot_pca_protein_vectors)
 
-[`plot_pca`](#pca-code) runs PCA (or reuses cached results) and renders a scatter. Supports categorical and continuous coloring, edge colors, marker shapes, 3D projections, confidence ellipses, and tuple-key mapping.
+[`plot_pca`](#pca-code) runs PCA (or reuses cached results) and renders a scatter. Supports categorical and continuous coloring, edge colors, marker shapes, hatch patterns, 3D projections, confidence ellipses, and tuple-key mapping.
 
 ```python
 import matplotlib.pyplot as plt
@@ -524,9 +563,51 @@ scplt.plot_pca(
 
 The same parameters apply to [`plot_umap`](#umap-code).
 
+#### Style channels: color, edge, marker, hatch { #style-channels }
+
+Each visual channel pairs a data argument (which `.obs` key to encode) with a style argument (how to encode it). The same pairing applies to [`plot_umap`](#umap-code):
+
+| Channel | Data argument | Style argument | Accepts |
+|---|---|---|---|
+| Face color | `color` | `cmap` | `.obs` key(s) or gene/protein (continuous); palette list/dict or colormap |
+| Edge color | `edge_color` | `edge_cmap` | `.obs` key(s), categorical only; palette list/dict |
+| Marker shape | `marker_shape` | `shape_cmap` | `.obs` key(s), categorical only; marker list/dict |
+| Hatch | `hatch_pattern` | `hatch_cmap` | `.obs` key(s), categorical only; hatch list/dict |
+
+For each style argument, `"default"` uses the built-in cycle, a list is assigned to the sorted class labels, and a dict is `{label: value}`. Channels can be combined freely.
+
+**Hatching.** `hatch_pattern` marks each point with a small symbol for a second categorical variable on top of color (and survives grayscale printing). The symbol is drawn exactly at the center of the point, in the edge color (black when `edge_color` is not set), at about 70% of the marker size `s`. This is deliberately not matplotlib's hatch fill: matplotlib anchors a hatch pattern to the canvas rather than to each marker, so on small points the lines land off-center and differ from point to point. Symbols are matplotlib markers (`"x"`, `"+"`, `"|"`, `"_"`, `"."`, `"*"`, ...), plus `"/"` and `"\\"` for a single diagonal line; `""` means no symbol. The default `hatch_cmap` leaves the first level blank and then cycles `\`, `x`, `|`, `_`, `/`, `+`, `.`, `*`, alternating orientation so successive levels look as different as possible. The symbols get their own legend, and `shift_legend` stacks it with the others.
+
+=== "Color + hatch"
+
+    ```python
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(ax, pdata_norm, color="cellline", hatch_pattern="condition", s=30)
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    plt.show()
+    ```
+
+    ![Plot PCA hatch](../assets/plots/plot_pca_hatch.png)
+
+=== "Color + marker + hatch"
+
+    When `color` and `marker_shape` use the same key, their legends are merged into one (colored markers). Pass a dict to `hatch_cmap` to choose the patterns:
+
+    ```python
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(
+        ax, pdata_norm, color="cellline", marker_shape="cellline",
+        hatch_pattern="condition", hatch_cmap={"kd": "+", "sc": "x"}, s=30,
+    )
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    plt.show()
+    ```
+
+    ![Plot PCA hatch with marker shape](../assets/plots/plot_pca_hatch_marker.png)
+
 #### Tuple-key mapping
 
-For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a `mapping` dict keyed by metadata combinations. Multi-column keys are tuples; a single column may use string keys. This assigns colors, edge colors, and marker shapes without pre-encoding a combined column:
+For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a `mapping` dict keyed by metadata combinations. Multi-column keys are tuples; a single column may use string keys. This assigns colors, edge colors, marker shapes (`"marker"`), and hatch patterns (`"hatch"`) without pre-encoding a combined column:
 
 === "Literal face + edge colors (bulk)"
 
@@ -566,6 +647,27 @@ For studies with crossed metadata columns, `plot_pca` (and `plot_umap`) accept a
     ```
 
     ![Plot PCA mapping abundance (single-cell)](../assets/plots/plot_pca_mapping_abundance_sc.png)
+
+=== "Hatch per combination (bulk)"
+
+    The `"hatch"` symbol is drawn in the entry's `edge_color` (black if omitted); all combinations are listed in the hatch legend, including unhatched ones. Combining `hatch` entries with `hatch_pattern=` raises a `ValueError`.
+
+    ```python
+    mapping_keys = ["cellline", "condition"]
+    mapping = {
+        ("AS", "kd"): {"color": "#F4A261", "hatch": "/"},
+        ("AS", "sc"): {"color": "#F4A261"},
+        ("BE", "kd"): {"color": "#D0D0D0", "hatch": "/", "edge_color": "#C0392B"},
+        ("BE", "sc"): {"color": "#D0D0D0"},
+    }
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_pca(ax, pdata_norm, mapping_keys=mapping_keys, mapping=mapping, s=30, force=True)
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    plt.show()
+    ```
+
+    ![Plot PCA mapping hatch](../assets/plots/plot_pca_mapping_hatch.png)
 
 Combinations missing from `mapping` default to grey face with no edge. Pass `mapping_on_missing="raise"` to require all combinations to be present.
 
@@ -686,6 +788,45 @@ plt.show()
 ![UMAP colored by abundance (log10)](../assets/plots/plot_umap_abundance_log10.png)
 </figure>
 
+#### Hatching
+
+`plot_umap` takes the same `hatch_pattern` / `hatch_cmap` arguments and `mapping` `"hatch"` entries as PCA — see [Style channels](#style-channels):
+
+=== "Color + marker + hatch (bulk)"
+
+    ```python
+    fig, ax = plt.subplots(figsize=(4, 4))
+    scplt.plot_umap(
+        ax, pdata_norm, color="cellline", marker_shape="cellline",
+        hatch_pattern="condition", s=30, umap_params={"n_neighbors": 5},
+    )
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    plt.show()
+    ```
+
+    ![Plot UMAP hatch](../assets/plots/plot_umap_hatch.png)
+
+=== "Mapping hatch (single-cell)"
+
+    ```python
+    mapping_keys = ["region"]
+    mapping = {
+        "Cortex": {"color": "#D19DCB", "hatch": "/"},
+        "SNpc": {"color": "#85BE9E"},
+    }
+
+    fig, ax = plt.subplots(figsize=(4.5, 4))
+    scplt.plot_umap(
+        ax, pdata_sc, mapping_keys=mapping_keys, mapping=mapping, s=30,
+        umap_params={"min_dist": 0.3, "n_neighbors": 30, "random_state": 42},
+        force=True,
+    )
+    scplt.shift_legend(ax)
+    plt.show()
+    ```
+
+    ![Plot UMAP mapping hatch](../assets/plots/plot_umap_mapping_hatch.png)
+
 ---
 
 ## Correlation and clustering
@@ -768,7 +909,7 @@ Same approach on single-cell data (align `classes` with your UMAP coloring):
 
 [`plot_grouped_heatmap`](#grouped-heatmap-code) draws curated protein groups as spatial blocks (with optional gaps), sample header strips from `classes`, and a right-hand group colour bar. Proteins missing from the object still keep a grey row so block sizes stay stable.
 
-Horizontal white gaps between sample leaf blocks (same full `classes` combination) default on via `column_spacing=True` (half a content cell). Vertical gaps between protein groups use the same scale via `row_spacing=True`. Use `False`/`0` for none, or a float to scale that default (`0.5` = half, `2` = double). Header-to-heatmap space is `header_spacing` (default `0.06`). Header band thickness is `header_height` (default `0.35`, relative GridSpec height). Grouped side-bar thickness is `group_bar_width` (default `0.4`, sample-column units; pair with `group_bar_pad`).
+Horizontal white gaps between sample leaf blocks (same full `classes` combination) default on via `column_spacing=True` (half a content cell). Vertical gaps between protein groups use the same scale via `row_spacing=True`. Use `False`/`0` for none, or a float to scale that default (`0.5` = half, `2` = double). Header-to-heatmap space is `header_spacing` (default `0.06`). Header sizing is `header_height` (default `"square"` — one sample-column width per strip; use `"square:N"` or a float for the legacy GridSpec ratio). Grouped side-bar thickness is `group_bar_width` (default `0.4`, sample-column units; pair with `group_bar_pad`).
 
 ```python
 from scpviz import plotting as scplt
@@ -923,8 +1064,8 @@ fig = scplt.plot_clustered_heatmap(
     classes=["cellline", "condition"],
     stats_key=slim_key,
     sort_by={"cellline": ["AS", "BE"], "condition": ["sc", "kd"]},
-    figsize=(7, 6),
-    text_size=7,
+    figsize=(4, 4),
+    show_row_labels=False,
 )
 ```
 
@@ -999,7 +1140,7 @@ fig, legend_fig = scplt.plot_clustermap(
 
     Highlight a fixed list in a single color.
 
--   **[`volcano_adjust_and_outline_texts`](#volcano-mark)**
+-   **[`adjust_and_outline_texts`](#volcano-mark)**
 
     ---
 
@@ -1031,9 +1172,9 @@ plt.show()
 
 ### Highlighting proteins { #volcano-mark }
 
-[`mark_volcano` API ↗](../reference/plotting.md#src.scpviz.plotting.mark_volcano) · [`mark_volcano_by_significance` API ↗](../reference/plotting.md#src.scpviz.plotting.mark_volcano_by_significance) · [`volcano_adjust_and_outline_texts` API ↗](../reference/plotting.md#src.scpviz.plotting.volcano_adjust_and_outline_texts)
+[`mark_volcano` API ↗](../reference/plotting.md#src.scpviz.plotting.mark_volcano) · [`mark_volcano_by_significance` API ↗](../reference/plotting.md#src.scpviz.plotting.mark_volcano_by_significance) · [`adjust_and_outline_texts` API ↗](../reference/plotting.md#src.scpviz.plotting.adjust_and_outline_texts)
 
-Set `no_marks=True` to render all points grey, then layer highlights with `mark_volcano_by_significance` (color by DE direction) and/or `mark_volcano` (single color). Collect all `texts` lists and call `volcano_adjust_and_outline_texts` once at the end:
+Set `no_marks=True` to render all points grey, then layer highlights with `mark_volcano_by_significance` (color by DE direction) and/or `mark_volcano` (single color). Collect all `texts` lists and call `adjust_and_outline_texts` once at the end:
 
 ```python
 fig, ax = plt.subplots(figsize=(4, 4))
@@ -1060,9 +1201,36 @@ ax, t = scplt.mark_volcano(
 )
 texts.extend(t)
 
-scplt.volcano_adjust_and_outline_texts(texts, expand=(1.5, 3))
+scplt.adjust_and_outline_texts(texts, expand=(1.5, 3))
 plt.show()
 ```
+
+Both mark functions share the same label look, set with `text_style`: `"box"` (default; colored text in a rounded white box) or `"outline"` (colored text with a white outline). `mark_volcano` also takes `category` (one legend name per label group) to add a legend of what was marked:
+
+```python
+fig, ax = plt.subplots(figsize=(4, 4))
+ax, volcano_df = scplt.plot_volcano(
+    ax, pdata_norm, values=values, return_df=True, no_marks=True
+)
+# significance_score is signed: most up = largest, most down = most negative
+sig = volcano_df.sort_values("significance_score", ascending=False)
+up_top = sig[sig["significance"] == "upregulated"].head(3).index.tolist()
+down_top = sig[sig["significance"] == "downregulated"].tail(3).index.tolist()
+
+scplt.mark_volcano(
+    ax, volcano_df,
+    label=[up_top, down_top],                  # one list per group
+    label_color=["crimson", "navy"],
+    category=["top up", "top down"],
+    text_style="box",                          # or "outline"
+    s=20,
+)
+plt.show()
+```
+
+| `text_style="box"` | `text_style="outline"` |
+|---|---|
+| ![Mark volcano boxed labels](../assets/plots/mark_volcano_box.png) | ![Mark volcano outlined labels](../assets/plots/mark_volcano_outline.png) |
 
 ### Customizing group annotations
 

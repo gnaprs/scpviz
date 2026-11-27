@@ -34,6 +34,7 @@ Functions:
     plot_umap: UMAP projection for nonlinear dimensionality reduction.
     resolve_plot_colors: Helper function for resolving PCA/UMAP colors.
     resolve_marker_shapes: Helper function for resolving marker shapes from categorical groupings.
+    resolve_hatch_patterns: Helper function for resolving hatch patterns from categorical groupings.
 
 ## PCA overlays (loadings + GSEA)
 
@@ -58,7 +59,8 @@ Functions:
     plot_volcano_adata: Same as above, but for AnnData objects.
     mark_volcano: Highlight specific features on a volcano plot with a specific color.
     mark_volcano_by_significance: Similar to above, but colored by significance.
-    volcano_adjust_and_outline_texts: Adjust text labels for volcano plots after multiple mark_volcanos.
+    adjust_and_outline_texts: Adjust and outline labels collected from multiple `mark_*` calls (volcano, rankquant).
+    volcano_adjust_and_outline_texts: Deprecated alias of `adjust_and_outline_texts`.
     add_volcano_legend: Add standard legend handles for volcano plots.
 
 ## Enrichment Plots

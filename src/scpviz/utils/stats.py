@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, TYPE_CHECKING
 
 import anndata as ad
@@ -11,7 +12,8 @@ from scipy import sparse
 from scipy.stats import false_discovery_control, ttest_ind, mannwhitneyu, wilcoxon
 from sklearn.decomposition import PCA
 
-from scpviz.utils.de_reporting import format_de_group_label
+from scpviz.utils.de_reporting import format_de_group_label, print_limma_summary as _print_limma_summary
+from scpviz.utils.limma import moderated_two_group_test as _moderated_two_group_test
 from scpviz.utils.formatting import format_log_prefix
 
 if TYPE_CHECKING:
@@ -34,6 +36,101 @@ def bh_adjust_pvalues(pvals: np.ndarray | list[float]) -> np.ndarray:
     elif n_valid == 1:
         adj_pvals[valid_mask] = pvals_arr[valid_mask]
     return adj_pvals
+
+def mask_zeros_as_nan(
+    data: np.ndarray,
+    data_is_log: bool = False,
+    log_base: float = 2.0,
+    pseudocount: float = 1.0,
+) -> np.ndarray:
+    """
+    Return a copy of ``data`` with "zero" (missing-value) entries set to NaN.
+
+    On a linear layer a zero is ``0``. On a log layer produced by
+    ``log_transform`` (``log(x + pseudocount)``) an original zero maps to
+    ``log_base(pseudocount)`` (``0`` for the default pseudocount of 1).
+
+    Args:
+        data (numpy.ndarray): Abundance matrix.
+        data_is_log (bool): Whether ``data`` is log-transformed.
+        log_base (float): Log base of ``data`` when ``data_is_log``.
+        pseudocount (float): Pseudocount used in ``log(x + pseudocount)``.
+
+    Returns:
+        numpy.ndarray: Float copy of ``data`` with zero entries replaced by NaN.
+
+    Note:
+        Detection is exact for values straight out of ``log_transform``. If the
+        layer was modified after logging (e.g. normalized again), the zero
+        value shifts and is no longer detected.
+    """
+    out = np.array(data, dtype=float)
+    zero_val = np.log(pseudocount) / np.log(log_base) if data_is_log else 0.0
+    out[np.isclose(out, zero_val, rtol=0, atol=1e-12)] = np.nan
+    return out
+
+def get_log_info(adata: Any, layer: str, layer_is_log: bool) -> tuple[str, float, float]:
+    """
+    Read the log base and pseudocount of a log-transformed layer from its provenance.
+
+    Walks ``adata.uns['layer_provenance']`` from ``layer`` back to the ``log_transform`` record.
+
+    Args:
+        adata (anndata.AnnData): Data holding the layer provenance.
+        layer (str): Layer name.
+        layer_is_log (bool): Whether the layer is log-transformed.
+
+    Returns:
+        tuple: ``(base_label, log_base, pseudocount)`` where ``base_label`` is ``"2"``, ``"10"``
+        or ``"e"`` (``"2"`` when no record is found), ``log_base`` the numeric base and
+        ``pseudocount`` the ``log(x + pseudocount)`` offset (``1.0`` by default).
+    """
+    from scpviz.utils.data import resolve_input_layer
+
+    rec: dict[str, Any] = {}
+    if layer_is_log:
+        reg = adata.uns.get("layer_provenance", {})
+        cur = resolve_input_layer(adata, layer)
+        for _ in range(len(reg)):
+            if cur not in reg:
+                break
+            if reg[cur].get("op") == "log_transform":
+                rec = reg[cur]
+                break
+            cur = reg[cur].get("input_layer", "")
+    base_label = str(rec.get("base", "2"))
+    log_base = np.e if base_label == "e" else float(base_label)
+    return base_label, log_base, rec.get("pseudocount", 1.0)
+
+def exclude_sparse_pvalues(
+    pvals: np.ndarray,
+    data1: np.ndarray,
+    data2: np.ndarray,
+    min_valid_fraction: float,
+) -> tuple[np.ndarray, int]:
+    """
+    NaN the p-values of features too sparse for a reliable test (for FDR correction).
+
+    A feature is excluded when either group has a fraction of non-NaN values
+    below ``min_valid_fraction``.
+
+    Args:
+        pvals (numpy.ndarray): Raw p-values, shape ``(n_features,)``.
+        data1 (numpy.ndarray): Group 1 matrix, ``(n_samples1, n_features)``.
+        data2 (numpy.ndarray): Group 2 matrix, ``(n_samples2, n_features)``.
+        min_valid_fraction (float): Minimum fraction of valid values per group.
+
+    Returns:
+        tuple: ``(pvals_for_bh, n_excluded)``. Excluded features are NaN in
+        ``pvals_for_bh``; features that were already NaN are not counted.
+    """
+    sparse_mask = (
+        (np.mean(~np.isnan(data1), axis=0) < min_valid_fraction)
+        | (np.mean(~np.isnan(data2), axis=0) < min_valid_fraction)
+    )
+    pvals_arr = np.asarray(pvals, dtype=float)
+    n_excluded = int((sparse_mask & ~np.isnan(pvals_arr)).sum())
+    return np.where(sparse_mask, np.nan, pvals_arr), n_excluded
 
 def pairwise_log2fc(data1: np.ndarray, data2: np.ndarray) -> np.ndarray:
     """
@@ -60,8 +157,6 @@ def pairwise_log2fc(data1: np.ndarray, data2: np.ndarray) -> np.ndarray:
     Related Functions:
         - pAnnData.de: Differential expression analysis with multiple fold change strategies.
     """
-    n1, n2 = data1.shape[0], data2.shape[0]
-
     # data1[:, None, :] has shape (n1, 1, n_features)
     # data2[None, :, :] has shape (1, n2, n_features)
     # The result is an array of shape (n1, n2, n_features)
@@ -98,6 +193,7 @@ def de_adata(
     log_base: float = 2.0,
     pseudocount: float = 1.0,
     gene_col: str | None = None,
+    min_valid_fraction: float = 0.5,
 ) -> pd.DataFrame:
     """
     Standalone DE analysis for AnnData. Produces a volcano-ready DataFrame identical to pdata.de().
@@ -116,7 +212,10 @@ def de_adata(
             - Legacy-style (if `class_type` is provided): [['HCT116', 'DMSO'], ['HCT116', 'DrugX']]
 
         class_type (str or list of str, optional): Legacy-style class label(s) to interpret `values`.
-        method (str): 'ttest', 'mannwhitneyu', 'wilcoxon'.
+        method (str): 'ttest', 'mannwhitneyu', 'wilcoxon', or 'limma' (moderated t-test with
+            empirical Bayes variance shrinkage; see ``scpviz.utils.limma``). 'limma' needs a
+            log-transformed layer (``data_is_log=True``) and ``fold_change_mode='mean'``; ``test_statistic``
+            is then the moderated t and ``equal_var`` is ignored.
         fold_change_mode (str): 'mean' or 'pairwise_median'.
         layer (str): Layer to use. Default is 'X'.
         threshold (float): Significance cutoff. Applied to raw ``p_value`` when
@@ -127,8 +226,10 @@ def de_adata(
             label significance using adjusted p-values.
         equal_var (bool): Passed to :func:`scipy.stats.ttest_ind` when ``method='ttest'``.
             ``True`` (default) uses Student's t-test; ``False`` uses Welch's t-test.
-        data_is_log (bool): If True, treat `layer` as log-transformed and
-            un-log to compute fold changes.
+        data_is_log (bool): If True, treat `layer` as log-transformed: with
+            ``fold_change_mode='mean'`` the log2FC is the difference of the log-scale group
+            means converted to log2 units (as in ``pdata.de``), and zeros (``log_base(pseudocount)``)
+            are treated as missing.
         log_base (float): Base of the log used in `layer`. Default 2.0.
         pseudocount (float): If data is log of (x + pseudocount), provide that
             here (e.g., 1.0 for log2(x+1)).
@@ -137,9 +238,18 @@ def de_adata(
             - `adata.var['Genes']` by default,
             - `adata.var[<gene_col>]` if provided by the user, otherwise
             - `adata.var_names` if the above do not exist.
+        min_valid_fraction (float): Only used when ``correct_fdr=True``. Features
+            with a fraction of non-missing values below this in either group are
+            excluded from the BH correction (``adj_p_value`` is NaN; raw
+            ``p_value`` is kept). Default 0.5. Ignored for ``method='limma'``
+            (filter sparse proteins upstream, e.g. with ``filter_prot``).
 
     Returns:
         pandas.DataFrame: DE results with volcano-ready columns.
+
+    Note:
+        Zeros are treated as missing and set to NaN before testing and fold
+        change (see :func:`mask_zeros_as_nan`).
     """
     if pval is not None:
         print(
@@ -170,24 +280,6 @@ def de_adata(
 
         raise ValueError("Invalid legacy DE input format.")
 
-    def _unlog(data, data_is_log, log_base=2.0, pseudocount=0.0):
-        """Convert log-transformed data back to linear scale for FC calc."""
-        if not data_is_log:
-            return data
-
-        # data are log_base(x + pseudocount)
-        with np.errstate(over='ignore', invalid='ignore'):
-            if log_base == 2.0:
-                lin = np.power(2.0, data) - pseudocount
-            elif log_base == np.e:
-                lin = np.exp(data) - pseudocount
-            else:
-                lin = np.power(log_base, data) - pseudocount
-
-        # Clamp small negatives due to numerical noise
-        lin[lin < 0] = 0.0
-        return lin
-    
     # identify sample indices for each group
     def filter_indices(adata, filters):
         """Return sample indices matching a list of dict filters."""
@@ -232,20 +324,21 @@ def de_adata(
         X = adata.layers[layer]
 
     X = X.toarray() if sparse.issparse(X) else np.asarray(X)
-    data1 = X[idx1, :]
-    data2 = X[idx2, :]
-
-    data1_fc = _unlog(data1, data_is_log=data_is_log, log_base=log_base, pseudocount=pseudocount)
-    data2_fc = _unlog(data2, data_is_log=data_is_log, log_base=log_base, pseudocount=pseudocount)
+    data1 = mask_zeros_as_nan(X[idx1, :], data_is_log, log_base, pseudocount)
+    data2 = mask_zeros_as_nan(X[idx2, :], data_is_log, log_base, pseudocount)
 
     # log2FC computation
 
     if fold_change_mode == 'mean':
-        with np.errstate(all='ignore'):
-            m1 = np.nanmean(data1_fc, axis=0)
-            m2 = np.nanmean(data2_fc, axis=0)
+        with np.errstate(all='ignore'), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            m1 = np.nanmean(data1, axis=0)
+            m2 = np.nanmean(data2, axis=0)
             mask_invalid = (m1 == 0) | (m2 == 0) | np.isnan(m1) | np.isnan(m2)
-            log2fc_vals = np.log2(m1 / m2)
+            if data_is_log:  # difference of log-scale means (as pdata.de), converted to log2 units
+                log2fc_vals = (m1 - m2) * np.log2(log_base)
+            else:
+                log2fc_vals = np.log2(m1 / m2)
             log2fc_vals[mask_invalid] = np.nan
 
     elif fold_change_mode == 'pairwise_median':
@@ -265,33 +358,46 @@ def de_adata(
 
     # statistical test
 
-    pvals = []
-    stats = []
+    if method not in {"ttest", "mannwhitneyu", "wilcoxon", "limma"}:
+        raise ValueError(f"Unsupported method '{method}'")
 
-    for i in range(X.shape[1]):
-        x1, x2 = data1[:, i], data2[:, i]
-        if method not in {"ttest", "mannwhitneyu", "wilcoxon"}:
-            raise ValueError(f"Unsupported method '{method}'")
+    if method == "limma":
+        if not data_is_log:
+            raise ValueError(f"{format_log_prefix('error')} method='limma' needs a log-transformed layer (set data_is_log=True).")
+        if fold_change_mode != "mean":
+            raise ValueError(f"{format_log_prefix('error')} method='limma' requires fold_change_mode='mean' (log2fc is the modeled group difference).")
+        lim = _moderated_two_group_test(data1, data2)
+        pvals, stats = lim["p_value"], lim["t"]
+        log2fc_vals = lim["beta"] * np.log2(log_base)  # modeled group difference, in log2 units
+        _print_limma_summary(lim)
+    else:
+        pvals = []
+        stats = []
+        for i in range(X.shape[1]):
+            x1, x2 = data1[:, i], data2[:, i]
 
-        try:
-            if method == 'ttest':
-                res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
-            elif method == 'mannwhitneyu':
-                res = mannwhitneyu(x1, x2, alternative='two-sided')
-            elif method == 'wilcoxon':
-                res = wilcoxon(x1, x2)
-            pvals.append(res.pvalue)
-            stats.append(res.statistic)
-        except Exception:
-            pvals.append(np.nan)
-            stats.append(np.nan)
-
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")  # all-NaN / tiny groups give NaN p-values
+                    if method == 'ttest':
+                        res = ttest_ind(x1, x2, equal_var=equal_var, nan_policy='omit')
+                    elif method == 'mannwhitneyu':
+                        res = mannwhitneyu(x1, x2, alternative='two-sided')
+                    elif method == 'wilcoxon':
+                        res = wilcoxon(x1, x2)
+                pvals.append(res.pvalue)
+                stats.append(res.statistic)
+            except Exception:
+                pvals.append(np.nan)
+                stats.append(np.nan)
 
     pvals = np.array(pvals)
 
     # mean abundance
-    mean1 = np.nanmean(data1, axis=0)
-    mean2 = np.nanmean(data2, axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        mean1 = np.nanmean(data1, axis=0)
+        mean2 = np.nanmean(data2, axis=0)
 
     group1_label = format_de_group_label(group1_filters)
     group2_label = format_de_group_label(group2_filters)
@@ -324,7 +430,17 @@ def de_adata(
     df["significance_score"] = df["-log10(p_value)"] * df["log2fc"]
 
     if correct_fdr:
-        df["adj_p_value"] = bh_adjust_pvalues(pvals)
+        if method == "limma":  # the prior is fitted on the supplied proteins; filter upstream (filter_prot)
+            pvals_bh, n_sparse = pvals, 0
+        else:
+            pvals_bh, n_sparse = exclude_sparse_pvalues(pvals, data1, data2, min_valid_fraction)
+        if n_sparse > 0:
+            print(
+                f"{format_log_prefix('info', 2)} {n_sparse} proteins had <{min_valid_fraction:.0%} "
+                "valid values in at least one group and were excluded from FDR correction "
+                "(too sparse for a reliable test); adj_p_value is NaN for these."
+            )
+        df["adj_p_value"] = bh_adjust_pvalues(pvals_bh)
         df["-log10(adj_p_value)"] = -np.log10(
             df["adj_p_value"].replace(0, np.nan).astype(float)
         )
@@ -347,6 +463,8 @@ def de_adata(
     # group labels for plotting annotation
     df.attrs["group1_label"] = group1_label
     df.attrs["group2_label"] = group2_label
+    if method == "limma":
+        df.attrs["limma"] = {k: lim[k] for k in ("s2_prior", "df_prior", "estimator")}
 
     return df
 

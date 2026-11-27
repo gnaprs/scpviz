@@ -616,26 +616,26 @@ def get_pep_prot_mapping(
         The mapping column depends on the import source:
         
         - Proteome Discoverer → `"Master Protein Accessions"`
-        - DIA-NN → `"Protein.Group"`
+        - DIA-NN, Spectronaut → `"Protein.Group"`
         - MaxQuant → `"Leading razor protein"`
     """
     source = pdata.metadata.get("source", "").lower()
 
     if source == "proteomediscoverer":
         col = "Master Protein Accessions"
-    elif source == "diann":
+    elif source in ("diann", "spectronaut"):
         col = "Protein.Group"
     elif source == "maxquant":
         col = "Leading razor protein"
     elif not source:
         raise ValueError(
             f"{format_log_prefix('error')} No import source recorded — cannot determine peptide-to-protein mapping. "
-            "Set pdata.metadata['source'] = 'diann' | 'proteomeDiscoverer' | 'maxquant'."
+            "Set pdata.metadata['source'] = 'diann' | 'spectronaut' | 'proteomeDiscoverer' | 'maxquant'."
         )
     else:
         raise ValueError(
             f"{format_log_prefix('error')} Unknown data source '{source}' — cannot determine peptide-to-protein mapping. "
-            "Set pdata.metadata['source'] = 'diann' | 'proteomeDiscoverer' | 'maxquant'."
+            "Set pdata.metadata['source'] = 'diann' | 'spectronaut' | 'proteomeDiscoverer' | 'maxquant'."
         )
 
     if return_series:

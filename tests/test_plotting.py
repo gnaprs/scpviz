@@ -1568,7 +1568,7 @@ def test_resolve_plot_colors_single_obs(dummy_adata):
     unique_colors = set(colors)
     assert len(unique_colors) == 2
     assert cmap is None
-    assert all(hasattr(p, "get_facecolor") for p in legend)
+    assert all(hasattr(p, "get_markerfacecolor") for p in legend)  # circular dot (Line2D) handles
 
 def test_resolve_plot_colors_multi_obs(dummy_adata):
     colors, cmap, legend = scplt.resolve_plot_colors(dummy_adata, classes=["cellline", "treatment"], cmap="default")
@@ -1665,7 +1665,7 @@ def test_plot_pca_colorbar_norm_log10_label(pdata):
     gene = pdata.prot.var["Genes"].dropna().iloc[0]
     scplt.plot_pca(ax, pdata, color=gene, colorbar_norm="log10", force=True)
     ylabels = [a.get_ylabel() for a in fig.axes if a.get_ylabel()]
-    assert any(f"{gene} Abundance (log10)" in lab for lab in ylabels)
+    assert any(f"{gene} Abundance (" in lab and r"\mathrm{log}_{10}" in lab for lab in ylabels)
 
 def test_plot_pca_negative_abundance_warns(pdata, capsys):
     fig, ax = plt.subplots()
@@ -1826,6 +1826,142 @@ def test_plot_pca_mapping_rejects_string_key_for_multi_column(pdata):
             force=True,
             on="protein",
         )
+
+
+# tests for hatch_pattern (plot_pca / plot_umap)
+def test_resolve_hatch_patterns_none(dummy_adata):
+    assert scplt.resolve_hatch_patterns(dummy_adata, None) == (None, None, None)
+
+def test_resolve_hatch_patterns_default_list_dict(dummy_adata):
+    hatches, legend, hmap = scplt.resolve_hatch_patterns(dummy_adata, "treatment")
+    assert len(hatches) == 4 and len(set(hatches)) == 2
+    assert hmap == {"ctrl": "", "drug": "\\"}  # first level unhatched, then a single backslash line
+    assert [h[0].get_label() for h in legend] == ["ctrl", "drug"]
+    assert len(legend[0]) == 1 and len(legend[1]) == 2  # unhatched: ring only; hatched: ring + symbol
+    _, _, hmap_list = scplt.resolve_hatch_patterns(dummy_adata, "treatment", hatch_cmap=["+", "x"])
+    assert hmap_list == {"ctrl": "+", "drug": "x"}
+    _, _, hmap_dict = scplt.resolve_hatch_patterns(dummy_adata, ["cellline"], hatch_cmap={"A": ".", "B": "|"})
+    assert hmap_dict == {"A": ".", "B": "|"}
+
+def test_resolve_hatch_patterns_invalid(dummy_adata):
+    with pytest.raises(ValueError):
+        scplt.resolve_hatch_patterns(dummy_adata, "NotAColumn")
+    with pytest.raises(ValueError):
+        scplt.resolve_hatch_patterns(dummy_adata, "treatment", hatch_cmap=3)
+
+def _hatch_collections(ax):
+    return [c for c in ax.collections if c.get_gid() == "hatch_overlay"]
+
+_HATCH_COLS = [("pdata", "treatment", "cellline"), ("pdata_diann", "region", "gradient")]
+
+@pytest.mark.parametrize("fixture_name,color_col,hatch_col", _HATCH_COLS)
+def test_plot_pca_hatch_pattern_smoke(request, fixture_name, color_col, hatch_col):
+    pd_ = request.getfixturevalue(fixture_name)
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pd_, color=color_col, hatch_pattern=hatch_col, s=30, force=True)
+    overlays = _hatch_collections(ax)
+    assert len(overlays) == pd_.prot.obs[hatch_col].nunique() - 1  # first level is unhatched
+    # symbols are black when edge_color is unset, and sit exactly on the points they decorate
+    assert np.allclose(overlays[0].get_edgecolor()[0][:3], (0, 0, 0))
+    base = [c for c in ax.collections if c.get_gid() != "hatch_overlay"]
+    base_xy = np.vstack([c.get_offsets() for c in base])
+    for c in overlays:
+        for xy in np.asarray(c.get_offsets()):
+            assert np.any(np.all(np.isclose(base_xy, xy), axis=1))
+    titles = [a.get_title().get_text() for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert hatch_col.capitalize() in titles
+    plt.close(fig)
+
+@pytest.mark.parametrize("fixture_name,color_col,hatch_col", _HATCH_COLS)
+def test_plot_umap_hatch_pattern_smoke(request, fixture_name, color_col, hatch_col):
+    pd_ = request.getfixturevalue(fixture_name)
+    fig, ax = plt.subplots()
+    scplt.plot_umap(ax, pd_, color=color_col, hatch_pattern=hatch_col,
+                    s=30, force=True, umap_params={"n_neighbors": 3})
+    assert len(_hatch_collections(ax)) >= 1
+    plt.close(fig)
+
+def test_plot_pca_hatch_uses_edge_color(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="treatment", edge_color="cellline", marker_shape="cellline",
+                   hatch_pattern="treatment", hatch_cmap={"kd": "+", "sc": "x"}, s=30, force=True)
+    overlays = _hatch_collections(ax)
+    assert overlays
+    # symbols take the edge colors (not all black)
+    cols = np.vstack([c.get_edgecolor() for c in overlays])
+    assert len({tuple(np.round(r, 3)) for r in cols}) > 1
+    plt.close(fig)
+
+def test_plot_pca_hatch_legend_and_shift_legend(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="treatment", marker_shape="cellline", hatch_pattern="treatment", force=True)
+    legs = [a for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert len(legs) == 3
+    scplt.shift_legend(ax, anchor_pos=(1.05, 1.0))
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    boxes = [leg.get_window_extent(renderer) for leg in legs]
+    # stacked top-to-bottom without overlap
+    for upper, lower in zip(boxes[:-1], boxes[1:]):
+        assert lower.y1 <= upper.y0 + 1
+    plt.close(fig)
+
+def test_plot_pca_same_key_color_and_marker_merge_legend(pdata):
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="cellline", marker_shape="cellline", force=True)
+    legs = [a for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert len(legs) == 1
+    markers = [h.get_marker() for h in legs[0].legend_handles]
+    faces = [h.get_markerfacecolor() for h in legs[0].legend_handles]
+    assert len(set(markers)) == len(markers) == 2 and len(set(map(str, faces))) == 2
+    plt.close(fig)
+    # different keys keep separate legends
+    fig, ax = plt.subplots()
+    scplt.plot_pca(ax, pdata, color="treatment", marker_shape="cellline", force=True)
+    legs = [a for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert len(legs) == 2
+    plt.close(fig)
+
+def test_plot_pca_mapping_hatch(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys, mapping = _combo_mapping_literal(pdata)
+    for i, v in enumerate(mapping.values()):
+        v.pop("edge_color")
+        v["hatch"] = ["/", "x"][i % 2]
+    scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, s=30, force=True)
+    overlays = _hatch_collections(ax)
+    assert len(overlays) == 2  # one overlay per distinct symbol
+    # symbol is black for entries with hatch and no edge_color
+    assert np.allclose(overlays[0].get_edgecolor()[0][:3], (0, 0, 0))
+    plt.close(fig)
+
+def test_plot_pca_mapping_hatch_legend_lists_unhatched(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys, mapping = _combo_mapping_literal(pdata)
+    for i, v in enumerate(mapping.values()):
+        v.pop("edge_color")
+        if i == 0:
+            v["hatch"] = "x"
+    scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping, s=30, force=True)
+    legs = [a for a in ax.get_children() if isinstance(a, matplotlib.legend.Legend)]
+    assert len(legs[-1].get_texts()) == len(mapping)  # unhatched combinations are listed too
+    plt.close(fig)
+
+def test_plot_pca_mapping_rejects_hatch_pattern_kw(pdata):
+    fig, ax = plt.subplots()
+    mapping_keys, mapping = _combo_mapping_literal(pdata)
+    for v in mapping.values():
+        v["hatch"] = "/"
+    with pytest.raises(ValueError, match="hatch_pattern"):
+        scplt.plot_pca(ax, pdata, mapping_keys=mapping_keys, mapping=mapping,
+                       hatch_pattern="treatment", force=True)
+    plt.close(fig)
+
+def test_plot_pca_hatch_pattern_invalid_key(pdata):
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="hatch_pattern"):
+        scplt.plot_pca(ax, pdata, hatch_pattern="NotAColumn", force=True)
+    plt.close(fig)
 
 
 # tests for plot_umap
@@ -2434,6 +2570,74 @@ def test_mark_rankquant_adds_points(pdata):
     n_after = len(ax.collections)
     assert n_after > n_before, "❌ mark_rankquant should add new points to the plot."
 
+    plt.close(fig)
+
+@pytest.mark.parametrize("adjust_labels", [True, False])
+def test_mark_rankquant_label_options(pdata, adjust_labels):
+    """Label styling options and adjust_text path run and return text artists."""
+    fig, ax = plt.subplots(figsize=(4, 3))
+    cv = pdata.prot.obs["cellline"].unique()[0]
+    ax = scplt.plot_rankquant(ax, pdata, classes="cellline", on="protein", alpha=0.1)
+    mark_df = pd.DataFrame({"accession": list(pdata.prot.var_names[:5])})
+
+    out = scplt.mark_rankquant(
+        ax, pdata, mark_df=mark_df, class_values=[cv], text_color="blue",
+        fontsize=7, text_style="box", arrow_color="gray", adjust_labels=adjust_labels,
+        adjust_text_kwargs={"expand": (1.5, 1.5)}, return_texts=True,
+    )
+    ax_out, texts = out
+    assert ax_out is ax
+    assert len(texts) > 0
+    for t in texts:
+        assert t.get_color() == "blue"
+        assert t.get_bbox_patch() is not None
+    plt.close(fig)
+
+def test_mark_rankquant_text_style_and_legend(pdata):
+    """outline style has no box; category entries merge into one legend beside the plot legend."""
+    fig, ax = plt.subplots(figsize=(4, 3))
+    cv = pdata.prot.obs["cellline"].unique()[0]
+    ax = scplt.plot_rankquant(ax, pdata, classes="cellline", on="protein", alpha=0.1)
+    n_plot_legend_entries = len(ax.get_legend().get_texts())
+    ids = list(pdata.prot.var_names)
+    texts = []
+    for grp, col, cat in [(ids[:2], "red", "A"), (ids[2:4], "blue", "B")]:
+        _, t = scplt.mark_rankquant(
+            ax, pdata, mark_df=pd.DataFrame({"accession": grp}), class_values=[cv],
+            color=col, category=cat, text_style="outline", return_texts=True,
+        )
+        texts.extend(t)
+    assert all(t.get_bbox_patch() is None for t in texts)
+    scplt.adjust_and_outline_texts(texts)
+    legends = [c for c in ax.get_children() if isinstance(c, matplotlib.legend.Legend)]
+    assert len(legends) == 2
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ["A", "B"]
+    assert any(len(l.get_texts()) == n_plot_legend_entries for l in legends)
+    with pytest.raises(ValueError):
+        scplt.mark_rankquant(ax, pdata, mark_df=pd.DataFrame({"accession": ids[:1]}),
+                             class_values=[cv], text_style="bogus")
+    plt.close(fig)
+
+def test_mark_volcano_text_style_and_category():
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    scplt.plot_volcano(ax, de_data=df, no_marks=True)
+    ax, texts = scplt.mark_volcano(ax, df, label=[["G1"], ["G2"]], label_color=["red", "blue"],
+                                   text_style="outline", category=["one", "two"], return_texts=True)
+    assert all(t.get_bbox_patch() is None for t in texts)
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ["one", "two"]
+    with pytest.raises(ValueError):
+        scplt.mark_volcano(ax, df, label=[["G1"], ["G2"]], category=["only one"])
+    plt.close(fig)
+
+def test_volcano_adjust_and_outline_texts_deprecated(capsys):
+    df = mock_volcano_df()
+    fig, ax = plt.subplots()
+    scplt.plot_volcano(ax, de_data=df, no_marks=True)
+    _, texts = scplt.mark_volcano(ax, df, label=["G1"], return_texts=True)
+    out = scplt.volcano_adjust_and_outline_texts(texts)
+    assert out is texts
+    assert "adjust_and_outline_texts" in capsys.readouterr().out
     plt.close(fig)
 
 def test_plot_rankquant_debug_mode_runs(pdata, capsys):

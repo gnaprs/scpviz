@@ -35,10 +35,12 @@ Quick view of what to work on. Full tables below.
 | L | [ ] | viz-1 | Dot plot: expression of indicated genes in three clusters (dot size = % cells per cluster; color = cluster average normalized expression). Partially doable w scanpy. |
 | M | [ ] | viz-2 | Compare two comparisons: log(fc) vs log(fc) with significance coloring |
 | H | [x] | viz-3 | Add gsea — one for PCA, one for ssGSEA |
+| M | [x] | viz-6 | `plot_pca` / `plot_umap` hatching: `hatch_pattern` + `hatch_cmap` (categorical `.obs`). Drawn as centered overlay symbols (matplotlib markers, plus `"/"` and `"\\"` single diagonal lines) in the edge color (black default) instead of matplotlib hatch fills, whose pattern is anchored to the canvas and never centered on small markers; default cycle leaves the first level blank, then `\`, `x`, `\|`, `_`, `/`, `+`, `.`, `*`. Own legend (ring + symbol), `mapping` entries accept `"hatch"`; `color` + `marker_shape` on the same key now share one legend. Not done: hatch as an `ellipse_group` fallback, a user-set overlay size (fixed 0.7 x `s`), merging hatch into the combined legend |
 | M | [x] | viz-4 | Hypothesis testing — ANOVA with Tukey and BH correction |
 | M | [x] | viz-5 | plot_grouped_heatmap + plot_clustered_heatmap (publication heatmaps) |
 | M | [ ] | enr-1 | String DB values rank API — check API key; per-user or local copy in package? [API help](https://string-db.org/cgi/help?subpage=api%23valuesranks-enrichment-api) |
 | L | [ ] | feat-qc-1 | Consider QC metrics beyond what we already have |
+| H | [x] | feat-sn-1 | Spectronaut import (`import_spectronaut`, tab-separated wide "Run Pivot" protein + peptide reports; explode protein groups like DIA-NN; ion mobility carried from the peptide report) |
 | H | [x] | base-5 | Save/load: `pdata.save()` / `pAnnData.load()` (single `.pdata` HDF5 file, lossless, per-value pickle fallback) + `pdata.export_h5ad(on=...)`; `.metadata` moved to object level (`_metadata`). Encoding in `utils/serialization.py` |
 
 ---
@@ -56,6 +58,15 @@ Quick view of what to work on. Full tables below.
 | L | [ ] | enh-7 | Add modification print for diann import |
 | L | [x] | enh-8 | When impute errors on wrong obs column, pretty-format the error message |
 | L | [ ] | enh-9 | Standardize history logging (datetime stamp, formatting) |
+| L | [ ] | enh-10 | Spectronaut import: read `<report>.setup.txt` (first ~8 lines: version on line 1, `Analysis Type:`; optionally normalization / quantity settings) into `.metadata`. Optional file, often renamed, so match by report basename and fail soft |
+| L | [ ] | enh-11 | Spectronaut import: support long-format and parquet exports (currently only tab-separated wide "Run Pivot" reports; the importer raises a clear `ValueError` if no `[n] <run>.<metric>` columns are found) |
+| M | [x] | feat-limma-1 | `de(method='limma')`: moderated two-group t-test (empirical Bayes variance shrinkage) via `utils/limma.py` (`moderated_two_group_test`, not star-imported), both prior estimators (legacy moment / unequal-df profile likelihood) validated against R limma 3.66.0 fixtures (the R functions it relies on are identical in 3.68.5). Follow-ups: `trend` / `robust` (feat-limma-2, feat-limma-3), joint multi-condition linear model with contrasts/F-test/covariates, peptide level, full `de.md` section |
+| M | [x] | feat-joint-de | `pdata.joint_de()`: joint `~0+group` linear model across all groups with `reference`/`comparisons`, pair or weighted (interaction) `contrasts`, `method='limma'` (default) or `'lm'`; `utils/joint_de.py`, shared `limma.squeeze_variance`; R limma parity fixtures in `tests/data/joint_limma/`. Not done: covariates/batch design, omnibus F test, limma trend/robust (see feat-limma-2/3), peptide-level (`on='peptide'`) |
+| M | [ ] | enh-14 | `mixed_de`: stop auto-logging. Drop `auto_log2` / `log_pseudocount` (in-memory `log2(x + pseudocount)` in `prepare_expr_for_mixed_de`, `utils/mixed_de.py`) and, as `de(method='limma')` and `joint_de()` do, raise a `ValueError` when the layer is not log-transformed, telling the user to run `log_transform()` and pass that layer (e.g. `layer='X_log2'`) or point `layer` at an existing log layer. Also drop the "looks log-like but unregistered" pass-through in favour of the same check. Breaking change: update `mixed_de` docstring/tests (`test_pAnnData_mixed_de.py`, which may rely on auto-log) and the `de.md` tutorial |
+| L | [ ] | feat-limma-2 | limma `trend=True` (default False): prior variance as a smooth function of mean abundance (limma-trend), plus a variance-vs-mean-abundance diagnostic like `plotSA` and a printed suggestion to use `trend=True` when the data show a meaningful abundance-variance relationship (matters for low-input proteomics). Needs natural-spline regression (equal df) and limma's weighted lowess (unequal df, the missing-value path); R fixtures; see `dev/cursor/plans/limma_trend_robust.md` |
+| L | [ ] | feat-limma-3 | limma `robust=True` (default False), combinable with `trend`: prior fit that down-weights hypervariable proteins (Phipson et al. 2016) with per-protein prior df. Needs winsorized-moment fit (Gauss-Legendre quadrature, root solve) and the FDR-based refit; elementwise variance squeeze; R fixtures; see `dev/cursor/plans/limma_trend_robust.md` |
+| M | [ ] | enh-12 | Import: `zeros_as_nan=True` (default) converts zeros to NaN in `X_raw` (protein + peptide only; leave `X_precursor`, `X_qval`, `X_mbr` alone) in `_create_pAnnData_from_parts`, passed via `kwargs.pop` like `fetch_uniprot`; also convert directlfq output 0→NaN in `normalize` (then drop the `use_zeros_as_nan` warning); loading old `.pdata` unchanged (`de` keeps its zero masking as a safety net). Add the "missing = NaN, never 0" invariant to `CODEBASE_PRIMER.md` §4; synthetic + 2 PD + 2 DIA-NN tests |
+| L | [ ] | enh-13 | Store `X_raw` (and other quantity layers) dense instead of sparse-with-NaN. Measured on test fixtures: missing values are explicit NaN entries, so CSR is ~1.5-2x the dense size (PD prot 0.73 vs 0.47 MB; DIA-NN pep 0.77 vs 0.37 MB) and everything calls `.toarray()` anyway. Keep NaN = missing (option 2); do after enh-12. Sparse-with-zero-as-missing was considered and rejected (needs every NaN-aware function reworked; saves space only above ~67% missing) |
 
 ---
 
@@ -69,6 +80,7 @@ Quick view of what to work on. Full tables below.
 | H | [ ] | ref-4 | Docstring hover: hovering over functions doesn't show docstring all the time (pdata class inherits mixin; .plotting/.utils are fine) — fix ASAP |
 | L | [ ] | ref-5 | Move CSV exports (`export`, `export_layer`, `export_morpheus`) from `EditingMixin` to `IOMixin` so all persistence (import, save/load, `export_h5ad`, CSV) lives in one place; update `CODEBASE_PRIMER.md` §Export + §10 task map |
 | M | [ ] | ref-6 | Move `pdata.stats` into per-modality `.prot.uns` / `.pep.uns` (e.g. `uns["scpviz_stats"]`), keeping `pdata.stats` as a read-through view for back-compat. Fixes key collisions: `mixed_de` keys omit `on` (protein vs peptide runs overwrite), `stats["imputation"]["pimms"]` not modality-tagged. ~60 call sites (DE, mixed_de, enrichment, volcano, clustering, `get_protein_clusters`, `__repr__`) — needs dedicated DE regression tests. Bump `.pdata` schema_version + migrate in `load()` |
+| M | [ ] | ref-7 | Refactor `pdata.de` (`AnalysisMixin.de`) and `utils.de_adata` into one shared implementation. They are two separate copies (`ref-1` was marked done but `de()` does not call `de_adata`), so every DE change (zero masking, `min_valid_fraction`, log-base lookup, limma, the `bug-14` fix) had to be applied twice and the two had already drifted. Plan: one core function taking the two group matrices plus layer/log metadata and returning the stats DataFrame; `pdata.de` only resolves groups and layer provenance and stores the result; `de_adata` becomes a thin wrapper; keep `mixed_de` separate. Needs the existing DE regression tests (`test_pAnnData_analysis.py`, `test_utils.py`, smoke tests) as the safety net |
 
 ---
 
@@ -89,6 +101,8 @@ Quick view of what to work on. Full tables below.
 | M | [x] | bug-11 | `uns['found_metrics_*']` / `uns['significance_metrics_*']` aren't subset when features are filtered: `annotate_found` → `filter_prot` → `filter_prot_found` fails (`operands could not be broadcast together with shapes (3013,) (4924,)`, `filtering.py:491`). Subset (or reindex) the metrics in the filter path, or reindex to `var_names` when reading them |
 | M | [x] | bug-12 | `pAnnData(prot=..., pep=..., rs=...)` leaves `.summary` as an empty DataFrame (`pAnnData.py:74`), so the first `copy()` (any `return_copy=True` filter, `de` with `pep_pairwise_median`) raises `Mismatch: .summary and .prot.obs have different sample indices`. Build the summary in `__init__` when `prot`/`pep` is given; workaround: `pdata.update_summary()` |
 | M | [ ] | bug-13 | `pAnnData.load()` crashes with `TypeError: string operation on non-string array` (`serialization._read_strings` via `read_value` → `_read_index(elem["columns"])`) when a saved DataFrame has empty columns (e.g. `.var` with no columns, as in a synthetic `AnnData` built with `var=pd.DataFrame(index=[...])`). Repro: build a tiny pdata, `save()`, `load()`. Likely an empty string array is written/read with a non-string dtype |
+| M | [x] | bug-14 | `de_adata` and `pdata.de` disagreed on `log2fc` for the same log-scale layer (`pdata.de`: log-scale mean difference; `de_adata`: un-logged ratio of means, up to ~0.9 log2 units apart on data with missing values). Fixed: `de_adata` now uses `pdata.de`'s definition (log-scale mean difference converted to log2 units); removed the `_unlog` helper; tests in `tests/test_utils.py`. `pairwise_median` on a log layer still operates on the log values in both functions (not addressed) |
+| M | [ ] | bug-15 | Clustered heatmap spacing is off across all clustered heatmaps (`plot_clustered_heatmap`, `plot_clustermap`, grouped/spacing variants in `plotting/clustering.py`): the recent cluster/spacing changes shifted the layout. Review the regenerated `docs/assets/plots/plot_clustered_heatmap*.png`, `plot_grouped_heatmap*.png` and `plot_clustermap.png`, fix gaps/dendrogram/colorbar spacing, then regenerate the figures |
 
 
 
@@ -111,7 +125,7 @@ Quick view of what to work on. Full tables below.
 
 | Priority | Status | ID | Description |
 |----------|--------|----|-------------|
-|  | [ ] | maint-1 | Todo for maintenance goes here |
+| M | [ ] | maint-1 | Move test data files (`test_pd_*`, `test_diann*`, `test_spectronaut_*`, `peptide_matrix.aq_reformat.*`, etc.) from `tests/` into `tests/data/`; update paths in tests/fixtures |
 
 ---
 

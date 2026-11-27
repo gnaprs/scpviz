@@ -864,6 +864,70 @@ def test_de_adata_invalid_method(pdata):
             method="invalid_method"
         )
 
+def test_mask_zeros_as_nan_linear_and_log():
+    lin = np.array([[0.0, 1.0, 5.0]])
+    assert np.isnan(utils.mask_zeros_as_nan(lin)[0, 0])
+    assert utils.mask_zeros_as_nan(lin)[0, 1] == 1.0
+    assert lin[0, 0] == 0.0  # input untouched
+    # log2(x + 1): original zero -> 0
+    out = utils.mask_zeros_as_nan(np.array([[0.0, 3.2]]), data_is_log=True, log_base=2.0, pseudocount=1.0)
+    assert np.isnan(out[0, 0]) and out[0, 1] == 3.2
+    # log2(x + 0.5): original zero -> -1, and a literal 0 is a real value
+    out = utils.mask_zeros_as_nan(np.array([[-1.0, 0.0]]), data_is_log=True, log_base=2.0, pseudocount=0.5)
+    assert np.isnan(out[0, 0]) and out[0, 1] == 0.0
+    # log10 base
+    out = utils.mask_zeros_as_nan(np.array([[np.log10(2.0)]]), data_is_log=True, log_base=10.0, pseudocount=2.0)
+    assert np.isnan(out[0, 0])
+
+def test_exclude_sparse_pvalues_counts_and_nans():
+    d1 = np.array([[1.0, np.nan, 1.0], [1.0, np.nan, np.nan], [1.0, np.nan, 1.0], [1.0, 1.0, np.nan]])
+    d2 = np.ones((4, 3))
+    p = np.array([0.01, 0.02, 0.03])
+    out, n = utils.exclude_sparse_pvalues(p, d1, d2, 0.5)
+    # col0: 100% valid; col1: 25% valid -> excluded; col2: 50% valid -> kept
+    assert n == 1
+    assert out[0] == 0.01 and np.isnan(out[1]) and out[2] == 0.03
+
+def test_de_adata_zeros_masked_and_sparse_excluded_from_fdr(capsys):
+    rng = np.random.default_rng(0)
+    X = rng.normal(10, 1, (8, 40))
+    X[:3, 0] = 0.0  # protein 0: 1 of 4 valid values in group A after masking
+    ad_ = AnnData(X=X, obs=pd.DataFrame({"g": ["A"] * 4 + ["B"] * 4}))
+    df = utils.de_adata(ad_, values=[{"g": "A"}, {"g": "B"}], correct_fdr=True,
+                        data_is_log=True, log_base=2.0, pseudocount=1.0)
+    out = capsys.readouterr().out
+    assert "excluded from FDR correction" in out
+    assert np.isnan(df.iloc[0]["adj_p_value"])
+    assert df.drop(df.index[0])["adj_p_value"].notna().all()
+    # zeros no longer drag the group mean down
+    assert df.iloc[0][df.attrs["group1_label"]] == pytest.approx(X[3, 0])
+    # min_valid_fraction=0 keeps everything testable in the BH family
+    df0 = utils.de_adata(ad_, values=[{"g": "A"}, {"g": "B"}], correct_fdr=True,
+                         data_is_log=True, min_valid_fraction=0.0)
+    assert np.isnan(df0.iloc[0]["p_value"]) or not np.isnan(df0.iloc[0]["adj_p_value"])
+
+def test_de_adata_matches_pdata_de_on_log_layer(pdata):
+    """On a log layer both entry points define log2fc as the log-scale mean difference (bug-14)."""
+    p = pdata.copy()
+    p.log_transform(base=2, pseudocount=1.0)
+    values = [{"cellline": "BE"}, {"cellline": "AS"}]
+    df_p = p.de(values=values, method="ttest")
+    df_a = utils.de_adata(p.prot, values=values, layer="X_log2", data_is_log=True, log_base=2.0, pseudocount=1.0)
+    df_p = df_p.reindex(df_a.index)
+    np.testing.assert_allclose(df_a["log2fc"].to_numpy(), df_p["log2fc"].to_numpy(), rtol=1e-9, equal_nan=True)
+    np.testing.assert_allclose(df_a["p_value"].to_numpy(), df_p["p_value"].to_numpy(), rtol=1e-9, equal_nan=True)
+
+def test_de_adata_log_base_does_not_change_log2fc_or_pvalues():
+    rng = np.random.default_rng(0)
+    log2 = rng.normal(12, 1, (8, 30))
+    obs = pd.DataFrame({"g": ["A"] * 4 + ["B"] * 4})
+    log2[:4, :5] += 2.0
+    kw = dict(values=[{"g": "A"}, {"g": "B"}], data_is_log=True)
+    d2 = utils.de_adata(AnnData(X=log2, obs=obs), log_base=2.0, **kw)
+    d10 = utils.de_adata(AnnData(X=log2 * np.log10(2.0), obs=obs), log_base=10.0, **kw)
+    np.testing.assert_allclose(d10["log2fc"].to_numpy(), d2["log2fc"].to_numpy(), rtol=1e-9)
+    np.testing.assert_allclose(d10["p_value"].to_numpy(), d2["p_value"].to_numpy(), rtol=1e-9)
+
 class DummyPDataMapping:
     def __init__(self, source):
         self.metadata = {"source": source}
@@ -877,6 +941,7 @@ class DummyPDataMapping:
 @pytest.mark.parametrize("source,expected_col", [
     ("proteomediscoverer", "Master Protein Accessions"),
     ("diann", "Protein.Group"),
+    ("spectronaut", "Protein.Group"),
     ("maxquant", "Leading razor protein"),
 ])
 def test_get_pep_prot_mapping_known_sources(source, expected_col):
