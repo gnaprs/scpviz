@@ -1,0 +1,25 @@
+name: UMAP canary
+
+# Weekly check: does the latest umap-learn (pinned <0.6 in pyproject.toml) work with scanpy again?
+# Green run -> try lifting the pin. Also runnable by hand from the Actions tab.
+on:
+  schedule:
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install scpviz, then force the latest umap-learn
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,sc]"
+          pip install --upgrade "umap-learn" pynndescent
+          pip list | grep -iE "^(umap-learn|pynndescent|numba|numpy|scanpy) "
+      - name: Run the UMAP test
+        run: pytest tests/test_pAnnData_analysis.py -k umap -q
